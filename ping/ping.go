@@ -162,7 +162,7 @@ func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
 	// 尝试连接常见的 HTTP/HTTPS 端口
 	ports := []string{"80", "443"}
 	for _, port := range ports {
-		addr := ip + ":" + port
+	addr := net.JoinHostPort(ip, port)
 
 		// 设置超时
 		deadline := time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond)
