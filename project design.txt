@@ -1,0 +1,134 @@
+# 项目名称：SmartDNSSort (Go版)
+
+一个轻量级、高性能的 DNS 服务器，专注于 A/AAAA 查询的 IP 排序优化。通过并发 ping 测试动态调整返回顺序，提升网页打开速度。支持多上游 DNS、内存缓存、IPv4/IPv6，并可扩展 WebUI 和广告拦截功能。
+
+---
+
+## 项目结构概览
+
+SmartDNSSort/
+├── cmd/                # 主程序入口
+├── dnsserver/          # DNS 监听与响应构造
+├── upstream/           # 上游 DNS 查询逻辑
+├── ping/               # 并发 ping 测试模块
+├── cache/              # 内存缓存管理
+├── config/             # 配置解析与验证
+├── webui/              # Web 控制台（可选）
+├── stats/              # 运行统计与日志
+├── adblock/            # 广告拦截规则模块（可选）
+├── internal/           # 公共工具函数
+└── main.go             # 启动入口
+
+---
+
+## 模块实现逻辑与推荐库
+
+### 1. dnsserver/
+- 功能：监听 UDP/TCP 53 端口，处理 DNS 查询，构造响应
+- 推荐库：miekg/dns
+- 实现逻辑：
+  - 解析 DNS 请求
+  - 判断是否为 A/AAAA 查询
+  - 查询缓存 → 无缓存则调用上游模块
+  - 获取 IP → 调用 ping 模块排序 → 构造响应返回
+
+### 2. upstream/
+- 功能：向多个上游 DNS 发起并发查询，支持超时与策略控制
+- 推荐库：miekg/dns（客户端）
+- 实现逻辑：
+  - 支持并发或随机策略
+  - 每个查询设置独立超时（如 300ms）
+  - 收集最快响应结果返回
+
+### 3. ping/
+- 功能：对 IP 列表进行并发 ping 测试，按 RTT 排序
+- 推荐库：go-ping 或自定义 TCP ping
+- 实现逻辑：
+  - 支持 ICMP Ping 和 TCP Ping 模式。TCP Ping (通过 `net.DialTimeout` 尝试连接 80/443 端口) 更能模拟真实网络环境，且不易被防火墙阻挡，可靠性更高。
+  - 每个 IP ping 2~3 次，取最小 RTT
+  - 使用 goroutine + channel 并发执行，并严格控制并发数量，防止瞬间产生大量连接。
+  - 支持 IPv4 和 IPv6
+  - 返回排序后的 IP 列表
+
+### 4. cache/
+- 功能：缓存域名解析结果及排序，支持 TTL
+- 推荐库：sync.Map 或 map + RWMutex
+- 实现逻辑：
+  - 每条记录包含：域名 → IP 列表 + RTT + 时间戳
+  - 定期清理过期项
+  - 支持命中统计
+
+### 5. config/
+- 功能：加载 YAML/JSON 配置文件，支持热更新（可选）
+- 推荐库：gopkg.in/yaml.v3，fsnotify
+- 实现逻辑：
+  - 解析配置项：上游列表、并发度、超时、是否启用 IPv6
+  - 提供全局配置访问接口
+
+### 6. webui/
+- 功能：展示排序结果、缓存状态、运行统计，支持配置管理
+- 推荐库：Gin 或 Fiber（后端），Vue 或 htmx（前端）
+- 实现逻辑：
+  - 提供 REST API：查询域名状态、刷新缓存、修改配置
+  - 展示 ping 排序结果、失败率、平均 RTT
+  - 支持手动触发解析与排序
+
+### 7. stats/
+- 功能：记录查询次数、ping 成功率、平均 RTT、失败节点
+- 推荐库：sync/atomic
+- 实现逻辑：
+  - 每次查询更新统计项
+  - 提供接口供 WebUI 或日志模块调用
+
+### 8. adblock/
+- 功能：加载规则列表，拦截匹配域名
+- 推荐库：regexp，ahocorasick
+- 实现逻辑：
+  - 加载 AdGuard/Pi-hole 格式规则
+  - 查询前判断是否命中规则 → 返回空响应或 NXDOMAIN
+
+---
+
+## 配置示例（YAML）
+
+dns:
+  listen_port: 53
+  enable_tcp: true
+  enable_ipv6: true
+
+upstream:
+  servers:
+    - 8.8.8.8
+    - 1.1.1.1
+  strategy: "parallel"  # 可选: parallel, random
+  timeout_ms: 300
+  concurrency: 4
+
+ping:
+  count: 3
+  timeout_ms: 500
+  concurrency: 16
+  strategy: "min"  # 可选: min, avg
+
+cache:
+  ttl_seconds: 300
+
+webui:
+  enabled: true
+  listen_port: 8080
+
+adblock:
+  enabled: false
+  rule_file: "rules.txt"
+
+---
+
+## 开发建议
+
+阶段       | 目标
+-----------|-------------------------------------------
+1   | DNS Server + 上游查询模块
+2   | ping 排序模块 + 缓存机制
+3   | 并发调度优化 + 配置系统
+4   | WebUI 初版 + 统计模块 + 测试与部署
+5    | AdBlock 模块（可选） + 性能调优

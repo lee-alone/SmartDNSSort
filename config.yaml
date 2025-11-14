@@ -1,0 +1,30 @@
+dns:
+  listen_port: 53
+  enable_tcp: true
+  enable_ipv6: true
+
+upstream:
+  servers:
+    - "192.168.1.10"
+    - "192.168.1.11"
+    - "192.168.1.25"
+  strategy: "parallel"  # parallel 或 random
+  timeout_ms: 300
+  concurrency: 4
+
+ping:
+  count: 3
+  timeout_ms: 500
+  concurrency: 16
+  strategy: "min"  # min 或 avg
+
+cache:
+  ttl_seconds: 300
+
+webui:
+  enabled: true
+  listen_port: 8080
+
+adblock:
+  enabled: false
+  rule_file: "rules.txt"
