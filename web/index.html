@@ -83,6 +83,20 @@
 
     <div class="container">
         <div class="card">
+            <h2>Management</h2>
+            <button id="clearCacheButton" style="
+                background-color: #dc3545;
+                color: white;
+                padding: 10px 15px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-top: 10px;
+            ">Clear DNS Cache</button>
+        </div>
+
+        <div class="card">
             <h2>General Stats</h2>
             <table>
                 <tbody>
@@ -234,6 +248,33 @@
 
         updateStats();
         setInterval(updateStats, REFRESH_INTERVAL);
+
+        document.getElementById('clearCacheButton').addEventListener('click', clearCache);
+
+        function clearCache() {
+            if (!confirm('Are you sure you want to clear the entire DNS cache? This action cannot be undone.')) {
+                return;
+            }
+
+            fetch('/api/cache/clear', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    alert('DNS cache cleared successfully!');
+                    updateStats(); // Refresh stats to reflect cleared cache
+                } else {
+                    alert('Failed to clear DNS cache. Please check server logs.');
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing cache:', error);
+                alert('An error occurred while trying to clear the DNS cache.');
+            });
+        }
     </script>
 </body>
 </html>

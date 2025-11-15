@@ -56,6 +56,7 @@ func (s *Server) Start() error {
 	// 注册 API 路由
 	http.HandleFunc("/api/query", s.handleQuery)
 	http.HandleFunc("/api/stats", s.handleStats)
+	http.HandleFunc("/api/cache/clear", s.handleClearCache)
 	http.HandleFunc("/health", s.handleHealth)
 
 	// 注册静态文件服务，用于提供 Web UI
@@ -164,4 +165,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // Stop 停止 Web API 服务
 func (s *Server) Stop() error {
 	return s.listener.Close()
+}
+
+// handleClearCache handles clearing the DNS cache.
+// Usage: POST /api/cache/clear
+func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	s.dnsCache.Clear()
+	log.Println("DNS cache cleared via API request.")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Cache cleared successfully"))
 }

@@ -3,13 +3,18 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
 	"smartdnssort/stats"
 	"smartdnssort/webapi"
+	"time"
 )
 
 func main() {
+	// 初始化随机数种子
+	rand.Seed(time.Now().UnixNano())
+
 	// 加载配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {

@@ -6,6 +6,65 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// 默认配置文件内容（包含详细说明）
+const DefaultConfigContent = `# SmartDNSSort 配置文件
+
+# DNS 服务器配置
+dns:
+  # DNS 监听端口（默认 53）
+  listen_port: 53
+  # 是否启用 TCP 协议（用于大型 DNS 查询，默认 true）
+  enable_tcp: true
+  # 是否启用 IPv6 支持（默认 true）
+  enable_ipv6: true
+
+# 上游 DNS 服务器配置
+upstream:
+  # 上游 DNS 服务器地址列表
+  servers:
+    - "192.168.1.10"
+    - "192.168.1.11"
+    - "192.168.1.25"
+  # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
+  strategy: "random"
+  # 上游服务器响应超时时间（毫秒）
+  timeout_ms: 3000
+  # 并发查询数量
+  concurrency: 4
+
+# Ping 检测配置（用于选择最优的 DNS 服务器）
+ping:
+  # 每次 Ping 的数据包个数
+  count: 3
+  # Ping 响应超时时间（毫秒）
+  timeout_ms: 500
+  # 并发 Ping 的数量
+  concurrency: 16
+  # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
+  strategy: "min"
+
+# DNS 缓存配置
+cache:
+  # 缓存最小 TTL（生存时间，秒）
+  min_ttl_seconds: 3600
+  # 缓存最大 TTL（生存时间，秒）
+  max_ttl_seconds: 84600
+
+# Web UI 管理界面配置
+webui:
+  # 是否启用 Web 管理界面（默认 true）
+  enabled: true
+  # Web 界面监听端口（默认 8080）
+  listen_port: 8080
+
+# 广告拦截配置
+adblock:
+  # 是否启用广告拦截功能（默认 false）
+  enabled: false
+  # 广告拦截规则文件路径
+  rule_file: "rules.txt"
+`
+
 type Config struct {
 	DNS      DNSConfig      `yaml:"dns"`
 	Upstream UpstreamConfig `yaml:"upstream"`
@@ -50,11 +109,28 @@ type AdBlockConfig struct {
 	RuleFile string `yaml:"rule_file"`
 }
 
+// CreateDefaultConfig 创建默认配置文件
+func CreateDefaultConfig(filePath string) error {
+	return os.WriteFile(filePath, []byte(DefaultConfigContent), 0644)
+}
+
 // LoadConfig 从 YAML 文件加载配置
 func LoadConfig(filePath string) (*Config, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, err
+		// 如果文件不存在，自动创建默认配置文件
+		if os.IsNotExist(err) {
+			if err := CreateDefaultConfig(filePath); err != nil {
+				return nil, err
+			}
+			// 读取刚创建的文件
+			data, err = os.ReadFile(filePath)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 
 	var cfg Config
