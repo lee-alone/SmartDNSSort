@@ -191,7 +191,80 @@ func (si *SystemInstaller) CopyBinary() error {
 	return nil
 }
 
-// GenerateServiceFile 生成 systemd 服务文件内容
+// CopyWebFiles 复制 Web 静态文件到系统目录
+func (si *SystemInstaller) CopyWebFiles() error {
+	webDest := "/var/lib/SmartDNSSort/web"
+
+	if si.config.DryRun {
+		fmt.Printf("[DRY-RUN] 将复制 Web 文件到：%s\n", webDest)
+		return nil
+	}
+
+	si.log("复制 Web 文件到：%s", webDest)
+
+	// 查找源 Web 目录
+	sourcePaths := []string{
+		"web",
+		"./web",
+	}
+
+	var sourceDir string
+	for _, path := range sourcePaths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			sourceDir = path
+			break
+		}
+	}
+
+	if sourceDir == "" {
+		si.log("警告：找不到 Web 源文件目录，跳过复制")
+		return nil
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(webDest, 0755); err != nil {
+		return fmt.Errorf("创建 Web 目录失败: %v", err)
+	}
+
+	// 递归复制目录中的所有文件
+	if err := si.copyDirRecursive(sourceDir, webDest); err != nil {
+		return fmt.Errorf("复制 Web 文件失败: %v", err)
+	}
+
+	return nil
+}
+
+// copyDirRecursive 递归复制目录
+func (si *SystemInstaller) copyDirRecursive(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := src + "/" + entry.Name()
+		dstPath := dst + "/" + entry.Name()
+
+		if entry.IsDir() {
+			if err := os.MkdirAll(dstPath, 0755); err != nil {
+				return err
+			}
+			if err := si.copyDirRecursive(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dstPath, data, 0644); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
 func (si *SystemInstaller) GenerateServiceFile() string {
 	configPath := si.config.ConfigPath
 	if configPath == "" {
@@ -436,6 +509,11 @@ func (si *SystemInstaller) Install() error {
 
 	// 复制二进制文件
 	if err := si.CopyBinary(); err != nil {
+		return err
+	}
+
+	// 复制 Web 文件
+	if err := si.CopyWebFiles(); err != nil {
 		return err
 	}
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
@@ -53,20 +55,50 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf(":%d", s.cfg.WebUI.ListenPort)
 
-	// 注册 API 路由
+	// 注册 API 路由（必须在文件服务之前注册）
 	http.HandleFunc("/api/query", s.handleQuery)
 	http.HandleFunc("/api/stats", s.handleStats)
 	http.HandleFunc("/api/cache/clear", s.handleClearCache)
 	http.HandleFunc("/health", s.handleHealth)
 
-	// 注册静态文件服务，用于提供 Web UI
-	fs := http.FileServer(http.Dir("web"))
-	http.Handle("/", fs)
+	// 查找 Web 静态文件目录
+	webDir := s.findWebDirectory()
+	if webDir == "" {
+		log.Println("Warning: Could not find web directory. Web UI may not work properly.")
+		log.Println("Expected locations: /var/lib/SmartDNSSort/web, /usr/share/smartdnssort/web, or ./web")
+	} else {
+		log.Printf("Using web directory: %s\n", webDir)
+		fs := http.FileServer(http.Dir(webDir))
+		http.Handle("/", fs)
+	}
 
 	s.listener = http.Server{Addr: addr}
 
 	log.Printf("Web API server started on http://localhost:%d\n", s.cfg.WebUI.ListenPort)
 	return s.listener.ListenAndServe()
+}
+
+// findWebDirectory 查找 Web 静态文件目录
+// 按优先级查找多个可能的位置
+func (s *Server) findWebDirectory() string {
+	possiblePaths := []string{
+		"/var/lib/SmartDNSSort/web",   // Linux 服务部署（推荐）
+		"/usr/share/smartdnssort/web", // FHS 标准路径
+		"/etc/SmartDNSSort/web",       // 备选路径
+		"./web",                       // 开发环境
+		"web",                         // 开发环境（相对路径）
+	}
+
+	for _, path := range possiblePaths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			// 确认 index.html 存在
+			if _, err := os.Stat(filepath.Join(path, "index.html")); err == nil {
+				return path
+			}
+		}
+	}
+
+	return ""
 }
 
 // handleQuery 处理 DNS 查询 API
@@ -140,9 +172,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"max_ttl_seconds": s.cfg.Cache.MaxTTLSeconds,
 	}
 	stats["upstream_config"] = map[string]interface{}{
-		"strategy":     s.cfg.Upstream.Strategy,
-		"timeout_ms":   s.cfg.Upstream.TimeoutMs,
-		"concurrency":  s.cfg.Upstream.Concurrency,
+		"strategy":    s.cfg.Upstream.Strategy,
+		"timeout_ms":  s.cfg.Upstream.TimeoutMs,
+		"concurrency": s.cfg.Upstream.Concurrency,
 	}
 	stats["ping_config"] = map[string]interface{}{
 		"count":       s.cfg.Ping.Count,
