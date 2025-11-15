@@ -19,7 +19,8 @@ ping:
   strategy: "min"  # min 或 avg
 
 cache:
-  ttl_seconds: 300
+  min_ttl_seconds: 3600
+  max_ttl_seconds: 84600
 
 webui:
   enabled: true

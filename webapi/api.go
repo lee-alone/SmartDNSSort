@@ -53,10 +53,14 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf(":%d", s.cfg.WebUI.ListenPort)
 
-	// 注册路由
+	// 注册 API 路由
 	http.HandleFunc("/api/query", s.handleQuery)
 	http.HandleFunc("/api/stats", s.handleStats)
 	http.HandleFunc("/health", s.handleHealth)
+
+	// 注册静态文件服务，用于提供 Web UI
+	fs := http.FileServer(http.Dir("web"))
+	http.Handle("/", fs)
 
 	s.listener = http.Server{Addr: addr}
 
@@ -128,6 +132,23 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 // 返回: DNS 查询统计信息
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.dnsServer.GetStats()
+
+	// 添加配置信息
+	stats["cache_config"] = map[string]interface{}{
+		"min_ttl_seconds": s.cfg.Cache.MinTTLSeconds,
+		"max_ttl_seconds": s.cfg.Cache.MaxTTLSeconds,
+	}
+	stats["upstream_config"] = map[string]interface{}{
+		"strategy":     s.cfg.Upstream.Strategy,
+		"timeout_ms":   s.cfg.Upstream.TimeoutMs,
+		"concurrency":  s.cfg.Upstream.Concurrency,
+	}
+	stats["ping_config"] = map[string]interface{}{
+		"count":       s.cfg.Ping.Count,
+		"timeout_ms":  s.cfg.Ping.TimeoutMs,
+		"concurrency": s.cfg.Ping.Concurrency,
+		"strategy":    s.cfg.Ping.Strategy,
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)

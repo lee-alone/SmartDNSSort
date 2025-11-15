@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"smartdnssort/stats"
 	"sync"
 	"time"
 
@@ -13,8 +14,9 @@ import (
 
 // QueryResult 查询结果
 type QueryResult struct {
-	IPs   []string
-	Error error
+	IPs    []string
+	Error  error
+	Server string // 添加服务器字段
 }
 
 // Upstream 上游 DNS 查询模块
@@ -23,10 +25,11 @@ type Upstream struct {
 	strategy    string // parallel, random
 	timeoutMs   int
 	concurrency int
+	stats       *stats.Stats
 }
 
 // NewUpstream 创建上游 DNS 查询器
-func NewUpstream(servers []string, strategy string, timeoutMs, concurrency int) *Upstream {
+func NewUpstream(servers []string, strategy string, timeoutMs, concurrency int, s *stats.Stats) *Upstream {
 	if len(servers) == 0 {
 		servers = []string{"8.8.8.8:53", "1.1.1.1:53"}
 	}
@@ -45,6 +48,7 @@ func NewUpstream(servers []string, strategy string, timeoutMs, concurrency int) 
 		strategy:    strategy,
 		timeoutMs:   timeoutMs,
 		concurrency: concurrency,
+		stats:       s,
 	}
 }
 
@@ -79,11 +83,6 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 
 			log.Printf("[queryParallel] 服务器 #%d (%s) 开始查询 %s\n", serverIdx+1, srv, domain)
 			result := u.querySingleServer(ctx, srv, domain, qtype)
-			if result.Error == nil && len(result.IPs) > 0 {
-				log.Printf("[queryParallel] 服务器 #%d (%s) 查询成功，返回 %d 个IP: %v\n", serverIdx+1, srv, len(result.IPs), result.IPs)
-			} else {
-				log.Printf("[queryParallel] 服务器 #%d (%s) 查询失败: %v\n", serverIdx+1, srv, result.Error)
-			}
 			resultCh <- result
 		}(idx, server)
 	}
@@ -102,6 +101,10 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 	for result := range resultCh {
 		if result.Error == nil && len(result.IPs) > 0 {
 			successCount++
+			log.Printf("[queryParallel] 服务器 %s 查询成功，返回 %d 个IP: %v\n", result.Server, len(result.IPs), result.IPs)
+			if u.stats != nil {
+				u.stats.IncUpstreamSuccess(result.Server)
+			}
 			// 合并 IP，去重
 			for _, ip := range result.IPs {
 				if !ipMap[ip] {
@@ -111,6 +114,10 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 			}
 		} else {
 			failureCount++
+			log.Printf("[queryParallel] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(result.Server)
+			}
 		}
 	}
 
@@ -144,6 +151,9 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 		result := u.querySingleServer(ctx, server, domain, qtype)
 		if result.Error == nil && len(result.IPs) > 0 {
 			successCount++
+			if u.stats != nil {
+				u.stats.IncUpstreamSuccess(server)
+			}
 			log.Printf("[queryRandom] 服务器 #%d (%s) 查询成功，返回 %d 个IP: %v\n", idx+1, server, len(result.IPs), result.IPs)
 			// 合并 IP，去重
 			for _, ip := range result.IPs {
@@ -154,6 +164,9 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 			}
 		} else {
 			failureCount++
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server)
+			}
 			log.Printf("[queryRandom] 服务器 #%d (%s) 查询失败: %v\n", idx+1, server, result.Error)
 		}
 	}
@@ -189,18 +202,18 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 	reply, _, err := client.ExchangeContext(ctx, msg, server)
 	if err != nil {
 		log.Printf("[querySingleServer] 查询 %s 失败: %v\n", server, err)
-		return &QueryResult{Error: err}
+		return &QueryResult{Error: err, Server: server}
 	}
 
 	if reply == nil || reply.Rcode != dns.RcodeSuccess {
 		log.Printf("[querySingleServer] %s 返回错误代码: %d\n", server, reply.Rcode)
-		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)}
+		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", reply.Rcode), Server: server}
 	}
 
 	// 提取 IP 地址
 	ips := extractIPs(reply)
 	log.Printf("[querySingleServer] %s 返回 %d 个IP: %v\n", server, len(ips), ips)
-	return &QueryResult{IPs: ips}
+	return &QueryResult{IPs: ips, Server: server}
 }
 
 // extractIPs 从 DNS 响应中提取 IP 地址

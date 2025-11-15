@@ -1,8 +1,14 @@
 package stats
 
 import (
+	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 // Stats 运行统计
@@ -11,17 +17,32 @@ type Stats struct {
 	queries          int64
 	cacheHits        int64
 	cacheMisses      int64
-	upstreamFailures int64
+	upstreamFailures int64 // 总失败计数
 	pingSuccesses    int64
 	pingFailures     int64
 	totalRTT         int64
 	failedNodes      map[string]int64
+
+	// 新增：按上游服务器统计
+	upstreamSuccess map[string]*int64
+	upstreamFailure map[string]*int64
 }
 
 // NewStats 创建新的统计实例
 func NewStats() *Stats {
+	// 初始化 gopsutil 的 CPU 使用率计算
+	// 第一次调用 Percent 会返回 0，所以在这里预热一下
+	go func() {
+		_, err := cpu.Percent(time.Second, false)
+		if err != nil {
+			log.Printf("无法初始化 CPU 使用率统计: %v", err)
+		}
+	}()
+
 	return &Stats{
-		failedNodes: make(map[string]int64),
+		failedNodes:     make(map[string]int64),
+		upstreamSuccess: make(map[string]*int64),
+		upstreamFailure: make(map[string]*int64),
 	}
 }
 
@@ -40,9 +61,42 @@ func (s *Stats) IncCacheMisses() {
 	atomic.AddInt64(&s.cacheMisses, 1)
 }
 
-// IncUpstreamFailures 增加上游失败计数
+// IncUpstreamFailures 增加上游失败计数 (总计)
 func (s *Stats) IncUpstreamFailures() {
 	atomic.AddInt64(&s.upstreamFailures, 1)
+}
+
+// getOrCreateCounter 安全地获取或创建计数器
+func (s *Stats) getOrCreateCounter(server string, counterMap map[string]*int64) *int64 {
+	s.mu.RLock()
+	counter, ok := counterMap[server]
+	s.mu.RUnlock()
+
+	if ok {
+		return counter
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 再次检查，防止在获取写锁期间其他 goroutine 已经创建
+	if counter, ok := counterMap[server]; ok {
+		return counter
+	}
+	newCounter := int64(0)
+	counterMap[server] = &newCounter
+	return &newCounter
+}
+
+// IncUpstreamSuccess 增加指定上游服务器的成功计数
+func (s *Stats) IncUpstreamSuccess(server string) {
+	counter := s.getOrCreateCounter(server, s.upstreamSuccess)
+	atomic.AddInt64(counter, 1)
+}
+
+// IncUpstreamFailure 增加指定上游服务器的失败计数
+func (s *Stats) IncUpstreamFailure(server string) {
+	counter := s.getOrCreateCounter(server, s.upstreamFailure)
+	atomic.AddInt64(counter, 1)
 }
 
 // IncPingSuccesses 增加 ping 成功计数
@@ -90,6 +144,61 @@ func (s *Stats) GetStats() map[string]interface{} {
 		failedNodesCopy[k] = v
 	}
 
+	// 复制上游统计数据
+	upstreamStats := make(map[string]map[string]int64)
+	// 合并所有已知的上游服务器地址
+	allUpstreams := make(map[string]bool)
+	for server := range s.upstreamSuccess {
+		allUpstreams[server] = true
+	}
+	for server := range s.upstreamFailure {
+		allUpstreams[server] = true
+	}
+
+	for server := range allUpstreams {
+		upstreamStats[server] = map[string]int64{
+			"success": 0,
+			"failure": 0,
+		}
+		if counter, ok := s.upstreamSuccess[server]; ok {
+			upstreamStats[server]["success"] = atomic.LoadInt64(counter)
+		}
+		if counter, ok := s.upstreamFailure[server]; ok {
+			upstreamStats[server]["failure"] = atomic.LoadInt64(counter)
+		}
+	}
+
+	// 获取系统状态 (使用 gopsutil)
+	// 注意：这里的 CPU 使用率计算可能会有短暂的阻塞
+	cpuUsage, err := cpu.Percent(time.Millisecond*200, false)
+	if err != nil {
+		log.Printf("无法获取 CPU 使用率: %v", err)
+		cpuUsage = []float64{0.0}
+	}
+
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("无法获取内存信息: %v", err)
+	}
+
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	sysStats := map[string]interface{}{
+		"cpu_cores":       runtime.NumCPU(),
+		"cpu_usage_pct":   cpuUsage[0],
+		"mem_total_mb":    0,
+		"mem_used_mb":     0,
+		"mem_usage_pct":   0.0,
+		"go_mem_alloc_mb": memStats.Alloc / 1024 / 1024,
+		"goroutines":      runtime.NumGoroutine(),
+	}
+	if memInfo != nil {
+		sysStats["mem_total_mb"] = memInfo.Total / 1024 / 1024
+		sysStats["mem_used_mb"] = memInfo.Used / 1024 / 1024
+		sysStats["mem_usage_pct"] = memInfo.UsedPercent
+	}
+
 	return map[string]interface{}{
 		"total_queries":     queries,
 		"cache_hits":        atomic.LoadInt64(&s.cacheHits),
@@ -100,6 +209,8 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"ping_failures":     atomic.LoadInt64(&s.pingFailures),
 		"average_rtt_ms":    avgRTT,
 		"failed_nodes":      failedNodesCopy,
+		"upstream_stats":    upstreamStats,
+		"system_stats":      sysStats,
 	}
 }
 
@@ -116,4 +227,6 @@ func (s *Stats) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failedNodes = make(map[string]int64)
+	s.upstreamSuccess = make(map[string]*int64)
+	s.upstreamFailure = make(map[string]*int64)
 }

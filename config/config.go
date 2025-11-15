@@ -36,7 +36,8 @@ type PingConfig struct {
 }
 
 type CacheConfig struct {
-	TTLSeconds int `yaml:"ttl_seconds"`
+	MinTTLSeconds int `yaml:"min_ttl_seconds"`
+	MaxTTLSeconds int `yaml:"max_ttl_seconds"`
 }
 
 type WebUIConfig struct {
@@ -80,8 +81,11 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Ping.Concurrency == 0 {
 		cfg.Ping.Concurrency = 16
 	}
-	if cfg.Cache.TTLSeconds == 0 {
-		cfg.Cache.TTLSeconds = 300
+	if cfg.Cache.MinTTLSeconds == 0 {
+		cfg.Cache.MinTTLSeconds = 60
+	}
+	if cfg.Cache.MaxTTLSeconds == 0 {
+		cfg.Cache.MaxTTLSeconds = 600
 	}
 
 	return &cfg, nil

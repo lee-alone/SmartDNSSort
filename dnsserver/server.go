@@ -32,7 +32,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		cfg:      cfg,
 		stats:    s,
 		cache:    cache.NewCache(),
-		upstream: upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency),
+		upstream: upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
 		pinger:   ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.Strategy),
 	}
 }
@@ -104,7 +104,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.stats.IncCacheHits()
 		log.Printf("Cache hit: %s (type=%s) -> %v\n", domain, dns.TypeToString[question.Qtype], entry.IPs)
 
-		s.buildDNSResponse(msg, domain, entry.IPs, question.Qtype)
+		remainingTTL := uint32(entry.TTL - int(time.Since(entry.Timestamp).Seconds()))
+		s.buildDNSResponse(msg, domain, entry.IPs, question.Qtype, remainingTTL)
 		w.WriteMsg(msg)
 		return
 	}
@@ -160,21 +161,29 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		IPs:       sortedIPs,
 		RTTs:      rtts,
 		Timestamp: time.Now(),
-		TTL:       s.cfg.Cache.TTLSeconds,
+		TTL:       s.cfg.Cache.MaxTTLSeconds,
 	}
 	s.cache.Set(domain, question.Qtype, entry)
 
 	// 构造响应
-	s.buildDNSResponse(msg, domain, sortedIPs, question.Qtype)
+	s.buildDNSResponse(msg, domain, sortedIPs, question.Qtype, uint32(s.cfg.Cache.MaxTTLSeconds))
 	w.WriteMsg(msg)
 }
 
 // buildDNSResponse 构造 DNS 响应
 // 注意：DNS 协议本身只支持返回 IP，RTT 信息存储在服务器缓存中
 // 如需要返回 RTT，可通过自定义 API 接口实现（见 WebUI 模块）
-func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16) {
+func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32) {
 	fqdn := dns.Fqdn(domain)
 	log.Printf("Building DNS response for %s (type=%s) with IPs: %v\n", domain, dns.TypeToString[qtype], ips)
+
+	// 应用 TTL 范围
+	if ttl < uint32(s.cfg.Cache.MinTTLSeconds) {
+		ttl = uint32(s.cfg.Cache.MinTTLSeconds)
+	}
+	if ttl > uint32(s.cfg.Cache.MaxTTLSeconds) {
+		ttl = uint32(s.cfg.Cache.MaxTTLSeconds)
+	}
 
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)
@@ -191,7 +200,7 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 						Name:   fqdn,
 						Rrtype: dns.TypeA,
 						Class:  dns.ClassINET,
-						Ttl:    uint32(s.cfg.Cache.TTLSeconds),
+						Ttl:    ttl,
 					},
 					A: parsedIP,
 				})
@@ -204,7 +213,7 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 						Name:   fqdn,
 						Rrtype: dns.TypeAAAA,
 						Class:  dns.ClassINET,
-						Ttl:    uint32(s.cfg.Cache.TTLSeconds),
+						Ttl:    ttl,
 					},
 					AAAA: parsedIP,
 				})
@@ -215,7 +224,7 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 
 // cleanCacheRoutine 定期清理过期缓存
 func (s *Server) cleanCacheRoutine() {
-	ticker := time.NewTicker(time.Duration(s.cfg.Cache.TTLSeconds) * time.Second)
+	ticker := time.NewTicker(time.Duration(s.cfg.Cache.MinTTLSeconds) * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
