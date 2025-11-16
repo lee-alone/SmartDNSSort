@@ -110,16 +110,16 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println(`SmartDNSSort - 智能 DNS 排序服务器
+	fmt.Print(`SmartDNSSort - 智能 DNS 排序服务器
 
 使用方法：
   SmartDNSSort [选项]
 
 选项：
   -s <子命令>      系统服务管理（仅 Linux）
-                   - install    安装服务
-                   - uninstall  卸载服务
-                   - status     查看服务状态
+				   - install    安装服务
+				   - uninstall  卸载服务
+				   - status     查看服务状态
   
   -c <路径>       配置文件路径（默认：config.yaml）
   -w <路径>       工作目录（默认：当前目录）

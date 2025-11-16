@@ -101,8 +101,8 @@ upstream:
     - "8.8.8.8"               # Google DNS
     - "1.1.1.1"               # Cloudflare DNS
     - "208.67.222.222"        # OpenDNS
-  strategy: "parallel"         # 查询策略：parallel（并行）或 random（随机）
-  timeout_ms: 300             # 查询超时（毫秒）
+  strategy: "random"           # 查询策略：random（随机）或 parallel（并行）
+  timeout_ms: 3000            # 查询超时（毫秒）
   concurrency: 4              # 最大并发查询数
 
 ping:
@@ -112,14 +112,16 @@ ping:
   strategy: "min"             # 排序策略：min（最小 RTT）或 avg（平均 RTT）
 
 cache:
-  ttl_seconds: 300            # 缓存有效期（秒）
+  fast_response_ttl: 60       # 快速响应 TTL（秒）
+  min_ttl_seconds: 3600       # 最小缓存 TTL（秒）
+  max_ttl_seconds: 84600      # 最大缓存 TTL（秒）
 
 webui:
-  enabled: false              # WebUI 是否启用（暂未实现）
-  listen_port: 8080
+  enabled: true               # WebUI 是否启用
+  listen_port: 8080           # WebUI 监听端口
 
 adblock:
-  enabled: false              # 广告拦截是否启用（暂未实现）
+  enabled: false              # 广告拦截是否启用
   rule_file: "rules.txt"
 ```
 

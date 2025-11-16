@@ -52,29 +52,39 @@ ls -lh bin/
 编辑 `config.yaml` 配置文件：
 
 ```yaml
+# DNS 服务器配置
 dns:
-  listenPort: 53          # DNS 监听端口
-  listenAddr: "0.0.0.0"  # 监听地址
+  listen_port: 53       # DNS 监听端口（默认 53）
+  enable_tcp: true      # 启用 TCP 协议（默认 true）
+  enable_ipv6: true     # 启用 IPv6 支持（默认 true）
 
+# 上游 DNS 服务器配置
 upstream:
   servers:
-    - "8.8.8.8:53"       # Google DNS
-    - "1.1.1.1:53"       # Cloudflare DNS
-    - "114.114.114.114:53" # 国内 DNS
+    - "8.8.8.8"         # Google DNS
+    - "1.1.1.1"         # Cloudflare DNS
+    - "114.114.114.114"  # 国内 DNS
+  strategy: "random"    # 查询策略：random 或 parallel
+  timeout_ms: 3000      # 超时时间（毫秒）
+  concurrency: 4        # 并发数
 
+# Ping 检测配置
 ping:
-  concurrency: 10         # 并发数
-  timeoutMs: 3000        # 超时时间(毫秒)
-  intervalSec: 60        # 更新间隔(秒)
+  count: 3              # 每次 Ping 的数据包个数
+  timeout_ms: 500       # Ping 超时时间（毫秒）
+  concurrency: 16       # 并发检测数
+  strategy: "min"       # 选择策略：min 或 avg
 
+# 缓存配置
 cache:
-  enabled: true          # 是否启用缓存
-  ttlSec: 3600          # 缓存有效期(秒)
+  fast_response_ttl: 60     # 快速响应 TTL（秒）
+  min_ttl_seconds: 3600     # 最小缓存 TTL（秒）
+  max_ttl_seconds: 84600    # 最大缓存 TTL（秒）
 
-webUI:
-  enabled: true          # 是否启用 Web UI
-  listenAddr: "0.0.0.0" # Web UI 监听地址
-  listenPort: 8080      # Web UI 监听端口
+# Web UI 管理界面配置
+webui:
+  enabled: true         # 是否启用 Web UI
+  listen_port: 8080     # Web 界面监听端口
 ```
 
 ### 运行
@@ -208,13 +218,13 @@ SmartDNSSort/
 ## 常见问题
 
 ### Q: 如何修改 DNS 监听端口？
-A: 编辑 `config.yaml` 中的 `dns.listenPort` 字段。
+A: 编辑 `config.yaml` 中的 `dns.listen_port` 字段。
 
 ### Q: 如何添加自定义上游 DNS 服务器？
 A: 编辑 `config.yaml` 中的 `upstream.servers` 列表。
 
 ### Q: 如何禁用 Web UI？
-A: 在 `config.yaml` 中设置 `webUI.enabled: false`。
+A: 在 `config.yaml` 中设置 `webui.enabled: false`。
 
 ### Q: Windows 上如何后台运行？
 A: 可以创建计划任务或使用第三方工具（如 NSSM）。
@@ -238,7 +248,7 @@ A: 检查权限、配置文件路径、日志文件位置等。运行 `./SmartDN
 
 ### Web UI 无法访问
 
-1. 确保 `webUI.enabled: true`
+1. 确保 `webui.enabled: true`
 2. 检查防火墙是否开放 8080 端口
 3. 验证监听地址配置
 

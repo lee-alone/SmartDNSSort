@@ -200,13 +200,14 @@ ping:
 
 # DNS 缓存配置
 cache:
-  min_ttl_seconds: 3600   # 最小缓存时间
-  max_ttl_seconds: 84600  # 最大缓存时间
+  fast_response_ttl: 60     # 快速响应 TTL
+  min_ttl_seconds: 3600     # 最小缓存时间
+  max_ttl_seconds: 84600    # 最大缓存时间
 
 # Web UI 管理界面
 webui:
-  enabled: true           # 是否启用
-  listen_port: 8080       # 监听端口
+  enabled: true             # 是否启用
+  listen_port: 8080         # 监听端口
 ```
 
 ### 配置修改后生效
