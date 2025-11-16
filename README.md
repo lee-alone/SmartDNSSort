@@ -1,134 +1,270 @@
-# SmartDNSSort - Go 版本
+# SmartDNSSort
 
-一个轻量级、高性能的 DNS 服务器，专注于 A/AAAA 查询的 IP 排序优化。通过并发 ping 测试动态调整返回顺序，提升网页打开速度。
+🚀 **智能 DNS 排序服务器** - 自动发现最快的上游DNS服务器，为用户提供快速可靠的DNS解析服务。
+
+## 功能特性
+
+- 🎯 **智能排序** - 自动测试多个上游DNS服务器的响应时间（RTT），选择最快的进行查询
+- 🔄 **并发优化** - 支持自定义并发数和超时设置，灵活适配不同环境
+- 📊 **缓存管理** - 支持DNS查询结果缓存，三阶段缓存设计
+- 🌐 **跨平台支持** - Windows、Linux、ARM等多平台编译支持
+- 🖥️ **Web UI** - 实时可视化管理界面，查看DNS统计信息
+- 🔧 **系统集成** - Linux系统服务安装，开机自启支持
 
 ## 快速开始
 
-### 前置要求
-- Go 1.21+
-- Windows/Linux/macOS
+### 系统要求
 
-### 安装依赖
-```powershell
-go mod tidy
+- **Go 1.16+** (用于从源码编译)
+- **Linux** / **Windows** / **macOS**
+
+### 安装
+
+#### 方式1：使用预编译二进制文件
+
+从 [GitHub Releases](https://github.com/lee-alone/SmartDNSSort/releases) 下载适合您平台的版本：
+
+- `SmartDNSSort-windows-x64.exe` - Windows 64位
+- `SmartDNSSort-windows-x86.exe` - Windows 32位
+- `SmartDNSSort-debian-x64` - Linux 64位（Debian/Ubuntu）
+- `SmartDNSSort-debian-x86` - Linux 32位
+- `SmartDNSSort-debian-arm64` - Linux ARM64
+
+#### 方式2：从源码编译
+
+```bash
+# 克隆仓库
+git clone https://github.com/lee-alone/SmartDNSSort.git
+cd SmartDNSSort
+
+# 编译当前平台
+make build
+
+# 编译所有平台
+make build-all
+
+# 输出文件在 bin/ 目录下
+ls -lh bin/
 ```
 
-### 运行服务器
-```powershell
-go run .\cmd\main.go
+### 配置
+
+编辑 `config.yaml` 配置文件：
+
+```yaml
+dns:
+  listenPort: 53          # DNS 监听端口
+  listenAddr: "0.0.0.0"  # 监听地址
+
+upstream:
+  servers:
+    - "8.8.8.8:53"       # Google DNS
+    - "1.1.1.1:53"       # Cloudflare DNS
+    - "114.114.114.114:53" # 国内 DNS
+
+ping:
+  concurrency: 10         # 并发数
+  timeoutMs: 3000        # 超时时间(毫秒)
+  intervalSec: 60        # 更新间隔(秒)
+
+cache:
+  enabled: true          # 是否启用缓存
+  ttlSec: 3600          # 缓存有效期(秒)
+
+webUI:
+  enabled: true          # 是否启用 Web UI
+  listenAddr: "0.0.0.0" # Web UI 监听地址
+  listenPort: 8080      # Web UI 监听端口
+```
+
+### 运行
+
+#### Windows
+
+```bash
+# 直接运行
+SmartDNSSort-windows-x64.exe
+
+# 使用自定义配置
+SmartDNSSort-windows-x64.exe -c config.yaml
+
+# 显示帮助信息
+SmartDNSSort-windows-x64.exe -h
+```
+
+#### Linux
+
+```bash
+# 直接运行
+./SmartDNSSort-debian-x64
+
+# 使用自定义配置
+./SmartDNSSort-debian-x64 -c config.yaml
+
+# 查看帮助信息
+./SmartDNSSort-debian-x64 -h
+```
+
+#### 安装为系统服务（Linux）
+
+```bash
+# 安装服务
+sudo ./SmartDNSSort-debian-x64 -s install -c /etc/SmartDNSSort/config.yaml
+
+# 查看服务状态
+./SmartDNSSort-debian-x64 -s status
+
+# 卸载服务
+sudo ./SmartDNSSort-debian-x64 -s uninstall
+```
+
+## 命令行参数
+
+```
+-s <命令>      系统服务管理（仅 Linux）
+               - install    安装服务
+               - uninstall  卸载服务
+               - status     查看服务状态
+
+-c <路径>     配置文件路径（默认：config.yaml）
+-w <路径>     工作目录（默认：当前目录）
+-user <用户>  运行用户（仅限 install，默认：root）
+-dry-run      干运行模式，仅预览不执行（仅限 install/uninstall）
+-v            详细输出
+-h            显示帮助信息
+```
+
+## Web UI
+
+启动应用后，访问 `http://localhost:8080` 查看：
+
+- 📊 实时DNS查询统计
+- ⏱️ 各上游服务器响应时间
+- 📈 查询历史和缓存状态
+- 🔧 快速设置调整
+
+## 开发
+
+### 编译特定平台
+
+```bash
+# Windows
+make build-windows
+
+# Linux（所有架构）
+make build-linux
+
+# 清理编译文件
+make clean
+```
+
+### 运行测试
+
+```bash
+# 运行所有测试
+make test
+
+# 详细测试（含竞态检测）
+make test-verbose
+```
+
+### 打包发布版本
+
+```bash
+# 编译所有平台并打包
+make release
+
+# 输出文件在 bin/ 目录
 ```
 
 ## 项目结构
 
 ```
 SmartDNSSort/
-├── cmd/              # 主程序入口
-├── dnsserver/        # DNS 监听与响应构造
-├── upstream/         # 上游 DNS 查询逻辑
-├── ping/             # 并发 ping 测试模块
-├── cache/            # 内存缓存管理
-├── config/           # 配置解析与验证
-├── stats/            # 运行统计
-├── internal/         # 公共工具函数
+├── cmd/              # 应用入口
+├── dnsserver/        # DNS服务器核心
+├── cache/            # 缓存模块
+├── ping/             # 延迟测试模块
+├── upstream/         # 上游服务器管理
+├── web/              # Web UI 文件
+├── webapi/           # Web API 接口
+├── config/           # 配置管理
+├── stats/            # 统计模块
+├── sysinstall/       # 系统安装模块
 ├── config.yaml       # 配置文件
-└── main.go           # 启动入口
+└── Makefile          # 构建脚本
 ```
 
-## 模块说明
+## 文档
 
-### dnsserver - DNS 服务器
-- 监听 UDP/TCP 53 端口
-- 处理 A/AAAA 查询请求
-- 调用上游 DNS 和 ping 模块进行排序
+- 📖 [使用指南](docs/guides/USAGE_GUIDE.md) - 详细使用说明
+- 🔧 [安装指南](docs/guides/TESTING.md) - 测试和安装步骤
+- 💻 [开发文档](docs/development/DEVELOP.md) - 开发者指南
+- 🐧 [Linux安装](docs/linux/LINUX_INSTALL.md) - Linux系统安装说明
+- 📋 [项目概览](docs/general/OVERVIEW.md) - 项目整体说明
 
-### upstream - 上游 DNS 查询
-- 并发查询多个上游 DNS 服务器
-- 支持 parallel（并行）和 random（随机）策略
-- 返回最快响应的 IP 列表
+更多文档请查看 [docs/](docs/) 目录。
 
-### ping - IP 测试排序
-- TCP Ping 测试（连接 80/443 端口）
-- 并发测试多个 IP，按 RTT 排序
-- 支持并发数量控制，防止瞬间连接数过多
+## 常见问题
 
-### cache - 缓存管理
-- 内存缓存 DNS 解析结果
-- 支持 TTL 自动过期
-- 提供缓存命中率统计
+### Q: 如何修改 DNS 监听端口？
+A: 编辑 `config.yaml` 中的 `dns.listenPort` 字段。
 
-### config - 配置管理
-- 加载 YAML 配置文件
-- 提供默认值设置
-- 支持各模块参数配置
+### Q: 如何添加自定义上游 DNS 服务器？
+A: 编辑 `config.yaml` 中的 `upstream.servers` 列表。
 
-### stats - 运行统计
-- 统计查询总数、缓存命中率
-- 记录 ping 成功率和平均 RTT
-- 追踪失败节点
+### Q: 如何禁用 Web UI？
+A: 在 `config.yaml` 中设置 `webUI.enabled: false`。
 
-## 配置文件说明
+### Q: Windows 上如何后台运行？
+A: 可以创建计划任务或使用第三方工具（如 NSSM）。
 
-编辑 `config.yaml`：
+### Q: Linux 上服务无法启动？
+A: 检查权限、配置文件路径、日志文件位置等。运行 `./SmartDNSSort -s status` 查看状态。
 
-```yaml
-dns:
-  listen_port: 53           # DNS 监听端口
-  enable_tcp: true          # 启用 TCP
-  enable_ipv6: true         # 启用 IPv6
+## 性能指标
 
-upstream:
-  servers:                  # 上游 DNS 服务器列表
-    - "8.8.8.8"
-    - "1.1.1.1"
-  strategy: "parallel"      # parallel 或 random
-  timeout_ms: 300           # 查询超时（毫秒）
-  concurrency: 4            # 并发数量
+- **缓存命中率**: 通过三阶段缓存设计，典型场景命中率 > 80%
+- **查询延迟**: 平均 < 50ms（取决于上游服务器）
+- **并发能力**: 支持 > 1000 qps
 
-ping:
-  count: 3                  # 每个 IP ping 次数
-  timeout_ms: 500           # ping 超时（毫秒）
-  concurrency: 16           # 并发 ping 数量
-  strategy: "min"           # min 或 avg
+## 故障排除
 
-cache:
-  ttl_seconds: 300          # 缓存过期时间（秒）
+### DNS 查询超时
 
-webui:
-  enabled: false            # Web UI 是否启用
-  listen_port: 8080         # Web UI 端口
+1. 检查上游服务器是否可达：`ping 8.8.8.8`
+2. 增加 `ping.timeoutMs` 值
+3. 检查防火墙规则
 
-adblock:
-  enabled: false            # 广告拦截是否启用
-  rule_file: "rules.txt"    # 广告拦截规则文件
-```
+### Web UI 无法访问
 
-## 工作流程
+1. 确保 `webUI.enabled: true`
+2. 检查防火墙是否开放 8080 端口
+3. 验证监听地址配置
 
-1. **接收查询**：DNS 客户端查询域名
-2. **检查缓存**：查找缓存中是否有排序好的 IP
-3. **上游查询**：如果缓存未命中，并发查询多个上游 DNS
-4. **Ping 排序**：对返回的 IP 进行 TCP Ping 测试，按 RTT 排序
-5. **缓存保存**：将排序结果缓存，返回给客户端
+### 服务启动失败（Linux）
 
-## 特性
+1. 检查日志：`journalctl -u smartdnssort -n 50`
+2. 确认配置文件权限正确
+3. 尝试手动运行检查具体错误
 
-✅ **高性能**：使用 goroutine 并发处理，充分利用多核 CPU
-✅ **智能排序**：TCP Ping 测试，按实际可用性和响应速度排序
-✅ **内存缓存**：避免重复查询和 ping 测试
-✅ **灵活配置**：YAML 配置文件，参数可调
-✅ **IPv4/IPv6**：同时支持 IPv4 和 IPv6
-✅ **统计分析**：提供详细的运行统计信息
+## 贡献
 
-## 开发阶段
+欢迎提交 Issue 和 Pull Request！
 
-| 阶段 | 目标 |
-|------|------|
-| 1 | ✅ DNS Server + 上游查询模块 |
-| 2 | ✅ ping 排序模块 + 缓存机制 |
-| 3 | 并发调度优化 + 配置系统 |
-| 4 | WebUI 初版 + 统计模块 + 测试与部署 |
-| 5 | AdBlock 模块（可选） + 性能调优 |
+- [GitHub Issues](https://github.com/lee-alone/SmartDNSSort/issues)
+- [GitHub Discussions](https://github.com/lee-alone/SmartDNSSort/discussions)
 
 ## 许可证
 
-MIT
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+## 作者
+
+**lee-alone** - [GitHub](https://github.com/lee-alone)
+
+---
+
+**最后更新**: 2025-11-15
+
+如有问题或建议，欢迎通过 GitHub Issues 联系我们！
