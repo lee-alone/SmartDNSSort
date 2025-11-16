@@ -1,8 +1,10 @@
 package webapi
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +16,11 @@ import (
 
 	"github.com/miekg/dns"
 )
+
+// 内嵌 web 文件到二进制中
+//
+//go:embed web/*
+var webFilesFS embed.FS
 
 // QueryResult API 返回格式
 type QueryResult struct {
@@ -61,15 +68,22 @@ func (s *Server) Start() error {
 	http.HandleFunc("/api/cache/clear", s.handleClearCache)
 	http.HandleFunc("/health", s.handleHealth)
 
-	// 查找 Web 静态文件目录
-	webDir := s.findWebDirectory()
-	if webDir == "" {
-		log.Println("Warning: Could not find web directory. Web UI may not work properly.")
-		log.Println("Expected locations: /var/lib/SmartDNSSort/web, /usr/share/smartdnssort/web, or ./web")
+	// 首先尝试使用内嵌的 web 文件
+	webSubFS, err := fs.Sub(webFilesFS, "web")
+	if err == nil {
+		log.Println("Using embedded web files")
+		http.Handle("/", http.FileServer(http.FS(webSubFS)))
 	} else {
-		log.Printf("Using web directory: %s\n", webDir)
-		fs := http.FileServer(http.Dir(webDir))
-		http.Handle("/", fs)
+		// 备选：查找 Web 静态文件目录
+		webDir := s.findWebDirectory()
+		if webDir == "" {
+			log.Println("Warning: Could not find web directory. Web UI may not work properly.")
+			log.Println("Expected locations: /var/lib/SmartDNSSort/web, /usr/share/smartdnssort/web, or ./web")
+		} else {
+			log.Printf("Using web directory: %s\n", webDir)
+			fsServer := http.FileServer(http.Dir(webDir))
+			http.Handle("/", fsServer)
+		}
 	}
 
 	s.listener = http.Server{Addr: addr}
