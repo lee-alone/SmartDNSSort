@@ -104,8 +104,17 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.stats.IncCacheHits()
 		log.Printf("Cache hit: %s (type=%s) -> %v\n", domain, dns.TypeToString[question.Qtype], entry.IPs)
 
-		remainingTTL := uint32(entry.TTL - int(time.Since(entry.Timestamp).Seconds()))
-		s.buildDNSResponse(msg, domain, entry.IPs, question.Qtype, remainingTTL)
+		// 计算剩余 TTL
+		elapsedSeconds := int(time.Since(entry.Timestamp).Seconds())
+		remainingTTL := entry.TTL - elapsedSeconds
+
+		// 如果缓存已过期，剩余 TTL 应该是 0 或更小（此时应该过期并删除缓存）
+		// 但为了安全起见，返回一个最小值（比如 1 秒）确保响应仍然有效
+		if remainingTTL <= 0 {
+			remainingTTL = 1
+		}
+
+		s.buildDNSResponse(msg, domain, entry.IPs, question.Qtype, uint32(remainingTTL))
 		w.WriteMsg(msg)
 		return
 	}
@@ -117,10 +126,13 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	defer cancel()
 
 	// 优先使用 QueryAll 获取所有 IP
-	ips, err := s.upstream.QueryAll(ctx, domain)
+	result, err := s.upstream.QueryAll(ctx, domain)
+	var ips []string
+	var upstreamTTL uint32 = uint32(s.cfg.Cache.MaxTTLSeconds)
+
 	if err != nil {
 		// QueryAll 失败则回退到特定类型查询
-		ips, err = s.upstream.Query(ctx, domain, question.Qtype)
+		result, err = s.upstream.Query(ctx, domain, question.Qtype)
 		if err != nil {
 			s.stats.IncUpstreamFailures()
 			log.Printf("[handleQuery] Upstream query failed: %v\n", err)
@@ -131,7 +143,12 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		}
 	}
 
-	log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP: %v\n", domain, len(ips), ips)
+	if result != nil {
+		ips = result.IPs
+		upstreamTTL = result.TTL
+	}
+
+	log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP (TTL=%d秒): %v\n", domain, len(ips), upstreamTTL, ips)
 
 	// 并发 ping 排序
 	// 超时时间计算: (每个IP的timeout * count * 并发数考虑因素) + 缓冲
@@ -156,17 +173,28 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	log.Printf("Ping results for %s: %v with RTTs: %v\n", domain, sortedIPs, rtts)
 
+	// 应用 TTL 范围限制：不低于 min_ttl_seconds，不高于 max_ttl_seconds
+	finalTTL := upstreamTTL
+	if finalTTL < uint32(s.cfg.Cache.MinTTLSeconds) {
+		finalTTL = uint32(s.cfg.Cache.MinTTLSeconds)
+		log.Printf("[handleQuery] TTL %d秒 < 最小值 %d秒，已调整为最小值\n", upstreamTTL, s.cfg.Cache.MinTTLSeconds)
+	}
+	if finalTTL > uint32(s.cfg.Cache.MaxTTLSeconds) {
+		finalTTL = uint32(s.cfg.Cache.MaxTTLSeconds)
+		log.Printf("[handleQuery] TTL %d秒 > 最大值 %d秒，已调整为最大值\n", upstreamTTL, s.cfg.Cache.MaxTTLSeconds)
+	}
+
 	// 缓存结果
 	entry := &cache.CacheEntry{
 		IPs:       sortedIPs,
 		RTTs:      rtts,
 		Timestamp: time.Now(),
-		TTL:       s.cfg.Cache.MaxTTLSeconds,
+		TTL:       int(finalTTL),
 	}
 	s.cache.Set(domain, question.Qtype, entry)
 
 	// 构造响应
-	s.buildDNSResponse(msg, domain, sortedIPs, question.Qtype, uint32(s.cfg.Cache.MaxTTLSeconds))
+	s.buildDNSResponse(msg, domain, sortedIPs, question.Qtype, finalTTL)
 	w.WriteMsg(msg)
 }
 
@@ -175,15 +203,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 // 如需要返回 RTT，可通过自定义 API 接口实现（见 WebUI 模块）
 func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32) {
 	fqdn := dns.Fqdn(domain)
-	log.Printf("Building DNS response for %s (type=%s) with IPs: %v\n", domain, dns.TypeToString[qtype], ips)
-
-	// 应用 TTL 范围
-	if ttl < uint32(s.cfg.Cache.MinTTLSeconds) {
-		ttl = uint32(s.cfg.Cache.MinTTLSeconds)
-	}
-	if ttl > uint32(s.cfg.Cache.MaxTTLSeconds) {
-		ttl = uint32(s.cfg.Cache.MaxTTLSeconds)
-	}
+	log.Printf("Building DNS response for %s (type=%s) with IPs: %v, TTL=%d\n", domain, dns.TypeToString[qtype], ips, ttl)
 
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)

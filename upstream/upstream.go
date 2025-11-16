@@ -16,8 +16,15 @@ import (
 // QueryResult 查询结果
 type QueryResult struct {
 	IPs    []string
+	TTL    uint32 // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
 	Error  error
 	Server string // 添加服务器字段
+}
+
+// QueryResultWithTTL 带 TTL 信息的查询结果
+type QueryResultWithTTL struct {
+	IPs []string
+	TTL uint32 // 上游 DNS 返回的 TTL
 }
 
 // Upstream 上游 DNS 查询模块
@@ -53,8 +60,8 @@ func NewUpstream(servers []string, strategy string, timeoutMs, concurrency int, 
 	}
 }
 
-// Query 查询域名，返回 IP 列表
-func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) ([]string, error) {
+// Query 查询域名，返回 IP 列表和 TTL
+func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	switch u.strategy {
 	case "parallel":
 		return u.queryParallel(ctx, domain, qtype)
@@ -66,7 +73,7 @@ func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) ([]st
 }
 
 // queryParallel 并行查询所有上游 DNS，合并所有服务器的结果
-func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint16) ([]string, error) {
+func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	// 限制并发数
 	sem := make(chan struct{}, u.concurrency)
 	resultCh := make(chan *QueryResult, len(u.servers))
@@ -96,13 +103,14 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 	// 合并所有成功的结果
 	ipMap := make(map[string]bool) // 使用 map 进行去重
 	var allIPs []string
+	var minTTL uint32 = 0 // 所有 IP 中的最小 TTL
 	successCount := 0
 	failureCount := 0
 
 	for result := range resultCh {
 		if result.Error == nil && len(result.IPs) > 0 {
 			successCount++
-			log.Printf("[queryParallel] 服务器 %s 查询成功，返回 %d 个IP: %v\n", result.Server, len(result.IPs), result.IPs)
+			log.Printf("[queryParallel] 服务器 %s 查询成功，返回 %d 个IP (TTL=%d秒): %v\n", result.Server, len(result.IPs), result.TTL, result.IPs)
 			if u.stats != nil {
 				u.stats.IncUpstreamSuccess(result.Server)
 			}
@@ -113,6 +121,10 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 					allIPs = append(allIPs, ip)
 				}
 			}
+			// 取最小 TTL
+			if minTTL == 0 || result.TTL < minTTL {
+				minTTL = result.TTL
+			}
 		} else {
 			failureCount++
 			log.Printf("[queryParallel] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
@@ -122,17 +134,17 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 		}
 	}
 
-	log.Printf("[queryParallel] 查询完成: 成功%d个, 失败%d个, 合并后共 %d 个唯一IP: %v\n", successCount, failureCount, len(allIPs), allIPs)
+	log.Printf("[queryParallel] 查询完成: 成功%d个, 失败%d个, 合并后共 %d 个唯一IP (最小TTL=%d秒): %v\n", successCount, failureCount, len(allIPs), minTTL, allIPs)
 
 	if len(allIPs) == 0 {
 		return nil, fmt.Errorf("all upstream servers failed")
 	}
 
-	return allIPs, nil
+	return &QueryResultWithTTL{IPs: allIPs, TTL: minTTL}, nil
 }
 
 // queryRandom 随机选择一个上游 DNS 服务器进行查询
-func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16) ([]string, error) {
+func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -153,8 +165,8 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 	if u.stats != nil {
 		u.stats.IncUpstreamSuccess(server)
 	}
-	log.Printf("[queryRandom] 查询成功，返回 %d 个IP: %v\n", len(result.IPs), result.IPs)
-	return result.IPs, nil
+	log.Printf("[queryRandom] 查询成功，返回 %d 个IP (TTL=%d秒): %v\n", len(result.IPs), result.TTL, result.IPs)
+	return &QueryResultWithTTL{IPs: result.IPs, TTL: result.TTL}, nil
 }
 
 // querySingleServer 查询单个上游 DNS 服务器
@@ -187,62 +199,84 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", reply.Rcode), Server: server}
 	}
 
-	// 提取 IP 地址
-	ips := extractIPs(reply)
-	log.Printf("[querySingleServer] %s 返回 %d 个IP: %v\n", server, len(ips), ips)
-	return &QueryResult{IPs: ips, Server: server}
+	// 提取 IP 地址和 TTL
+	ips, ttl := extractIPs(reply)
+	log.Printf("[querySingleServer] %s 返回 %d 个IP (TTL=%d秒): %v\n", server, len(ips), ttl, ips)
+	return &QueryResult{IPs: ips, TTL: ttl, Server: server}
 }
 
-// extractIPs 从 DNS 响应中提取 IP 地址
-func extractIPs(msg *dns.Msg) []string {
+// extractIPs 从 DNS 响应中提取 IP 地址和最小 TTL
+// 返回值：IP 列表、最小 TTL（秒）
+func extractIPs(msg *dns.Msg) ([]string, uint32) {
 	var ips []string
+	var minTTL uint32 = 0 // 0 表示未设置
 
 	for _, answer := range msg.Answer {
 		switch rr := answer.(type) {
 		case *dns.A:
 			ips = append(ips, rr.A.String())
+			// 取最小 TTL
+			if minTTL == 0 || rr.Hdr.Ttl < minTTL {
+				minTTL = rr.Hdr.Ttl
+			}
 		case *dns.AAAA:
 			ips = append(ips, rr.AAAA.String())
+			// 取最小 TTL
+			if minTTL == 0 || rr.Hdr.Ttl < minTTL {
+				minTTL = rr.Hdr.Ttl
+			}
 		}
 	}
 
-	return ips
+	// 如果没有找到任何记录，使用默认 TTL（60 秒）
+	if minTTL == 0 {
+		minTTL = 60
+	}
+
+	return ips, minTTL
 }
 
-// QueryAll 查询域名的所有 A 和 AAAA 记录，返回混合的 IP 列表
-func (u *Upstream) QueryAll(ctx context.Context, domain string) ([]string, error) {
+// QueryAll 查询域名的所有 A 和 AAAA 记录，返回混合的 IP 列表和最小 TTL
+func (u *Upstream) QueryAll(ctx context.Context, domain string) (*QueryResultWithTTL, error) {
 	// 并发查询 A 和 AAAA 记录
-	ipsChan := make(chan []string, 2)
+	resChan := make(chan *QueryResultWithTTL, 2)
 	errChan := make(chan error, 2)
 
 	// 查询 A 记录
 	go func() {
-		ips, err := u.Query(ctx, domain, dns.TypeA)
+		result, err := u.Query(ctx, domain, dns.TypeA)
 		if err != nil {
 			errChan <- nil // A 记录可能不存在，不作为错误
 		} else {
-			ipsChan <- ips
+			resChan <- result
 		}
 	}()
 
 	// 查询 AAAA 记录
 	go func() {
-		ips, err := u.Query(ctx, domain, dns.TypeAAAA)
+		result, err := u.Query(ctx, domain, dns.TypeAAAA)
 		if err != nil {
 			errChan <- nil // AAAA 记录可能不存在，不作为错误
 		} else {
-			ipsChan <- ips
+			resChan <- result
 		}
 	}()
 
 	// 收集结果
 	var allIPs []string
+	var minTTL uint32 = 0
 	count := 0
 
 	for count < 2 {
 		select {
-		case ips := <-ipsChan:
-			allIPs = append(allIPs, ips...)
+		case result := <-resChan:
+			if result != nil {
+				allIPs = append(allIPs, result.IPs...)
+				// 取最小 TTL
+				if minTTL == 0 || result.TTL < minTTL {
+					minTTL = result.TTL
+				}
+			}
 			count++
 		case <-errChan:
 			count++
@@ -255,5 +289,10 @@ func (u *Upstream) QueryAll(ctx context.Context, domain string) ([]string, error
 		return nil, fmt.Errorf("no A or AAAA records found")
 	}
 
-	return allIPs, nil
+	// 如果 minTTL 未设置，使用默认值
+	if minTTL == 0 {
+		minTTL = 60
+	}
+
+	return &QueryResultWithTTL{IPs: allIPs, TTL: minTTL}, nil
 }
