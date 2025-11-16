@@ -45,6 +45,8 @@ ping:
 
 # DNS 缓存配置
 cache:
+  # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
+  fast_response_ttl: 60
   # 缓存最小 TTL（生存时间，秒）
   min_ttl_seconds: 3600
   # 缓存最大 TTL（生存时间，秒）
@@ -95,8 +97,9 @@ type PingConfig struct {
 }
 
 type CacheConfig struct {
-	MinTTLSeconds int `yaml:"min_ttl_seconds"`
-	MaxTTLSeconds int `yaml:"max_ttl_seconds"`
+	FastResponseTTL int `yaml:"fast_response_ttl"`
+	MinTTLSeconds   int `yaml:"min_ttl_seconds"`
+	MaxTTLSeconds   int `yaml:"max_ttl_seconds"`
 }
 
 type WebUIConfig struct {
@@ -156,6 +159,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Ping.Concurrency == 0 {
 		cfg.Ping.Concurrency = 16
+	}
+	if cfg.Cache.FastResponseTTL == 0 {
+		cfg.Cache.FastResponseTTL = 60
 	}
 	if cfg.Cache.MinTTLSeconds == 0 {
 		cfg.Cache.MinTTLSeconds = 60
