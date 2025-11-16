@@ -47,6 +47,32 @@ make build-all
 ls -lh bin/
 ```
 
+#### 方式3：Linux系统服务安装（推荐用于服务器）
+
+```bash
+# 1. 下载二进制文件
+wget https://github.com/lee-alone/SmartDNSSort/releases/download/latest/SmartDNSSort
+chmod +x SmartDNSSort
+
+# 2. 预览安装流程（不实际修改系统）
+sudo ./SmartDNSSort -s install --dry-run
+
+# 3. 执行安装
+# 此过程会自动：
+# - 创建 /var/lib/SmartDNSSort/web 目录
+# - 复制 Web UI 文件
+# - 创建系统配置文件
+# - 注册 systemd 服务
+# - 启动服务
+sudo ./SmartDNSSort -s install
+
+# 4. 查看服务状态
+sudo systemctl status SmartDNSSort
+
+# 5. 访问 Web UI
+# 浏览器打开：http://localhost:8080
+```
+
 ### 配置
 
 编辑 `config.yaml` 配置文件：

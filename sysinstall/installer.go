@@ -75,6 +75,7 @@ func (si *SystemInstaller) CreateDirectories() error {
 	}{
 		{"/etc/SmartDNSSort", 0755, "配置目录"},
 		{"/var/lib/SmartDNSSort", 0755, "数据目录"},
+		{"/var/lib/SmartDNSSort/web", 0755, "Web UI 目录"},
 		{"/var/log/SmartDNSSort", 0755, "日志目录"},
 	}
 
@@ -484,7 +485,7 @@ func (si *SystemInstaller) Install() error {
 	fmt.Println("============================================")
 
 	if si.config.DryRun {
-		fmt.Println("[DRY-RUN 模式] 仅预览，不实际执行任何操作\n")
+		fmt.Println("[DRY-RUN 模式] 仅预览，不实际执行任何操作")
 	}
 
 	// 检查权限
@@ -565,7 +566,7 @@ func (si *SystemInstaller) Uninstall() error {
 	fmt.Println("============================================")
 
 	if si.config.DryRun {
-		fmt.Println("[DRY-RUN 模式] 仅预览，不实际执行任何操作\n")
+		fmt.Println("[DRY-RUN 模式] 仅预览，不实际执行任何操作")
 	}
 
 	// 检查权限
@@ -609,7 +610,6 @@ func (si *SystemInstaller) Uninstall() error {
 func (si *SystemInstaller) Status() error {
 	fmt.Println("============================================")
 	fmt.Println("SmartDNSSort 服务状态")
-	fmt.Println("============================================\n")
 
 	status, err := si.GetServiceStatus()
 	if err != nil && status == "" {

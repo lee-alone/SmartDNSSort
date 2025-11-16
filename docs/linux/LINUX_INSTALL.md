@@ -399,6 +399,52 @@ curl http://127.0.0.1:8080/
 
 # 查看防火墙设置
 sudo iptables -L -n | grep 8080
+
+# 检查 Web 文件是否已安装
+ls -la /var/lib/SmartDNSSort/web/
+
+# 如果目录为空或不存在，可能是安装不完整
+# 解决方案：重新运行安装
+sudo ./SmartDNSSort -s install
+```
+
+### 问题 7：Web 文件未自动安装（Debian 旧版本）
+
+**症状：** Web UI 返回 404 错误，即使配置中启用了 webui
+
+**原因：** 使用的是旧版本的安装脚本，没有自动复制 Web 文件
+
+**解决方案：**
+
+```bash
+# 方案 1：使用新版本重新安装（推荐）
+# 1. 卸载旧版本
+sudo ./SmartDNSSort -s uninstall
+
+# 2. 下载最新版本
+wget https://github.com/lee-alone/SmartDNSSort/releases/download/latest/SmartDNSSort
+chmod +x SmartDNSSort
+
+# 3. 重新安装
+sudo ./SmartDNSSort -s install
+
+# 方案 2：手动复制 Web 文件（临时解决方案）
+# 1. 确保 Web 文件目录存在
+sudo mkdir -p /var/lib/SmartDNSSort/web
+
+# 2. 从程序所在目录复制 Web 文件
+sudo cp -r ./web/* /var/lib/SmartDNSSort/web/
+
+# 3. 设置正确的权限
+sudo chown -R root:root /var/lib/SmartDNSSort/web
+sudo chmod 755 /var/lib/SmartDNSSort/web
+sudo chmod 644 /var/lib/SmartDNSSort/web/*
+
+# 4. 重启服务
+sudo systemctl restart SmartDNSSort
+
+# 5. 验证访问
+curl http://127.0.0.1:8080/
 ```
 
 ## 卸载

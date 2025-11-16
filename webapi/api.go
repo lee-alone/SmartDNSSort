@@ -89,6 +89,15 @@ func (s *Server) findWebDirectory() string {
 		"web",                         // 开发环境（相对路径）
 	}
 
+	// 尝试获取可执行文件目录
+	if exePath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(exePath)
+		// 在可执行文件目录查找 web 目录
+		possiblePaths = append([]string{
+			filepath.Join(execDir, "web"),
+		}, possiblePaths...)
+	}
+
 	for _, path := range possiblePaths {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			// 确认 index.html 存在
