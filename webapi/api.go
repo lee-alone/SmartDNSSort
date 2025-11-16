@@ -81,22 +81,29 @@ func (s *Server) Start() error {
 // findWebDirectory 查找 Web 静态文件目录
 // 按优先级查找多个可能的位置
 func (s *Server) findWebDirectory() string {
-	possiblePaths := []string{
+	possiblePaths := []string{}
+
+	// 首先：在可执行文件目录查找 web 目录（对 Windows 最有效）
+	if exePath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(exePath)
+		possiblePaths = append(possiblePaths,
+			filepath.Join(execDir, "web"),
+			filepath.Join(execDir, "..", "web"), // 上级目录的 web
+		)
+	}
+
+	// 当前工作目录相对路径（开发环境）
+	possiblePaths = append(possiblePaths,
+		"./web",
+		"web",
+	)
+
+	// Linux 系统路径（Linux 服务部署）
+	possiblePaths = append(possiblePaths,
 		"/var/lib/SmartDNSSort/web",   // Linux 服务部署（推荐）
 		"/usr/share/smartdnssort/web", // FHS 标准路径
 		"/etc/SmartDNSSort/web",       // 备选路径
-		"./web",                       // 开发环境
-		"web",                         // 开发环境（相对路径）
-	}
-
-	// 尝试获取可执行文件目录
-	if exePath, err := os.Executable(); err == nil {
-		execDir := filepath.Dir(exePath)
-		// 在可执行文件目录查找 web 目录
-		possiblePaths = append([]string{
-			filepath.Join(execDir, "web"),
-		}, possiblePaths...)
-	}
+	)
 
 	for _, path := range possiblePaths {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
