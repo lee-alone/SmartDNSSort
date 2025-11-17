@@ -6,25 +6,13 @@ import (
 	"time"
 )
 
-// CacheEntry 通用缓存项基类
-type CacheEntry struct {
-	IPs       []string  // IP 列表
-	RTTs      []int     // 对应的 RTT（毫秒）
-	Timestamp time.Time // 缓存时间
-	TTL       int       // TTL（秒）
-}
-
-// IsExpired 检查缓存是否过期
-func (e *CacheEntry) IsExpired() bool {
-	return time.Since(e.Timestamp).Seconds() > float64(e.TTL)
-}
-
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
 	IPs       []string  // 原始 IP 列表
 	TTL       uint32    // 上游 DNS 返回的 TTL
 	Timestamp time.Time // 缓存时间
 }
+
 
 // IsExpired 检查原始缓存是否过期
 func (e *RawCacheEntry) IsExpired() bool {
@@ -145,54 +133,6 @@ func (c *Cache) SetSorted(domain string, qtype uint16, entry *SortedCacheEntry) 
 
 	key := cacheKey(domain, qtype)
 	c.sortedCache[key] = entry
-}
-
-// Get 获取缓存（兼容旧接口）
-// 优先获取排序后的缓存，如果无效则获取原始缓存
-func (c *Cache) Get(domain string, qtype uint16) (*CacheEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	key := cacheKey(domain, qtype)
-
-	// 优先获取排序后的缓存
-	if sorted, exists := c.sortedCache[key]; exists && !sorted.IsExpired() {
-		atomic.AddInt64(&c.hits, 1)
-		return &CacheEntry{
-			IPs:       sorted.IPs,
-			RTTs:      sorted.RTTs,
-			Timestamp: sorted.Timestamp,
-			TTL:       sorted.TTL,
-		}, true
-	}
-
-	// 如果排序缓存不可用，尝试获取原始缓存（仅用于回退）
-	if raw, exists := c.rawCache[key]; exists && !raw.IsExpired() {
-		// 原始缓存只有在排序缓存不可用时才作为回退方案
-		return &CacheEntry{
-			IPs:       raw.IPs,
-			Timestamp: raw.Timestamp,
-			TTL:       int(raw.TTL),
-		}, true
-	}
-
-	atomic.AddInt64(&c.misses, 1)
-	return nil, false
-}
-
-// Set 设置缓存（兼容旧接口，直接写入排序缓存）
-func (c *Cache) Set(domain string, qtype uint16, entry *CacheEntry) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	key := cacheKey(domain, qtype)
-	c.sortedCache[key] = &SortedCacheEntry{
-		IPs:       entry.IPs,
-		RTTs:      entry.RTTs,
-		Timestamp: entry.Timestamp,
-		TTL:       entry.TTL,
-		IsValid:   true,
-	}
 }
 
 // GetOrStartSort 获取排序状态，如果不存在则创建新的排序任务

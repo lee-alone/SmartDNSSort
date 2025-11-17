@@ -6,17 +6,20 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
 	"runtime"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
+	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
+	"syscall"
 	"time"
 )
 
 func main() {
-	// 初始化随机数种子
+	// ... (flag parsing remains the same)
 	rand.Seed(time.Now().UnixNano())
 
 	// 定义命令行参数
@@ -38,7 +41,7 @@ func main() {
 
 	// 处理系统服务命令
 	if *serviceCmd != "" {
-		// 仅在 Linux 系统上支持
+		// ... (service command handling remains the same)
 		if runtime.GOOS != "linux" {
 			fmt.Fprintf(os.Stderr, "错误：系统服务管理仅在 Linux 系统上支持\n")
 			os.Exit(1)
@@ -84,11 +87,21 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 设置 GOMAXPROCS
+	if cfg.System.MaxCPUCores > 0 {
+		runtime.GOMAXPROCS(cfg.System.MaxCPUCores)
+		log.Printf("Set GOMAXPROCS to %d\n", cfg.System.MaxCPUCores)
+	}
+
 	// 初始化统计模块
 	s := stats.NewStats()
 
 	// 启动 DNS 服务器
 	dnsServer := dnsserver.NewServer(cfg, s)
+
+	// 启动预取服务
+	prefetcher := prefetch.NewPrefetcher(&cfg.Prefetch, s, dnsServer.GetCache(), dnsServer)
+	prefetcher.Start()
 
 	fmt.Printf("SmartDNSSort DNS Server started on port %d\n", cfg.DNS.ListenPort)
 	fmt.Printf("Upstream servers: %v\n", cfg.Upstream.Servers)
@@ -104,9 +117,25 @@ func main() {
 		}()
 	}
 
-	if err := dnsServer.Start(); err != nil {
-		log.Fatalf("Failed to start DNS server: %v", err)
-	}
+	// 在 goroutine 中启动 DNS 服务器，以非阻塞方式运行
+	go func() {
+		if err := dnsServer.Start(); err != nil {
+			log.Fatalf("Failed to start DNS server: %v", err)
+		}
+	}()
+
+	// 设置优雅停机
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	// 停止服务
+	prefetcher.Stop()
+	dnsServer.Shutdown()
+
+	log.Println("Server gracefully stopped.")
 }
 
 func printHelp() {

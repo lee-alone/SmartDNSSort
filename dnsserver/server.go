@@ -29,8 +29,8 @@ type Server struct {
 
 // NewServer 创建新的 DNS 服务器
 func NewServer(cfg *config.Config, s *stats.Stats) *Server {
-	// 创建异步排序队列（4 个工作线程，队列大小 200，超时时间 10 秒）
-	sortQueue := cache.NewSortQueue(4, 200, 10*time.Second)
+	// 创建异步排序队列
+	sortQueue := cache.NewSortQueue(cfg.System.SortQueueWorkers, 200, 10*time.Second)
 
 	server := &Server{
 		cfg:       cfg,
@@ -125,6 +125,12 @@ func (s *Server) Start() error {
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	s.stats.IncQueries()
 
+	// 记录域名查询
+	if len(r.Question) > 0 {
+		domain := strings.TrimRight(r.Question[0].Name, ".")
+		s.stats.RecordDomainQuery(domain)
+	}
+
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Compress = false
@@ -151,16 +157,10 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
 		s.stats.IncCacheHits()
 		log.Printf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (TTL=%d秒)\n",
-			domain, dns.TypeToString[question.Qtype], sorted.IPs, sorted.TTL)
+			domain, dns.TypeToString[question.Qtype], sorted.IPs, s.cfg.Cache.UserReturnTTL)
 
-		// 计算剩余 TTL
-		elapsedSeconds := int(time.Since(sorted.Timestamp).Seconds())
-		remainingTTL := sorted.TTL - elapsedSeconds
-		if remainingTTL <= 0 {
-			remainingTTL = 1
-		}
-
-		s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, uint32(remainingTTL))
+		// 使用 user_return_ttl 作为响应的 TTL
+		s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, uint32(s.cfg.Cache.UserReturnTTL))
 		w.WriteMsg(msg)
 		return
 	}
@@ -214,8 +214,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP (TTL=%d秒): %v\n",
 		domain, len(ips), upstreamTTL, ips)
 
-	// 缓存原始响应
-	s.cache.SetRaw(domain, question.Qtype, ips, upstreamTTL)
+	// 使用 fast_response_ttl 缓存原始响应
+	s.cache.SetRaw(domain, question.Qtype, ips, uint32(s.cfg.Cache.FastResponseTTL))
 
 	// 使用 fast_response_ttl 快速返回给用户
 	fastTTL := uint32(s.cfg.Cache.FastResponseTTL)
@@ -325,6 +325,13 @@ func (s *Server) refreshCacheAsync(domain string, qtype uint16) {
 
 	// 异步排序更新
 	go s.sortIPsAsync(domain, qtype, result.IPs, result.TTL)
+}
+
+// RefreshDomain is the public method to trigger a cache refresh for a domain.
+// It satisfies the prefetch.Refresher interface.
+func (s *Server) RefreshDomain(domain string, qtype uint16) {
+	// Run in a goroutine to avoid blocking the caller (e.g., the prefetcher loop)
+	go s.refreshCacheAsync(domain, qtype)
 }
 
 // buildDNSResponse 构造 DNS 响应

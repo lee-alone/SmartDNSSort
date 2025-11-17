@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,7 +25,6 @@ upstream:
   servers:
     - "192.168.1.10"
     - "192.168.1.11"
-    - "192.168.1.25"
   # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
   strategy: "random"
   # 上游服务器响应超时时间（毫秒）
@@ -47,10 +47,21 @@ ping:
 cache:
   # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
   fast_response_ttl: 60
+  # 缓存命中时返回给客户端的 TTL。默认值：500秒
+  user_return_ttl: 500
   # 缓存最小 TTL（生存时间，秒）
   min_ttl_seconds: 3600
   # 缓存最大 TTL（生存时间，秒）
   max_ttl_seconds: 84600
+
+# 热点域名提前刷新机制
+prefetch:
+  # 是否启用预取功能
+  enabled: true
+  # 记录最近访问频率最高的前 N 个域名
+  top_domains_limit: 1000
+  # 在缓存即将过期前指定秒数触发后台异步更新
+  refresh_before_expire_seconds: 30
 
 # Web UI 管理界面配置
 webui:
@@ -65,6 +76,13 @@ adblock:
   enabled: false
   # 广告拦截规则文件路径
   rule_file: "rules.txt"
+
+# 系统性能配置
+system:
+  # 最大 CPU 核心数（0 表示不限制，使用全部可用核心）
+  max_cpu_cores: 0
+  # IP 排序队列的工作线程数（0 表示根据 CPU 核心数自动调整）
+  sort_queue_workers: 0
 `
 
 type Config struct {
@@ -72,8 +90,10 @@ type Config struct {
 	Upstream UpstreamConfig `yaml:"upstream"`
 	Ping     PingConfig     `yaml:"ping"`
 	Cache    CacheConfig    `yaml:"cache"`
+	Prefetch PrefetchConfig `yaml:"prefetch"`
 	WebUI    WebUIConfig    `yaml:"webui"`
 	AdBlock  AdBlockConfig  `yaml:"adblock"`
+	System   SystemConfig   `yaml:"system"`
 }
 
 type DNSConfig struct {
@@ -98,8 +118,17 @@ type PingConfig struct {
 
 type CacheConfig struct {
 	FastResponseTTL int `yaml:"fast_response_ttl"`
+	UserReturnTTL   int `yaml:"user_return_ttl"`
 	MinTTLSeconds   int `yaml:"min_ttl_seconds"`
 	MaxTTLSeconds   int `yaml:"max_ttl_seconds"`
+}
+
+type PrefetchConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	TopDomainsLimit int `yaml:"top_domains_limit"`
+
+	RefreshBeforeExpireSeconds int `yaml:"refresh_before_expire_seconds"`
 }
 
 type WebUIConfig struct {
@@ -110,6 +139,11 @@ type WebUIConfig struct {
 type AdBlockConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	RuleFile string `yaml:"rule_file"`
+}
+
+type SystemConfig struct {
+	MaxCPUCores      int `yaml:"max_cpu_cores"`
+	SortQueueWorkers int `yaml:"sort_queue_workers"`
 }
 
 // CreateDefaultConfig 创建默认配置文件
@@ -168,6 +202,28 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Cache.MaxTTLSeconds == 0 {
 		cfg.Cache.MaxTTLSeconds = 600
+	}
+	if cfg.Cache.UserReturnTTL == 0 {
+		cfg.Cache.UserReturnTTL = 500
+	}
+	if cfg.Prefetch.TopDomainsLimit == 0 {
+		cfg.Prefetch.TopDomainsLimit = 1000
+	}
+	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
+		cfg.Prefetch.RefreshBeforeExpireSeconds = 30
+	}
+
+	// System defaults
+	if cfg.System.MaxCPUCores == 0 {
+		cfg.System.MaxCPUCores = runtime.NumCPU() // Default to all available cores
+	}
+	if cfg.System.SortQueueWorkers == 0 {
+		// Default to 4 or MaxCPUCores if MaxCPUCores is less than 4
+		if cfg.System.MaxCPUCores < 4 {
+			cfg.System.SortQueueWorkers = cfg.System.MaxCPUCores
+		} else {
+			cfg.System.SortQueueWorkers = 4
+		}
 	}
 
 	return &cfg, nil

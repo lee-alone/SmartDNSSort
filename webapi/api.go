@@ -159,31 +159,43 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 从缓存中获取结果
-	entry, ok := s.dnsCache.Get(domain, qtype)
-	if !ok {
+	// Replicate the logic of the old Get method: prefer sorted, fallback to raw.
+	var ipsResult []IPResult
+	var status string
+
+	sortedEntry, ok := s.dnsCache.GetSorted(domain, qtype)
+	if ok {
+		// Found in sorted cache
+		status = "cached_sorted"
+		for i, ip := range sortedEntry.IPs {
+			rtt := 0
+			if i < len(sortedEntry.RTTs) {
+				rtt = sortedEntry.RTTs[i]
+			}
+			ipsResult = append(ipsResult, IPResult{IP: ip, RTT: rtt})
+		}
+	} else {
+		rawEntry, ok := s.dnsCache.GetRaw(domain, qtype)
+		if ok {
+			// Found in raw cache
+			status = "cached_raw"
+			for _, ip := range rawEntry.IPs {
+				ipsResult = append(ipsResult, IPResult{IP: ip, RTT: 0}) // RTT is not available for raw entries
+			}
+		}
+	}
+
+	if len(ipsResult) == 0 {
 		http.Error(w, "Domain not found in cache", http.StatusNotFound)
 		return
 	}
 
 	// 构造响应
-	var ips []IPResult
-	for i, ip := range entry.IPs {
-		rtt := 0
-		if i < len(entry.RTTs) {
-			rtt = entry.RTTs[i]
-		}
-		ips = append(ips, IPResult{
-			IP:  ip,
-			RTT: rtt,
-		})
-	}
-
 	result := QueryResult{
 		Domain: domain,
 		Type:   queryType,
-		IPs:    ips,
-		Status: "success",
+		IPs:    ipsResult,
+		Status: status,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
