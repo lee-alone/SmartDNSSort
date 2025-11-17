@@ -86,64 +86,62 @@ system:
 `
 
 type Config struct {
-	DNS      DNSConfig      `yaml:"dns"`
-	Upstream UpstreamConfig `yaml:"upstream"`
-	Ping     PingConfig     `yaml:"ping"`
-	Cache    CacheConfig    `yaml:"cache"`
-	Prefetch PrefetchConfig `yaml:"prefetch"`
-	WebUI    WebUIConfig    `yaml:"webui"`
-	AdBlock  AdBlockConfig  `yaml:"adblock"`
-	System   SystemConfig   `yaml:"system"`
+	DNS      DNSConfig      `yaml:"dns" json:"dns"`
+	Upstream UpstreamConfig `yaml:"upstream" json:"upstream"`
+	Ping     PingConfig     `yaml:"ping" json:"ping"`
+	Cache    CacheConfig    `yaml:"cache" json:"cache"`
+	Prefetch PrefetchConfig `yaml:"prefetch" json:"prefetch"`
+	WebUI    WebUIConfig    `yaml:"webui" json:"webui"`
+	AdBlock  AdBlockConfig  `yaml:"adblock" json:"adblock"`
+	System   SystemConfig   `yaml:"system" json:"system"`
 }
 
 type DNSConfig struct {
-	ListenPort int  `yaml:"listen_port"`
-	EnableTCP  bool `yaml:"enable_tcp"`
-	EnableIPv6 bool `yaml:"enable_ipv6"`
+	ListenPort int  `yaml:"listen_port" json:"listen_port"`
+	EnableTCP  bool `yaml:"enable_tcp" json:"enable_tcp"`
+	EnableIPv6 bool `yaml:"enable_ipv6" json:"enable_ipv6"`
 }
 
 type UpstreamConfig struct {
-	Servers     []string `yaml:"servers"`
-	Strategy    string   `yaml:"strategy"` // parallel, random
-	TimeoutMs   int      `yaml:"timeout_ms"`
-	Concurrency int      `yaml:"concurrency"`
+	Servers     []string `yaml:"servers" json:"servers"`
+	Strategy    string   `yaml:"strategy" json:"strategy"`
+	TimeoutMs   int      `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency int      `yaml:"concurrency" json:"concurrency"`
 }
 
 type PingConfig struct {
-	Count       int    `yaml:"count"`
-	TimeoutMs   int    `yaml:"timeout_ms"`
-	Concurrency int    `yaml:"concurrency"`
-	Strategy    string `yaml:"strategy"` // min, avg
+	Count       int    `yaml:"count" json:"count"`
+	TimeoutMs   int    `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency int    `yaml:"concurrency" json:"concurrency"`
+	Strategy    string `yaml:"strategy" json:"strategy"`
 }
 
 type CacheConfig struct {
-	FastResponseTTL int `yaml:"fast_response_ttl"`
-	UserReturnTTL   int `yaml:"user_return_ttl"`
-	MinTTLSeconds   int `yaml:"min_ttl_seconds"`
-	MaxTTLSeconds   int `yaml:"max_ttl_seconds"`
+	FastResponseTTL int `yaml:"fast_response_ttl" json:"fast_response_ttl"`
+	UserReturnTTL   int `yaml:"user_return_ttl" json:"user_return_ttl"`
+	MinTTLSeconds   int `yaml:"min_ttl_seconds" json:"min_ttl_seconds"`
+	MaxTTLSeconds   int `yaml:"max_ttl_seconds" json:"max_ttl_seconds"`
 }
 
 type PrefetchConfig struct {
-	Enabled bool `yaml:"enabled"`
-
-	TopDomainsLimit int `yaml:"top_domains_limit"`
-
-	RefreshBeforeExpireSeconds int `yaml:"refresh_before_expire_seconds"`
+	Enabled                    bool `yaml:"enabled" json:"enabled"`
+	TopDomainsLimit            int  `yaml:"top_domains_limit" json:"top_domains_limit"`
+	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds" json:"refresh_before_expire_seconds"`
 }
 
 type WebUIConfig struct {
-	Enabled    bool `yaml:"enabled"`
-	ListenPort int  `yaml:"listen_port"`
+	Enabled    bool `yaml:"enabled" json:"enabled"`
+	ListenPort int  `yaml:"listen_port" json:"listen_port"`
 }
 
 type AdBlockConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	RuleFile string `yaml:"rule_file"`
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	RuleFile string `yaml:"rule_file" json:"rule_file"`
 }
 
 type SystemConfig struct {
-	MaxCPUCores      int `yaml:"max_cpu_cores"`
-	SortQueueWorkers int `yaml:"sort_queue_workers"`
+	MaxCPUCores      int `yaml:"max_cpu_cores" json:"max_cpu_cores"`
+	SortQueueWorkers int `yaml:"sort_queue_workers" json:"sort_queue_workers"`
 }
 
 // CreateDefaultConfig 创建默认配置文件

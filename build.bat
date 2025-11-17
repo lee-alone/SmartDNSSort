@@ -1,6 +1,6 @@
 @echo off
 REM SmartDNSSort Build Script for Windows
-REM 支持跨平台编译
+REM 支持跨平台编�?
 
 setlocal enabledelayedexpansion
 
@@ -13,7 +13,7 @@ echo.
 REM 检查Go是否安装
 go version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] Go未安装或不在PATH中
+    echo [错误] Go未安装或不在PATH�?
     exit /b 1
 )
 
@@ -24,7 +24,7 @@ if "%TARGET%"=="" set TARGET=windows
 REM 创建bin目录
 if not exist "bin" mkdir bin
 
-echo [信息] 开始编译...
+echo [信息] 开始编�?..
 echo.
 
 REM 编译Windows版本
@@ -33,7 +33,7 @@ if "%TARGET%"=="windows" (
     setlocal
     set GOOS=windows
     set GOARCH=amd64
-    go build -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x64.exe
     endlocal
     
@@ -41,7 +41,7 @@ if "%TARGET%"=="windows" (
     setlocal
     set GOOS=windows
     set GOARCH=386
-    go build -o bin\SmartDNSSort-windows-x86.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x86.exe .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x86.exe
     endlocal
 )
@@ -52,7 +52,7 @@ if "%TARGET%"=="linux" (
     setlocal
     set GOOS=linux
     set GOARCH=amd64
-    go build -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x64
     endlocal
     
@@ -60,7 +60,7 @@ if "%TARGET%"=="linux" (
     setlocal
     set GOOS=linux
     set GOARCH=386
-    go build -o bin\SmartDNSSort-debian-x86 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x86 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x86
     endlocal
     
@@ -68,18 +68,18 @@ if "%TARGET%"=="linux" (
     setlocal
     set GOOS=linux
     set GOARCH=arm64
-    go build -o bin\SmartDNSSort-debian-arm64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-arm64 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-arm64
     endlocal
 )
 
-REM 编译所有平台
+REM 编译所有平�?
 if "%TARGET%"=="all" (
     echo [编译] Windows x64...
     setlocal
     set GOOS=windows
     set GOARCH=amd64
-    go build -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x64.exe
     endlocal
     
@@ -87,7 +87,7 @@ if "%TARGET%"=="all" (
     setlocal
     set GOOS=windows
     set GOARCH=386
-    go build -o bin\SmartDNSSort-windows-x86.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x86.exe .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x86.exe
     endlocal
     
@@ -95,7 +95,7 @@ if "%TARGET%"=="all" (
     setlocal
     set GOOS=linux
     set GOARCH=amd64
-    go build -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x64
     endlocal
     
@@ -103,7 +103,7 @@ if "%TARGET%"=="all" (
     setlocal
     set GOOS=linux
     set GOARCH=386
-    go build -o bin\SmartDNSSort-debian-x86 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x86 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x86
     endlocal
     
@@ -111,7 +111,7 @@ if "%TARGET%"=="all" (
     setlocal
     set GOOS=linux
     set GOARCH=arm64
-    go build -o bin\SmartDNSSort-debian-arm64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-arm64 .\cmd\main.go
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-arm64
     endlocal
 )
@@ -123,17 +123,17 @@ if "%TARGET%"=="help" (
     echo 可用目标:
     echo   windows     - 编译Windows版本 (默认)
     echo   linux       - 编译Linux版本
-    echo   all         - 编译所有平台
-    echo   help        - 显示此帮助信息
+    echo   all         - 编译所有平�?
+    echo   help        - 显示此帮助信�?
     echo.
     echo 示例:
     echo   build.bat              # 编译Windows版本
-    echo   build.bat all          # 编译所有平台
+    echo   build.bat all          # 编译所有平�?
     exit /b 0
 )
 
 echo.
-echo [成功] 编译完成！输出文件位置: bin\
+echo [成功] 编译完成！输出文件位�? bin\
 echo.
 dir /B bin\
 

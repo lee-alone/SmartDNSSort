@@ -3,14 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartDNSSort Status</title>
+    <title>SmartDNSSort Control Panel</title>
     <style>
+        :root {
+            --bg-color: #f4f7f9;
+            --card-bg-color: #ffffff;
+            --text-color: #333;
+            --primary-color: #007bff;
+            --border-color: #e0e0e0;
+            --shadow-color: rgba(0, 0, 0, 0.08);
+            --sidebar-bg: #f8f9fa;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: #f4f7f9;
-            color: #333;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             margin: 0;
+        }
+        .main-container {
             padding: 1.5rem;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 1.5rem;
+            position: sticky; /* Make it sticky */
+            top: 0; /* Stick to the top */
+            background-color: var(--bg-color); /* Ensure background is solid */
+            z-index: 1000; /* Ensure it stays on top */
+        }
+        .tab-button {
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #555;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s ease-in-out;
+        }
+        .tab-button.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
         .container {
             max-width: 1200px;
@@ -20,10 +61,10 @@
             gap: 1.5rem;
         }
         .card {
-            background-color: #fff;
+            background-color: var(--card-bg-color);
             padding: 1.5rem;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 4px 12px var(--shadow-color);
         }
         h1 {
             grid-column: 1 / -1;
@@ -33,209 +74,361 @@
         }
         h2 {
             color: #2c3e50;
-            border-bottom: 2px solid #e0e0e0;
+            border-bottom: 2px solid var(--border-color);
             padding-bottom: 0.8rem;
             margin-top: 0;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .label { color: #555; }
+        .value { font-weight: 500; color: var(--primary-color); text-align: right; }
+        #status { text-align: center; padding: 0.5rem; margin-bottom: 1rem; border-radius: 4px; }
+        .status.connected { background-color: #e7f5ed; color: #1e7e34; }
+        .status.error { background-color: #fbeae5; color: #d93025; }
+
+        /* Config Page Styles */
+        .config-container {
+            display: flex;
+            gap: 2rem;
         }
-        th, td {
-            padding: 0.75rem 0.5rem;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
+        .config-nav {
+            flex: 0 0 200px;
         }
-        th {
-            font-weight: 600;
+        .config-nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            position: sticky;
+            top: 1.5rem;
         }
-        tr:last-child td {
-            border-bottom: none;
-        }
-        .label {
-            color: #555;
-        }
-        .value {
+        .config-nav a {
+            display: block;
+            padding: 0.75rem 1rem;
+            text-decoration: none;
+            color: #333;
+            border-radius: 5px;
+            margin-bottom: 0.5rem;
             font-weight: 500;
-            color: #007bff;
-            text-align: right;
         }
-        #status {
-            grid-column: 1 / -1;
-            text-align: center;
-            padding: 0.5rem;
-            margin-top: 1rem;
-            border-radius: 4px;
+        .config-nav a:hover {
+            background-color: #e9ecef;
         }
-        .status.connected {
-            background-color: #e7f5ed;
-            color: #1e7e34;
+        .config-content {
+            flex: 1;
         }
-        .status.error {
-            background-color: #fbeae5;
-            color: #d93025;
+        fieldset {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        legend {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+            padding: 0 0.5rem;
+        }
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        .form-group label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .form-group small {
+            display: block;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+        .form-group-inline {
+            display: flex;
+            align-items: center;
+        }
+        .form-group-inline input[type="checkbox"] {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+        .save-button-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+        }
+        .save-button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
+            transition: all 0.2s ease-in-out;
+        }
+        .save-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5);
         }
     </style>
 </head>
 <body>
-    <h1>SmartDNSSort Status</h1>
-    <div id="status" class="status">Connecting...</div>
-
-    <div class="container">
-        <div class="card">
-            <h2>Management</h2>
-            <button id="clearCacheButton" style="
-                background-color: #dc3545;
-                color: white;
-                padding: 10px 15px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 16px;
-                margin-top: 10px;
-            ">Clear DNS Cache</button>
+    <div class="main-container">
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('dashboard')">Dashboard</button>
+            <button class="tab-button" onclick="showTab('config')">Configuration</button>
         </div>
 
-        <div class="card">
-            <h2>General Stats</h2>
-            <table>
-                <tbody>
-                    <tr><td class="label">Total Queries</td><td id="total_queries" class="value">0</td></tr>
-                    <tr><td class="label">Cache Hits</td><td id="cache_hits" class="value">0</td></tr>
-                    <tr><td class="label">Cache Misses</td><td id="cache_misses" class="value">0</td></tr>
-                    <tr><td class="label">Cache Hit Rate</td><td id="cache_hit_rate" class="value">0.00%</td></tr>
-                    <tr><td class="label">Upstream Failures</td><td id="upstream_failures" class="value">0</td></tr>
-                    <tr><td class="label">Ping Successes</td><td id="ping_successes" class="value">0</td></tr>
-                    <tr><td class="label">Ping Failures</td><td id="ping_failures" class="value">0</td></tr>
-                    <tr><td class="label">Average RTT</td><td id="average_rtt_ms" class="value">0 ms</td></tr>
-                </tbody>
-            </table>
+        <div id="status" class="status">Connecting...</div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="container">
+                <div class="card">
+                    <h2>Management</h2>
+                    <button id="clearCacheButton">Clear DNS Cache</button>
+                </div>
+                <div class="card">
+                    <h2>General Stats</h2>
+                    <table>
+                        <tbody>
+                            <tr><td class="label">Total Queries</td><td id="total_queries" class="value">0</td></tr>
+                            <tr><td class="label">Cache Hits</td><td id="cache_hits" class="value">0</td></tr>
+                            <tr><td class="label">Cache Misses</td><td id="cache_misses" class="value">0</td></tr>
+                            <tr><td class="label">Cache Hit Rate</td><td id="cache_hit_rate" class="value">0.00%</td></tr>
+                            <tr><td class="label">Upstream Failures</td><td id="upstream_failures" class="value">0</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h2>System Status</h2>
+                    <table>
+                        <tbody>
+                            <tr><td class="label">CPU Usage</td><td id="cpu_usage_pct" class="value">0.0%</td></tr>
+                            <tr><td class="label">Memory Usage</td><td id="mem_usage_pct" class="value">0.0%</td></tr>
+                            <tr><td class="label">Goroutines</td><td id="goroutines" class="value">0</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h2>Upstream Servers</h2>
+                    <table id="upstream_stats">
+                        <thead><tr><th>Server</th><th class="value">Success</th><th class="value">Failure</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
-        <div class="card">
-            <h2>System Status</h2>
-            <table>
-                <tbody>
-                    <tr><td class="label">CPU Usage</td><td id="cpu_usage_pct" class="value">0.0%</td></tr>
-                    <tr><td class="label">Memory Usage</td><td id="mem_usage_pct" class="value">0.0%</td></tr>
-                    <tr><td class="label">Memory Used</td><td id="mem_used_mb" class="value">0 / 0 MB</td></tr>
-                    <tr><td class="label">Go Heap Alloc</td><td id="go_mem_alloc_mb" class="value">0 MB</td></tr>
-                    <tr><td class="label">Goroutines</td><td id="goroutines" class="value">0</td></tr>
-                    <tr><td class="label">CPU Cores</td><td id="cpu_cores" class="value">0</td></tr>
-                </tbody>
-            </table>
-        </div>
+        <!-- Configuration Tab -->
+        <div id="config" class="tab-content">
+            <div class="config-container">
+                <nav class="config-nav">
+                    <ul>
+                        <li><a href="#config-dns">DNS Service</a></li>
+                        <li><a href="#config-upstream">Upstream</a></li>
+                        <li><a href="#config-ping">Ping</a></li>
+                        <li><a href="#config-cache">Cache</a></li>
+                        <li><a href="#config-prefetch">Prefetch</a></li>
+                        <li><a href="#config-webui">Web UI</a></li>
+                        <li><a href="#config-system">System</a></li>
+                    </ul>
+                </nav>
+                <div class="config-content">
+                    <form id="configForm">
+                        <fieldset id="config-dns">
+                            <legend>DNS Service</legend>
+                            <div class="form-group">
+                                <label for="dns.listen_port">Listen Port</label>
+                                <input type="number" id="dns.listen_port" name="dns.listen_port">
+                            </div>
+                            <div class="form-group form-group-inline">
+                                <input type="checkbox" id="dns.enable_tcp" name="dns.enable_tcp">
+                                <label for="dns.enable_tcp">Enable TCP</label>
+                            </div>
+                            <div class="form-group form-group-inline">
+                                <input type="checkbox" id="dns.enable_ipv6" name="dns.enable_ipv6">
+                                <label for="dns.enable_ipv6">Enable IPv6</label>
+                            </div>
+                        </fieldset>
 
-        <div class="card">
-            <h2>TTL Settings</h2>
-            <table>
-                <tbody>
-                    <tr><td class="label">Min TTL</td><td id="min_ttl_seconds" class="value">0s</td></tr>
-                    <tr><td class="label">Max TTL</td><td id="max_ttl_seconds" class="value">0s</td></tr>
-                </tbody>
-            </table>
-        </div>
+                        <fieldset id="config-upstream">
+                            <legend>Upstream</legend>
+                            <div class="form-group">
+                                <label for="upstream.servers">Upstream Servers</label>
+                                <textarea id="upstream.servers" name="upstream.servers"></textarea>
+                                <small>One server per line.</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="upstream.strategy">Strategy</label>
+                                <select id="upstream.strategy" name="upstream.strategy">
+                                    <option value="random">Random</option>
+                                    <option value="parallel">Parallel</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="upstream.timeout_ms">Timeout (ms)</label>
+                                <input type="number" id="upstream.timeout_ms" name="upstream.timeout_ms">
+                            </div>
+                            <div class="form-group">
+                                <label for="upstream.concurrency">Concurrency</label>
+                                <input type="number" id="upstream.concurrency" name="upstream.concurrency">
+                            </div>
+                        </fieldset>
 
-        <div class="card">
-            <h2>Query & Ping Strategy</h2>
-            <table>
-                <tbody>
-                    <tr><td class="label">Upstream Strategy</td><td id="upstream_strategy" class="value"></td></tr>
-                    <tr><td class="label">Upstream Timeout</td><td id="upstream_timeout" class="value"></td></tr>
-                    <tr><td class="label">Upstream Concurrency</td><td id="upstream_concurrency" class="value"></td></tr>
-                    <tr><td class="label">Ping Count</td><td id="ping_count" class="value"></td></tr>
-                    <tr><td class="label">Ping Timeout</td><td id="ping_timeout" class="value"></td></tr>
-                    <tr><td class="label">Ping Concurrency</td><td id="ping_concurrency" class="value"></td></tr>
-                    <tr><td class="label">Ping Strategy</td><td id="ping_strategy" class="value"></td></tr>
-                </tbody>
-            </table>
-        </div>
+                        <fieldset id="config-ping">
+                            <legend>Ping</legend>
+                             <div class="form-group">
+                                <label for="ping.count">Count</label>
+                                <input type="number" id="ping.count" name="ping.count">
+                            </div>
+                            <div class="form-group">
+                                <label for="ping.timeout_ms">Timeout (ms)</label>
+                                <input type="number" id="ping.timeout_ms" name="ping.timeout_ms">
+                            </div>
+                            <div class="form-group">
+                                <label for="ping.concurrency">Concurrency</label>
+                                <input type="number" id="ping.concurrency" name="ping.concurrency">
+                            </div>
+                             <div class="form-group">
+                                <label for="ping.strategy">Strategy</label>
+                                <select id="ping.strategy" name="ping.strategy">
+                                    <option value="min">Min</option>
+                                    <option value="avg">Avg</option>
+                                </select>
+                            </div>
+                        </fieldset>
 
-        <div class="card">
-            <h2>Upstream Servers</h2>
-            <table id="upstream_stats">
-                <thead>
-                    <tr>
-                        <th>Server</th>
-                        <th style="text-align: right;">Success</th>
-                        <th style="text-align: right;">Failure</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Data will be populated by script -->
-                </tbody>
-            </table>
+                        <fieldset id="config-cache">
+                            <legend>Cache</legend>
+                            <div class="form-group">
+                                <label for="cache.fast_response_ttl">Fast Response TTL (s)</label>
+                                <input type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl">
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.user_return_ttl">User Return TTL (s)</label>
+                                <input type="number" id="cache.user_return_ttl" name="cache.user_return_ttl">
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.min_ttl_seconds">Min TTL (s)</label>
+                                <input type="number" id="cache.min_ttl_seconds" name="cache.min_ttl_seconds">
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.max_ttl_seconds">Max TTL (s)</label>
+                                <input type="number" id="cache.max_ttl_seconds" name="cache.max_ttl_seconds">
+                            </div>
+                        </fieldset>
+
+                        <fieldset id="config-prefetch">
+                            <legend>Prefetch</legend>
+                            <div class="form-group form-group-inline">
+                                <input type="checkbox" id="prefetch.enabled" name="prefetch.enabled">
+                                <label for="prefetch.enabled">Enable Prefetch</label>
+                            </div>
+                            <div class="form-group">
+                                <label for="prefetch.top_domains_limit">Top Domains Limit</label>
+                                <input type="number" id="prefetch.top_domains_limit" name="prefetch.top_domains_limit">
+                            </div>
+                            <div class="form-group">
+                                <label for="prefetch.refresh_before_expire_seconds">Refresh Before Expire (s)</label>
+                                <input type="number" id="prefetch.refresh_before_expire_seconds" name="prefetch.refresh_before_expire_seconds">
+                            </div>
+                        </fieldset>
+
+                        <fieldset id="config-webui">
+                            <legend>Web UI</legend>
+                            <div class="form-group form-group-inline">
+                                <input type="checkbox" id="webui.enabled" name="webui.enabled">
+                                <label for="webui.enabled">Enable Web UI</label>
+                            </div>
+                             <div class="form-group">
+                                <label for="webui.listen_port">Listen Port</label>
+                                <input type="number" id="webui.listen_port" name="webui.listen_port">
+                            </div>
+                        </fieldset>
+
+                        <fieldset id="config-system">
+                            <legend>System</legend>
+                            <div class="form-group">
+                                <label for="system.max_cpu_cores">Max CPU Cores</label>
+                                <input type="number" id="system.max_cpu_cores" name="system.max_cpu_cores">
+                                <small>Set to 0 to use all available cores.</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="system.sort_queue_workers">Sort Queue Workers</label>
+                                <input type="number" id="system.sort_queue_workers" name="system.sort_queue_workers">
+                                <small>Number of parallel sorting tasks.</small>
+                            </div>
+                        </fieldset>
+                    </form>
+                </div>
+            </div>
+            <div class="save-button-container">
+                <button class="save-button" onclick="saveConfig()">Save & Apply</button>
+            </div>
         </div>
     </div>
 
     <script>
+        let originalConfig = {}; // Store the original config to preserve uneditable fields
+
+        // --- Tab Management ---
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`.tab-button[onclick="showTab('${tabName}')"]`).classList.add('active');
+        }
+
+        // --- Dashboard / Stats Logic ---
         const API_URL = '/api/stats';
-        const REFRESH_INTERVAL = 3000; // 3 seconds
+        const REFRESH_INTERVAL = 3000;
 
         function updateStats() {
             const statusEl = document.getElementById('status');
-
             fetch(API_URL)
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     return response.json();
                 })
                 .then(data => {
-                    // General Stats
                     document.getElementById('total_queries').textContent = data.total_queries || 0;
                     document.getElementById('cache_hits').textContent = data.cache_hits || 0;
                     document.getElementById('cache_misses').textContent = data.cache_misses || 0;
                     document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
                     document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
-                    document.getElementById('ping_successes').textContent = data.ping_successes || 0;
-                    document.getElementById('ping_failures').textContent = data.ping_failures || 0;
-                    document.getElementById('average_rtt_ms').textContent = (data.average_rtt_ms || 0) + ' ms';
-
-                    // System Stats
                     if (data.system_stats) {
                         const sys = data.system_stats;
                         document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
                         document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
-                        document.getElementById('mem_used_mb').textContent = `${sys.mem_used_mb || 0} / ${sys.mem_total_mb || 0} MB`;
-                        document.getElementById('go_mem_alloc_mb').textContent = (sys.go_mem_alloc_mb || 0) + ' MB';
                         document.getElementById('goroutines').textContent = sys.goroutines || 0;
-                        document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
                     }
-
-                    // TTL Settings
-                    if (data.cache_config) {
-                        document.getElementById('min_ttl_seconds').textContent = data.cache_config.min_ttl_seconds + 's';
-                        document.getElementById('max_ttl_seconds').textContent = data.cache_config.max_ttl_seconds + 's';
-                    }
-
-                    // Query & Ping Strategy
-                    if (data.upstream_config) {
-                        document.getElementById('upstream_strategy').textContent = data.upstream_config.strategy;
-                        document.getElementById('upstream_timeout').textContent = data.upstream_config.timeout_ms + 'ms';
-                        document.getElementById('upstream_concurrency').textContent = data.upstream_config.concurrency;
-                    }
-                    if (data.ping_config) {
-                        document.getElementById('ping_count').textContent = data.ping_config.count;
-                        document.getElementById('ping_timeout').textContent = data.ping_config.timeout_ms + 'ms';
-                        document.getElementById('ping_concurrency').textContent = data.ping_config.concurrency;
-                        document.getElementById('ping_strategy').textContent = data.ping_config.strategy;
-                    }
-
-                    // Upstream Stats
                     if (data.upstream_stats) {
                         const upstreamTable = document.getElementById('upstream_stats').getElementsByTagName('tbody')[0];
-                        upstreamTable.innerHTML = ''; // Clear old data
+                        upstreamTable.innerHTML = '';
                         for (const server in data.upstream_stats) {
                             const stats = data.upstream_stats[server];
                             const row = upstreamTable.insertRow();
-                            row.innerHTML = `
-                                <td>${server}</td>
-                                <td class="value">${stats.success || 0}</td>
-                                <td class="value">${stats.failure || 0}</td>
-                            `;
+                            row.innerHTML = `<td>${server}</td><td class="value">${stats.success || 0}</td><td class="value">${stats.failure || 0}</td>`;
                         }
                     }
-                    
                     statusEl.textContent = 'Connected';
                     statusEl.className = 'status connected';
                 })
@@ -246,35 +439,150 @@
                 });
         }
 
-        updateStats();
-        setInterval(updateStats, REFRESH_INTERVAL);
+        document.getElementById('clearCacheButton').addEventListener('click', () => {
+            if (!confirm('Are you sure you want to clear the entire DNS cache?')) return;
+            fetch('/api/cache/clear', { method: 'POST' })
+                .then(response => {
+                    if (response.ok) {
+                        alert('DNS cache cleared successfully!');
+                        updateStats();
+                    } else {
+                        alert('Failed to clear DNS cache.');
+                    }
+                })
+                .catch(error => alert('An error occurred while trying to clear the DNS cache.'));
+        });
 
-        document.getElementById('clearCacheButton').addEventListener('click', clearCache);
+        // --- Configuration Logic ---
+        const CONFIG_API_URL = '/api/config';
 
-        function clearCache() {
-            if (!confirm('Are you sure you want to clear the entire DNS cache? This action cannot be undone.')) {
-                return;
+        function populateForm(config) {
+            try {
+                originalConfig = config; // Save the original config
+
+                const setValue = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = value;
+                    else console.error(`Form element with ID not found: ${id}`);
+                };
+                const setChecked = (id, checked) => {
+                    const el = document.getElementById(id);
+                    if (el) el.checked = checked;
+                    else console.error(`Form element with ID not found: ${id}`);
+                };
+
+                // Use helpers
+                setValue('dns.listen_port', config.dns.listen_port);
+                setChecked('dns.enable_tcp', config.dns.enable_tcp);
+                setChecked('dns.enable_ipv6', config.dns.enable_ipv6);
+                setValue('upstream.strategy', config.upstream.strategy);
+                setValue('upstream.timeout_ms', config.upstream.timeout_ms);
+                setValue('upstream.concurrency', config.upstream.concurrency);
+                setValue('ping.count', config.ping.count);
+                setValue('ping.timeout_ms', config.ping.timeout_ms);
+                setValue('ping.concurrency', config.ping.concurrency);
+                setValue('ping.strategy', config.ping.strategy);
+                setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
+                setValue('cache.user_return_ttl', config.cache.user_return_ttl);
+                setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
+                setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
+                setChecked('prefetch.enabled', config.prefetch.enabled);
+                setValue('prefetch.top_domains_limit', config.prefetch.top_domains_limit);
+                setValue('prefetch.refresh_before_expire_seconds', config.prefetch.refresh_before_expire_seconds);
+                setChecked('webui.enabled', config.webui.enabled);
+                setValue('webui.listen_port', config.webui.listen_port);
+                setValue('system.max_cpu_cores', config.system.max_cpu_cores);
+                setValue('system.sort_queue_workers', config.system.sort_queue_workers);
+
+                // Array values
+                setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
+            } catch (e) {
+                console.error("Error inside populateForm:", e);
+                alert("An error occurred while displaying the configuration. Check developer console (F12).");
             }
+        }
 
-            fetch('/api/cache/clear', {
+        function loadConfig() {
+            fetch(CONFIG_API_URL)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(populateForm)
+                .catch(error => {
+                    console.error('Could not load or process configuration:', error);
+                    alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
+                });
+        }
+
+        function saveConfig() {
+            const form = document.getElementById('configForm');
+            
+            // Start with the original config to preserve uneditable fields like adblock
+            const data = originalConfig;
+
+            // Overwrite with form values
+            data.dns = {
+                listen_port: parseInt(form.elements['dns.listen_port'].value),
+                enable_tcp: form.elements['dns.enable_tcp'].checked,
+                enable_ipv6: form.elements['dns.enable_ipv6'].checked,
+            };
+            data.upstream = {
+                servers: form.elements['upstream.servers'].value.split('\n').filter(s => s.trim() !== ''),
+                strategy: form.elements['upstream.strategy'].value,
+                timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value),
+                concurrency: parseInt(form.elements['upstream.concurrency'].value),
+            };
+            data.ping = {
+                count: parseInt(form.elements['ping.count'].value),
+                timeout_ms: parseInt(form.elements['ping.timeout_ms'].value),
+                concurrency: parseInt(form.elements['ping.concurrency'].value),
+                strategy: form.elements['ping.strategy'].value,
+            };
+            data.cache = {
+                fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value),
+                user_return_ttl: parseInt(form.elements['cache.user_return_ttl'].value),
+                min_ttl_seconds: parseInt(form.elements['cache.min_ttl_seconds'].value),
+                max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value),
+            };
+            data.prefetch = {
+                enabled: form.elements['prefetch.enabled'].checked,
+                top_domains_limit: parseInt(form.elements['prefetch.top_domains_limit'].value),
+                refresh_before_expire_seconds: parseInt(form.elements['prefetch.refresh_before_expire_seconds'].value),
+            };
+            data.webui = {
+                enabled: form.elements['webui.enabled'].checked,
+                listen_port: parseInt(form.elements['webui.listen_port'].value),
+            };
+            data.system = {
+                max_cpu_cores: parseInt(form.elements['system.max_cpu_cores'].value),
+                sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value),
+            };
+
+            fetch(CONFIG_API_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
             })
             .then(response => {
                 if (response.ok) {
-                    alert('DNS cache cleared successfully!');
-                    updateStats(); // Refresh stats to reflect cleared cache
+                    alert('Configuration saved and applied successfully!');
                 } else {
-                    alert('Failed to clear DNS cache. Please check server logs.');
+                    response.text().then(text => alert('Failed to save configuration: ' + text));
                 }
             })
             .catch(error => {
-                console.error('Error clearing cache:', error);
-                alert('An error occurred while trying to clear the DNS cache.');
+                console.error('Error saving config:', error);
+                alert('An error occurred while saving the configuration.');
             });
         }
+
+        // Initial Load
+        updateStats();
+        setInterval(updateStats, REFRESH_INTERVAL);
+        loadConfig();
     </script>
 </body>
 </html>

@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/miekg/dns"
+	//	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
 
 // mockStats allows us to control the output of GetTopDomains.
 type mockStats struct {
-	stats.Stats
 	topDomains []stats.DomainCount
 }
 
@@ -27,7 +26,6 @@ func (m *mockStats) GetTopDomains(limit int) []stats.DomainCount {
 
 // mockCache allows us to control the output of GetSorted.
 type mockCache struct {
-	cache.Cache
 	sortedCache map[string]*cache.SortedCacheEntry
 }
 
@@ -64,8 +62,8 @@ func (m *mockRefresher) wasRefreshed(domain string) bool {
 
 func TestRunPrefetch(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled:                  true,
-		TopDomainsLimit:          10,
+		Enabled:                    true,
+		TopDomainsLimit:            10,
 		RefreshBeforeExpireSeconds: 30, // Refresh if expires within 30s
 	}
 

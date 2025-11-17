@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
-	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
@@ -19,7 +18,7 @@ import (
 )
 
 func main() {
-	// ... (flag parsing remains the same)
+	// 初始化随机数种子
 	rand.Seed(time.Now().UnixNano())
 
 	// 定义命令行参数
@@ -41,7 +40,7 @@ func main() {
 
 	// 处理系统服务命令
 	if *serviceCmd != "" {
-		// ... (service command handling remains the same)
+		// 仅在 Linux 系统上支持
 		if runtime.GOOS != "linux" {
 			fmt.Fprintf(os.Stderr, "错误：系统服务管理仅在 Linux 系统上支持\n")
 			os.Exit(1)
@@ -99,17 +98,13 @@ func main() {
 	// 启动 DNS 服务器
 	dnsServer := dnsserver.NewServer(cfg, s)
 
-	// 启动预取服务
-	prefetcher := prefetch.NewPrefetcher(&cfg.Prefetch, s, dnsServer.GetCache(), dnsServer)
-	prefetcher.Start()
-
 	fmt.Printf("SmartDNSSort DNS Server started on port %d\n", cfg.DNS.ListenPort)
 	fmt.Printf("Upstream servers: %v\n", cfg.Upstream.Servers)
 	fmt.Printf("Ping concurrency: %d, timeout: %dms\n", cfg.Ping.Concurrency, cfg.Ping.TimeoutMs)
 
 	// 启动 Web API 服务（可选）
 	if cfg.WebUI.Enabled {
-		webServer := webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer)
+		webServer := webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, *configPath)
 		go func() {
 			if err := webServer.Start(); err != nil {
 				log.Printf("Web API server error: %v\n", err)
@@ -132,7 +127,6 @@ func main() {
 	log.Println("Shutting down server...")
 
 	// 停止服务
-	prefetcher.Stop()
 	dnsServer.Shutdown()
 
 	log.Println("Server gracefully stopped.")
@@ -146,9 +140,9 @@ func printHelp() {
 
 选项：
   -s <子命令>      系统服务管理（仅 Linux）
-				   - install    安装服务
-				   - uninstall  卸载服务
-				   - status     查看服务状态
+		   - install    安装服务
+		   - uninstall  卸载服务
+		   - status     查看服务状态
   
   -c <路径>       配置文件路径（默认：config.yaml）
   -w <路径>       工作目录（默认：当前目录）

@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"reflect"
 	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/ping"
+	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -18,13 +21,15 @@ import (
 
 // Server DNS 服务器
 type Server struct {
-	cfg       *config.Config
-	stats     *stats.Stats
-	cache     *cache.Cache
-	upstream  *upstream.Upstream
-	pinger    *ping.Pinger
-	dnsServer *dns.Server
-	sortQueue *cache.SortQueue
+	mu         sync.RWMutex
+	cfg        *config.Config
+	stats      *stats.Stats
+	cache      *cache.Cache
+	upstream   *upstream.Upstream
+	pinger     *ping.Pinger
+	dnsServer  *dns.Server
+	sortQueue  *cache.SortQueue
+	prefetcher *prefetch.Prefetcher
 }
 
 // NewServer 创建新的 DNS 服务器
@@ -40,6 +45,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		pinger:    ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.Strategy),
 		sortQueue: sortQueue,
 	}
+
+	// Create the prefetcher, but don't start it yet
+	server.prefetcher = prefetch.NewPrefetcher(&cfg.Prefetch, s, server.cache, server)
 
 	// 设置排序函数：使用 ping 进行 IP 排序
 	sortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
@@ -105,6 +113,9 @@ func (s *Server) Start() error {
 	// 启动清理过期缓存的 goroutine
 	go s.cleanCacheRoutine()
 
+	// Start the prefetcher
+	s.prefetcher.Start()
+
 	log.Printf("UDP DNS server started on %s\n", addr)
 	return udpServer.ListenAndServe()
 }
@@ -123,6 +134,8 @@ func (s *Server) Start() error {
 //   - 立即返回旧缓存内容，TTL 设置为 fast_response_ttl
 //   - 异步重新查询上游 DNS，更新缓存与排序结果
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	s.stats.IncQueries()
 
 	// 记录域名查询
@@ -152,7 +165,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
-	// ========== 阶段二：排序完成后缓存命中 ==========
+	// ========== 阶段二：排序完成后缓存命中 ========== 
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
 		s.stats.IncCacheHits()
@@ -167,7 +180,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	s.stats.IncCacheMisses()
 
-	// ========== 阶段三：缓存过期后再次访问 ==========
+	// ========== 阶段三：缓存过期后再次访问 ========== 
 	// 检查原始缓存（上游 DNS 响应缓存）
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
 		log.Printf("[handleQuery] 原始缓存命中（缓存已过期，但仍在池中）: %s (type=%s) -> %v\n",
@@ -183,7 +196,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// ========== 阶段一：首次查询（无缓存）==========
+	// ========== 阶段一：首次查询（无缓存）========== 
 	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
 	// 查询上游 DNS
@@ -397,9 +410,68 @@ func (s *Server) GetCache() *cache.Cache {
 	return s.cache
 }
 
+// GetConfig returns the current server configuration.
+func (s *Server) GetConfig() *config.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// Return a copy to prevent race conditions if the caller modifies it
+	cfgCopy := *s.cfg
+	return &cfgCopy
+}
+
+// ApplyConfig applies a new configuration to the running server (hot-reload).
+func (s *Server) ApplyConfig(newCfg *config.Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	log.Println("Applying new configuration...")
+
+	// 1. Reload Upstream client if needed
+	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
+		log.Println("Reloading Upstream client due to configuration changes.")
+		s.upstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+	}
+
+	// 2. Reload Pinger if needed
+	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
+		log.Println("Reloading Pinger due to configuration changes.")
+		s.pinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.Strategy)
+	}
+
+	// 3. Reload SortQueue if needed
+	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
+		log.Printf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
+		s.sortQueue.Stop()
+		newSortQueue := cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
+		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
+			// Use a read-lock for the ping sort operation itself
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			return s.performPingSort(ctx, ips)
+		})
+		s.sortQueue = newSortQueue
+	}
+
+	// 4. Reload Prefetcher if needed
+	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
+		log.Println("Reloading Prefetcher due to configuration changes.")
+		s.prefetcher.Stop()
+		newPrefetcher := prefetch.NewPrefetcher(&newCfg.Prefetch, s.stats, s.cache, s)
+		s.prefetcher = newPrefetcher
+		s.prefetcher.Start()
+	}
+
+	// 5. Update the config reference
+	s.cfg = newCfg
+
+	log.Println("New configuration applied successfully.")
+	return nil
+}
+
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown() {
 	log.Printf("[Server] 开始关闭服务器...\n")
 	s.sortQueue.Stop()
+	s.prefetcher.Stop()
 	log.Printf("[Server] 服务器已关闭\n")
 }

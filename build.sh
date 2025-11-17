@@ -43,7 +43,7 @@ build_binary() {
     
     log_info "编译 $desc..."
     
-    if GOOS="$os" GOARCH="$arch" go build -o "$output" "$MAIN_PATH" 2>/dev/null; then
+    if GOOS="$os" GOARCH="$arch" go build -a -ldflags="-s -w" -o "$output" "$MAIN_PATH" 2>/dev/null; then
         local size=$(du -h "$output" | cut -f1)
         log_success "$desc -> $output ($size)"
         return 0

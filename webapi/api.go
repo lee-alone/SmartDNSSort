@@ -15,10 +15,9 @@ import (
 	"strings"
 
 	"github.com/miekg/dns"
+	"gopkg.in/yaml.v3"
 )
 
-// 内嵌 web 文件到二进制中
-//
 //go:embed web/*
 var webFilesFS embed.FS
 
@@ -38,18 +37,20 @@ type IPResult struct {
 
 // Server Web API 服务器
 type Server struct {
-	cfg       *config.Config
-	dnsCache  *cache.Cache
-	dnsServer *dnsserver.Server
-	listener  http.Server
+	cfg        *config.Config
+	dnsCache   *cache.Cache
+	dnsServer  *dnsserver.Server
+	listener   http.Server
+	configPath string // Store the path to the config file
 }
 
 // NewServer 创建新的 Web API 服务器
-func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server) *Server {
+func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server, configPath string) *Server {
 	return &Server{
-		cfg:       cfg,
-		dnsCache:  dnsCache,
-		dnsServer: dnsServer,
+		cfg:        cfg,
+		dnsCache:   dnsCache,
+		dnsServer:  dnsServer,
+		configPath: configPath,
 	}
 }
 
@@ -62,10 +63,11 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf(":%d", s.cfg.WebUI.ListenPort)
 
-	// 注册 API 路由（必须在文件服务之前注册）
+	// 注册 API 路由
 	http.HandleFunc("/api/query", s.handleQuery)
 	http.HandleFunc("/api/stats", s.handleStats)
 	http.HandleFunc("/api/cache/clear", s.handleClearCache)
+	http.HandleFunc("/api/config", s.handleConfig) // New endpoint for config
 	http.HandleFunc("/health", s.handleHealth)
 
 	// 首先尝试使用内嵌的 web 文件
@@ -252,4 +254,66 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 	log.Println("DNS cache cleared via API request.")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Cache cleared successfully"))
+}
+
+// handleConfig handles getting and setting the configuration.
+// GET /api/config - returns the current running configuration.
+// POST /api/config - receives a new configuration, saves it, and applies it.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetConfig(w, r)
+	case http.MethodPost:
+		s.handlePostConfig(w, r)
+	default:
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	currentConfig := s.dnsServer.GetConfig()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
+		log.Printf("[ERROR] Failed to encode config for API: %v", err)
+		http.Error(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
+	var newCfg config.Config
+	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+		http.Error(w, "Failed to decode new config: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 1. Validate the new configuration (basic validation)
+	// More complex validation can be added here.
+	if newCfg.DNS.ListenPort <= 0 {
+		http.Error(w, "Invalid DNS listen port", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Save the new configuration to the YAML file
+	yamlData, err := yaml.Marshal(&newCfg)
+	if err != nil {
+		http.Error(w, "Failed to marshal new config to YAML: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
+		http.Error(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Configuration saved to %s", s.configPath)
+
+	// 3. Apply the new configuration to the running server (hot-reload)
+	if err := s.dnsServer.ApplyConfig(&newCfg); err != nil {
+		http.Error(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
+		// Note: At this point, the config file is updated, but the server state is not.
+		// This might require a manual restart.
+		return
+	}
+	log.Println("Configuration hot-reloaded successfully.")
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Configuration updated and applied successfully."))
 }

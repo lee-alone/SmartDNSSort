@@ -56,7 +56,7 @@ function Build-Binary {
     $env:GOOS = $OS
     $env:GOARCH = $Arch
     
-    $output = & go build -o $OutputPath $MainPath 2>&1
+    $output = & go build -a -ldflags="-s -w" -o $OutputPath $MainPath 2>&1
     
     if ($LASTEXITCODE -eq 0) {
         $size = (Get-Item $OutputPath).Length / 1MB

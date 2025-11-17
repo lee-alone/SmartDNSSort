@@ -16,18 +16,28 @@ type Refresher interface {
 	RefreshDomain(domain string, qtype uint16)
 }
 
+// Cache defines the interface for the cache that the prefetcher needs to interact with.
+type Cache interface {
+	GetSorted(domain string, qtype uint16) (*cache.SortedCacheEntry, bool)
+}
+
+// Stats defines the interface for the stats collector that the prefetcher needs to interact with.
+type Stats interface {
+	GetTopDomains(limit int) []stats.DomainCount
+}
+
 // Prefetcher is responsible for prefetching popular domains before their cache expires.
 type Prefetcher struct {
 	cfg       *config.PrefetchConfig
-	stats     *stats.Stats
-	cache     *cache.Cache
+	stats     Stats // Use the interface type
+	cache     Cache // Use the interface type
 	refresher Refresher
 	stopChan  chan struct{}
 	wg        sync.WaitGroup
 }
 
 // NewPrefetcher creates a new Prefetcher.
-func NewPrefetcher(cfg *config.PrefetchConfig, s *stats.Stats, c *cache.Cache, r Refresher) *Prefetcher {
+func NewPrefetcher(cfg *config.PrefetchConfig, s Stats, c Cache, r Refresher) *Prefetcher {
 	return &Prefetcher{
 		cfg:       cfg,
 		stats:     s,
