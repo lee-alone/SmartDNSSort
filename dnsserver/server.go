@@ -21,15 +21,18 @@ import (
 
 // Server DNS 服务器
 type Server struct {
-	mu         sync.RWMutex
-	cfg        *config.Config
-	stats      *stats.Stats
-	cache      *cache.Cache
-	upstream   *upstream.Upstream
-	pinger     *ping.Pinger
-	dnsServer  *dns.Server
-	sortQueue  *cache.SortQueue
-	prefetcher *prefetch.Prefetcher
+	mu                 sync.RWMutex
+	cfg                *config.Config
+	stats              *stats.Stats
+	cache              *cache.Cache
+	upstream           *upstream.Upstream
+	pinger             *ping.Pinger
+	dnsServer          *dns.Server
+	sortQueue          *cache.SortQueue
+	prefetcher         *prefetch.Prefetcher
+	recentQueries      [20]string // Circular buffer for recent queries
+	recentQueriesIndex int
+	recentQueriesMu    sync.Mutex
 }
 
 // NewServer 创建新的 DNS 服务器
@@ -142,6 +145,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) > 0 {
 		domain := strings.TrimRight(r.Question[0].Name, ".")
 		s.stats.RecordDomainQuery(domain)
+		s.RecordRecentQuery(domain)
 	}
 
 	msg := new(dns.Msg)
@@ -405,6 +409,43 @@ func (s *Server) GetStats() map[string]interface{} {
 	return s.stats.GetStats()
 }
 
+// ClearStats clears all collected statistics.
+func (s *Server) ClearStats() {
+	log.Println("Clearing all statistics via API request.")
+	s.stats.Reset()
+}
+
+// RecordRecentQuery adds a domain to the recent queries list.
+func (s *Server) RecordRecentQuery(domain string) {
+	s.recentQueriesMu.Lock()
+	defer s.recentQueriesMu.Unlock()
+
+	s.recentQueries[s.recentQueriesIndex] = domain
+	s.recentQueriesIndex = (s.recentQueriesIndex + 1) % len(s.recentQueries)
+}
+
+// GetRecentQueries returns a slice of the most recent queries.
+func (s *Server) GetRecentQueries() []string {
+	s.recentQueriesMu.Lock()
+	defer s.recentQueriesMu.Unlock()
+
+	// The buffer is circular, so we need to reconstruct the order.
+	// The oldest element is at `s.recentQueriesIndex`.
+	var orderedQueries []string
+	for i := 0; i < len(s.recentQueries); i++ {
+		idx := (s.recentQueriesIndex + i) % len(s.recentQueries)
+		if s.recentQueries[idx] != "" {
+			orderedQueries = append(orderedQueries, s.recentQueries[idx])
+		}
+	}
+	// Reverse to get the most recent first
+	for i, j := 0, len(orderedQueries)-1; i < j; i, j = i+1, j-1 {
+		orderedQueries[i], orderedQueries[j] = orderedQueries[j], orderedQueries[i]
+	}
+
+	return orderedQueries
+}
+
 // GetCache 获取缓存实例（供 WebAPI 使用）
 func (s *Server) GetCache() *cache.Cache {
 	return s.cache
@@ -421,47 +462,79 @@ func (s *Server) GetConfig() *config.Config {
 
 // ApplyConfig applies a new configuration to the running server (hot-reload).
 func (s *Server) ApplyConfig(newCfg *config.Config) error {
+	log.Println("Applying new configuration...")
+
+	// Create new components outside the lock to avoid blocking.
+	var newUpstream *upstream.Upstream
+	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
+		log.Println("Reloading Upstream client due to configuration changes.")
+		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+	}
+
+	var newPinger *ping.Pinger
+	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
+		log.Println("Reloading Pinger due to configuration changes.")
+		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.Strategy)
+	}
+
+	var newSortQueue *cache.SortQueue
+	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
+		log.Printf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
+		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
+		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
+			// This function will be called by the queue worker.
+			// We need to ensure it uses the *current* pinger from the server.
+			s.mu.RLock()
+			p := s.pinger
+			s.mu.RUnlock()
+
+			pingResults := p.PingAndSort(ctx, ips)
+
+			if len(pingResults) == 0 {
+				return nil, nil, fmt.Errorf("ping sort returned no results")
+			}
+
+			var sortedIPs []string
+			var rtts []int
+			for _, result := range pingResults {
+				sortedIPs = append(sortedIPs, result.IP)
+				rtts = append(rtts, result.RTT)
+				// Note: s.stats.IncPingSuccesses() is not called here as it's handled in performPingSort
+			}
+			return sortedIPs, rtts, nil
+		})
+	}
+
+	var newPrefetcher *prefetch.Prefetcher
+	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
+		log.Println("Reloading Prefetcher due to configuration changes.")
+		newPrefetcher = prefetch.NewPrefetcher(&newCfg.Prefetch, s.stats, s.cache, s)
+	}
+
+	// Now, acquire the lock and swap the components.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Println("Applying new configuration...")
-
-	// 1. Reload Upstream client if needed
-	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
-		log.Println("Reloading Upstream client due to configuration changes.")
-		s.upstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+	if newUpstream != nil {
+		s.upstream = newUpstream
 	}
 
-	// 2. Reload Pinger if needed
-	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
-		log.Println("Reloading Pinger due to configuration changes.")
-		s.pinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.Strategy)
+	if newPinger != nil {
+		s.pinger = newPinger
 	}
 
-	// 3. Reload SortQueue if needed
-	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
-		log.Printf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
+	if newSortQueue != nil {
 		s.sortQueue.Stop()
-		newSortQueue := cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
-		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
-			// Use a read-lock for the ping sort operation itself
-			s.mu.RLock()
-			defer s.mu.RUnlock()
-			return s.performPingSort(ctx, ips)
-		})
 		s.sortQueue = newSortQueue
 	}
 
-	// 4. Reload Prefetcher if needed
-	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
-		log.Println("Reloading Prefetcher due to configuration changes.")
+	if newPrefetcher != nil {
 		s.prefetcher.Stop()
-		newPrefetcher := prefetch.NewPrefetcher(&newCfg.Prefetch, s.stats, s.cache, s)
 		s.prefetcher = newPrefetcher
 		s.prefetcher.Start()
 	}
 
-	// 5. Update the config reference
+	// Update the config reference
 	s.cfg = newCfg
 
 	log.Println("New configuration applied successfully.")

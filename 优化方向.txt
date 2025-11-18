@@ -1,0 +1,12 @@
+1、当前刷新web界面后dns查询卡住无法查询。热门列表没有加载。
+写入配置后
+2025/11/18 10:00:34 Configuration saved to config.yaml
+2025/11/18 10:00:34 Applying new configuration...
+2025/11/18 10:00:34 Reloading Upstream client due to configuration changes.
+2025/11/18 10:00:37 Configuration saved to config.yaml
+2025/11/18 10:00:37 Applying new configuration...
+2025/11/18 10:00:37 Reloading Upstream client due to configuration changes.
+2025/11/18 10:01:09 Configuration saved to config.yaml
+2025/11/18 10:01:09 Applying new configuration...
+2025/11/18 10:01:09 Reloading Upstream client due to configuration changes.
+网页没有响应显示：Connecting...。dns查询同时卡死。

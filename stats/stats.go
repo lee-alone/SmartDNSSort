@@ -216,6 +216,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"failed_nodes":      failedNodesCopy,
 		"upstream_stats":    upstreamStats,
 		"system_stats":      sysStats,
+		"top_domains":       s.GetTopDomains(10),
 	}
 }
 

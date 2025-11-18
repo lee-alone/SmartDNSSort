@@ -66,8 +66,11 @@ func (s *Server) Start() error {
 	// 注册 API 路由
 	http.HandleFunc("/api/query", s.handleQuery)
 	http.HandleFunc("/api/stats", s.handleStats)
+	http.HandleFunc("/api/stats/clear", s.handleClearStats) // New
 	http.HandleFunc("/api/cache/clear", s.handleClearCache)
 	http.HandleFunc("/api/config", s.handleConfig) // New endpoint for config
+	http.HandleFunc("/api/recent-queries", s.handleRecentQueries) // New
+	http.HandleFunc("/api/hot-domains", s.handleHotDomains)       // New
 	http.HandleFunc("/health", s.handleHealth)
 
 	// 首先尝试使用内嵌的 web 文件
@@ -256,13 +259,48 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Cache cleared successfully"))
 }
 
+// handleClearStats handles clearing all statistics.
+// Usage: POST /api/stats/clear
+func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	s.dnsServer.ClearStats()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("All stats cleared successfully"))
+}
+
+// handleRecentQueries handles fetching the recent queries list.
+// Usage: GET /api/recent-queries
+func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
+	queries := s.dnsServer.GetRecentQueries()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(queries); err != nil {
+		http.Error(w, "Failed to encode recent queries: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleHotDomains handles fetching the hot domains list.
+// Usage: GET /api/hot-domains
+func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
+	// We need to access the stats object from the dnsServer to get the top domains
+	stats := s.dnsServer.GetStats()
+	topDomainsList := stats["top_domains"]
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(topDomainsList); err != nil {
+		http.Error(w, "Failed to encode hot domains: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // handleConfig handles getting and setting the configuration.
 // GET /api/config - returns the current running configuration.
 // POST /api/config - receives a new configuration, saves it, and applies it.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.handleGetConfig(w, r)
+		s.handleGetConfig(w)
 	case http.MethodPost:
 		s.handlePostConfig(w, r)
 	default:
@@ -270,7 +308,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetConfig(w http.ResponseWriter) {
 	currentConfig := s.dnsServer.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
