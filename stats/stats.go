@@ -174,10 +174,24 @@ func (s *Stats) GetStats() map[string]interface{} {
 	}
 
 	// 获取系统状态 (使用 gopsutil)
-	// 注意：这里的 CPU 使用率计算可能会有短暂的阻塞
-	cpuUsage, err := cpu.Percent(time.Millisecond*200, false)
-	if err != nil {
-		log.Printf("无法获取 CPU 使用率: %v", err)
+	// 使用非阻塞方式获取CPU使用率，避免阻塞统计调用
+	var cpuUsage []float64
+	cpuUsageCh := make(chan []float64, 1)
+	go func() {
+		usage, err := cpu.Percent(time.Millisecond*200, false)
+		if err != nil {
+			log.Printf("无法获取 CPU 使用率: %v", err)
+			cpuUsageCh <- []float64{0.0}
+			return
+		}
+		cpuUsageCh <- usage
+	}()
+	
+	// 等待CPU使用率结果，但设置超时避免长时间阻塞
+	select {
+	case cpuUsage = <-cpuUsageCh:
+	case <-time.After(100 * time.Millisecond):
+		// 超时，使用默认值
 		cpuUsage = []float64{0.0}
 	}
 

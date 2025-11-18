@@ -527,19 +527,7 @@
                 .catch(error => alert('An error occurred while trying to clear statistics.'));
         });
 
-        document.getElementById('clearStatsButton').addEventListener('click', () => {
-            if (!confirm('Are you sure you want to clear all general and upstream statistics? This action cannot be undone.')) return;
-            fetch('/api/stats/clear', { method: 'POST' })
-                .then(response => {
-                    if (response.ok) {
-                        alert('All statistics cleared successfully!');
-                        updateStats(); // Refresh stats to show zeros
-                    } else {
-                        alert('Failed to clear statistics.');
-                    }
-                })
-                .catch(error => alert('An error occurred while trying to clear statistics.'));
-        });
+
 
         // --- Configuration Logic ---
         const CONFIG_API_URL = '/api/config';

@@ -138,13 +138,18 @@ func (s *Server) Start() error {
 //   - 异步重新查询上游 DNS，更新缓存与排序结果
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	s.stats.IncQueries()
+	// Copy pointers and values needed for the query under the read lock
+	currentUpstream := s.upstream
+	currentCfg := s.cfg
+	currentStats := s.stats
+	s.mu.RUnlock() // Release the lock early
+
+	currentStats.IncQueries()
 
 	// 记录域名查询
 	if len(r.Question) > 0 {
 		domain := strings.TrimRight(r.Question[0].Name, ".")
-		s.stats.RecordDomainQuery(domain)
+		currentStats.RecordDomainQuery(domain)
 		s.RecordRecentQuery(domain)
 	}
 
@@ -169,29 +174,29 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
-	// ========== 阶段二：排序完成后缓存命中 ========== 
+	// ========== 阶段二：排序完成后缓存命中 ==========
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
-		s.stats.IncCacheHits()
+		currentStats.IncCacheHits()
 		log.Printf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (TTL=%d秒)\n",
-			domain, dns.TypeToString[question.Qtype], sorted.IPs, s.cfg.Cache.UserReturnTTL)
+			domain, dns.TypeToString[question.Qtype], sorted.IPs, currentCfg.Cache.UserReturnTTL)
 
 		// 使用 user_return_ttl 作为响应的 TTL
-		s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, uint32(s.cfg.Cache.UserReturnTTL))
+		s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, uint32(currentCfg.Cache.UserReturnTTL))
 		w.WriteMsg(msg)
 		return
 	}
 
-	s.stats.IncCacheMisses()
+	currentStats.IncCacheMisses()
 
-	// ========== 阶段三：缓存过期后再次访问 ========== 
+	// ========== 阶段三：缓存过期后再次访问 ==========
 	// 检查原始缓存（上游 DNS 响应缓存）
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
 		log.Printf("[handleQuery] 原始缓存命中（缓存已过期，但仍在池中）: %s (type=%s) -> %v\n",
 			domain, dns.TypeToString[question.Qtype], raw.IPs)
 
 		// 立即返回旧缓存，使用 fast_response_ttl
-		fastTTL := uint32(s.cfg.Cache.FastResponseTTL)
+		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		s.buildDNSResponse(msg, domain, raw.IPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
@@ -200,22 +205,22 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// ========== 阶段一：首次查询（无缓存）========== 
+	// ========== 阶段一：首次查询（无缓存）==========
 	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
 	// 查询上游 DNS
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cfg.Upstream.TimeoutMs)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
 
-	result, err := s.upstream.QueryAll(ctx, domain)
+	result, err := currentUpstream.QueryAll(ctx, domain)
 	var ips []string
-	var upstreamTTL uint32 = uint32(s.cfg.Cache.MaxTTLSeconds)
+	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
 		// 回退到特定类型查询
-		result, err = s.upstream.Query(ctx, domain, question.Qtype)
+		result, err = currentUpstream.Query(ctx, domain, question.Qtype)
 		if err != nil {
-			s.stats.IncUpstreamFailures()
+			currentStats.IncUpstreamFailures()
 			log.Printf("[handleQuery] 上游查询失败: %v\n", err)
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(msg)
@@ -232,10 +237,10 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		domain, len(ips), upstreamTTL, ips)
 
 	// 使用 fast_response_ttl 缓存原始响应
-	s.cache.SetRaw(domain, question.Qtype, ips, uint32(s.cfg.Cache.FastResponseTTL))
+	s.cache.SetRaw(domain, question.Qtype, ips, uint32(currentCfg.Cache.FastResponseTTL))
 
 	// 使用 fast_response_ttl 快速返回给用户
-	fastTTL := uint32(s.cfg.Cache.FastResponseTTL)
+	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 	s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
 	w.WriteMsg(msg)
 

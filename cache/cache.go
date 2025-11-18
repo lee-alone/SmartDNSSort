@@ -198,12 +198,19 @@ func (c *Cache) GetStats() (hits, misses int64) {
 
 // Clear 清空缓存
 func (c *Cache) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+    c.mu.Lock()
+    defer c.mu.Unlock()
 
-	c.rawCache = make(map[string]*RawCacheEntry)
-	c.sortedCache = make(map[string]*SortedCacheEntry)
-	c.sortingState = make(map[string]*SortingState)
+    // 首先关闭所有进行中的排序任务的 Done 通道，避免 goroutine 泄漏
+    for _, state := range c.sortingState {
+        if state.InProgress && state.Done != nil {
+            close(state.Done)
+        }
+    }
+
+    c.rawCache = make(map[string]*RawCacheEntry)
+    c.sortedCache = make(map[string]*SortedCacheEntry)
+    c.sortingState = make(map[string]*SortingState)
 }
 
 // CleanExpired 清理过期项
