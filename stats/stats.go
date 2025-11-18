@@ -128,30 +128,15 @@ func (s *Stats) RecordFailedNode(node string) {
 
 // GetStats 获取所有统计数据
 func (s *Stats) GetStats() map[string]interface{} {
+	// 1. 快速获取所有需要锁定的数据
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	queries := atomic.LoadInt64(&s.queries)
-	var hitRate float64
-	if queries > 0 {
-		hits := atomic.LoadInt64(&s.cacheHits)
-		hitRate = float64(hits) / float64(queries) * 100
-	}
-
-	var avgRTT int64
-	pings := atomic.LoadInt64(&s.pingSuccesses)
-	if pings > 0 {
-		avgRTT = atomic.LoadInt64(&s.totalRTT) / pings
-	}
-
-	failedNodesCopy := make(map[string]int64)
+	failedNodesCopy := make(map[string]int64, len(s.failedNodes))
 	for k, v := range s.failedNodes {
 		failedNodesCopy[k] = v
 	}
 
 	// 复制上游统计数据
 	upstreamStats := make(map[string]map[string]int64)
-	// 合并所有已知的上游服务器地址
 	allUpstreams := make(map[string]bool)
 	for server := range s.upstreamSuccess {
 		allUpstreams[server] = true
@@ -172,6 +157,23 @@ func (s *Stats) GetStats() map[string]interface{} {
 			upstreamStats[server]["failure"] = atomic.LoadInt64(counter)
 		}
 	}
+	s.mu.RUnlock() // 尽快释放锁
+
+	// 2. 在锁之外执行耗时操作
+	topDomains := s.GetTopDomains(10) // 这个函数有自己的锁
+
+	queries := atomic.LoadInt64(&s.queries)
+	var hitRate float64
+	if queries > 0 {
+		hits := atomic.LoadInt64(&s.cacheHits)
+		hitRate = float64(hits) / float64(queries) * 100
+	}
+
+	var avgRTT int64
+	pings := atomic.LoadInt64(&s.pingSuccesses)
+	if pings > 0 {
+		avgRTT = atomic.LoadInt64(&s.totalRTT) / pings
+	}
 
 	// 获取系统状态 (使用 gopsutil)
 	// 使用非阻塞方式获取CPU使用率，避免阻塞统计调用
@@ -186,7 +188,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		}
 		cpuUsageCh <- usage
 	}()
-	
+
 	// 等待CPU使用率结果，但设置超时避免长时间阻塞
 	select {
 	case cpuUsage = <-cpuUsageCh:
@@ -230,7 +232,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"failed_nodes":      failedNodesCopy,
 		"upstream_stats":    upstreamStats,
 		"system_stats":      sysStats,
-		"top_domains":       s.GetTopDomains(10),
+		"top_domains":       topDomains,
 	}
 }
 

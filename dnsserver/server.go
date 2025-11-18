@@ -411,11 +411,15 @@ func (s *Server) cleanCacheRoutine() {
 
 // GetStats 获取统计信息
 func (s *Server) GetStats() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.stats.GetStats()
 }
 
 // ClearStats clears all collected statistics.
 func (s *Server) ClearStats() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	log.Println("Clearing all statistics via API request.")
 	s.stats.Reset()
 }

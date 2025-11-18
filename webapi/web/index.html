@@ -201,6 +201,8 @@
         .btn-danger:hover { background-color: #c82333; }
         .btn-warning { background-color: #ffc107; color: #212529; }
         .btn-warning:hover { background-color: #e0a800; }
+        .btn-primary { background-color: var(--primary-color); }
+        .btn-primary:hover { background-color: #0069d9; }
     </style>
 </head>
 <body>
@@ -219,6 +221,7 @@
                     <h2>Management</h2>
                     <button id="clearCacheButton" class="btn btn-warning">Clear DNS Cache</button>
                     <button id="clearStatsButton" class="btn btn-danger" style="margin-left: 10px;">Clear All Stats</button>
+                    <button id="refreshButton" class="btn btn-primary" style="margin-left: 10px;">Refresh</button>
                 </div>
                 <div class="card">
                     <h2>General Stats</h2>
@@ -425,7 +428,6 @@
 
         // --- Dashboard / Stats Logic ---
         const API_URL = '/api/stats';
-        const REFRESH_INTERVAL = 3000;
 
         function updateDashboard() {
             // Fetch main stats and hot domains
@@ -526,6 +528,8 @@
                 })
                 .catch(error => alert('An error occurred while trying to clear statistics.'));
         });
+
+        document.getElementById('refreshButton').addEventListener('click', updateDashboard);
 
 
 
@@ -657,7 +661,6 @@
 
         // Initial Load
         updateDashboard();
-        setInterval(updateDashboard, REFRESH_INTERVAL);
         loadConfig();
     </script>
 </body>
