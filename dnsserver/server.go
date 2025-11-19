@@ -259,6 +259,25 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		return
 	}
 
+	// 优化：如果只有一个IP，则无需排序
+	if len(ips) == 1 {
+		log.Printf("[sortIPsAsync] 只有一个IP，跳过排序: %s (type=%s) -> %s\n",
+			domain, dns.TypeToString[qtype], ips[0])
+
+		// 直接创建排序结果
+		result := &cache.SortedCacheEntry{
+			IPs:       ips,
+			RTTs:      []int{0}, // RTT 为 0，因为没有测试
+			Timestamp: time.Now(),
+			TTL:       int(upstreamTTL),
+			IsValid:   true,
+		}
+
+		// 直接调用回调函数处理排序完成的逻辑
+		s.handleSortComplete(domain, qtype, result, nil)
+		return
+	}
+
 	log.Printf("[sortIPsAsync] 启动异步排序任务: %s (type=%s), IP数量=%d\n",
 		domain, dns.TypeToString[qtype], len(ips))
 
