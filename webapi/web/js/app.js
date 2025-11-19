@@ -1,0 +1,246 @@
+let originalConfig = {}; // Store the original config to preserve uneditable fields
+
+// --- Tab Management ---
+function showTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(tabName).classList.add('active');
+    document.querySelector(`.tab-button[onclick="showTab('${tabName}')"]`).classList.add('active');
+}
+
+// --- Dashboard / Stats Logic ---
+const API_URL = '/api/stats';
+
+function updateDashboard() {
+    // Fetch main stats and hot domains
+    fetch(API_URL)
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            document.getElementById('total_queries').textContent = data.total_queries || 0;
+            document.getElementById('cache_hits').textContent = data.cache_hits || 0;
+            document.getElementById('cache_misses').textContent = data.cache_misses || 0;
+            document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
+            document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
+            if (data.system_stats) {
+                const sys = data.system_stats;
+                document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
+                document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
+                document.getElementById('goroutines').textContent = sys.goroutines || 0;
+            }
+            if (data.upstream_stats) {
+                const upstreamTable = document.getElementById('upstream_stats').getElementsByTagName('tbody')[0];
+                upstreamTable.innerHTML = '';
+                const servers = Object.keys(data.upstream_stats).sort();
+                servers.forEach(server => {
+                    const stats = data.upstream_stats[server];
+                    const row = upstreamTable.insertRow();
+                    row.innerHTML = `<td>${server}</td><td class="value">${stats.success || 0}</td><td class="value">${stats.failure || 0}</td>`;
+                });
+            }
+            const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
+            hotDomainsTable.innerHTML = '';
+            if (data.top_domains && data.top_domains.length > 0) {
+                data.top_domains.forEach(item => {
+                    const row = hotDomainsTable.insertRow();
+                    row.innerHTML = `<td>${item.Domain}</td><td class="value">${item.Count}</td>`;
+                });
+            } else {
+                hotDomainsTable.innerHTML = '<tr><td colspan="2" style="text-align:center;">No domain data yet.</td></tr>';
+            }
+            document.getElementById('status').textContent = 'Connected';
+            document.getElementById('status').className = 'status connected';
+        })
+        .catch(error => {
+            console.error('Error fetching stats:', error);
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = 'Error: Could not fetch stats.';
+            statusEl.className = 'status error';
+        });
+
+    // Fetch recent queries
+    fetch('/api/recent-queries')
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load recent queries'))
+        .then(data => {
+            const recentQueriesList = document.getElementById('recent_queries_list');
+            recentQueriesList.innerHTML = '';
+            if (data && data.length > 0) {
+                data.forEach(domain => {
+                    const div = document.createElement('div');
+                    div.textContent = domain;
+                    recentQueriesList.appendChild(div);
+                });
+            } else {
+                recentQueriesList.innerHTML = '<div style="text-align:center;">No recent queries.</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching recent queries:', error);
+            const recentQueriesList = document.getElementById('recent_queries_list');
+            recentQueriesList.innerHTML = '<div style="text-align:center; color: red;">Error loading data.</div>';
+        });
+}
+
+document.getElementById('clearCacheButton').addEventListener('click', () => {
+    if (!confirm('Are you sure you want to clear the entire DNS cache?')) return;
+    fetch('/api/cache/clear', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                alert('DNS cache cleared successfully!');
+                updateDashboard();
+            } else {
+                alert('Failed to clear DNS cache.');
+            }
+        })
+        .catch(error => alert('An error occurred while trying to clear the DNS cache.'));
+});
+
+document.getElementById('clearStatsButton').addEventListener('click', () => {
+    if (!confirm('Are you sure you want to clear all general and upstream statistics? This action cannot be undone.')) return;
+    fetch('/api/stats/clear', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                alert('All statistics cleared successfully!');
+                updateDashboard(); // Refresh stats to show zeros
+            } else {
+                alert('Failed to clear statistics.');
+            }
+        })
+        .catch(error => alert('An error occurred while trying to clear statistics.'));
+});
+
+document.getElementById('refreshButton').addEventListener('click', updateDashboard);
+
+
+
+// --- Configuration Logic ---
+const CONFIG_API_URL = '/api/config';
+
+function populateForm(config) {
+    try {
+        originalConfig = config; // Save the original config
+
+        const setValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+            else console.error(`Form element with ID not found: ${id}`);
+        };
+        const setChecked = (id, checked) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = checked;
+            else console.error(`Form element with ID not found: ${id}`);
+        };
+
+        // Use helpers
+        setValue('dns.listen_port', config.dns.listen_port);
+        setChecked('dns.enable_tcp', config.dns.enable_tcp);
+        setChecked('dns.enable_ipv6', config.dns.enable_ipv6);
+        setValue('upstream.strategy', config.upstream.strategy);
+        setValue('upstream.timeout_ms', config.upstream.timeout_ms);
+        setValue('upstream.concurrency', config.upstream.concurrency);
+        setValue('ping.count', config.ping.count);
+        setValue('ping.timeout_ms', config.ping.timeout_ms);
+        setValue('ping.concurrency', config.ping.concurrency);
+        setValue('ping.strategy', config.ping.strategy);
+        setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
+        setValue('cache.user_return_ttl', config.cache.user_return_ttl);
+        setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
+        setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
+        setChecked('prefetch.enabled', config.prefetch.enabled);
+        setValue('prefetch.top_domains_limit', config.prefetch.top_domains_limit);
+        setValue('prefetch.refresh_before_expire_seconds', config.prefetch.refresh_before_expire_seconds);
+        setChecked('webui.enabled', config.webui.enabled);
+        setValue('webui.listen_port', config.webui.listen_port);
+        setValue('system.max_cpu_cores', config.system.max_cpu_cores);
+        setValue('system.sort_queue_workers', config.system.sort_queue_workers);
+
+        // Array values
+        setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
+    } catch (e) {
+        console.error("Error inside populateForm:", e);
+        alert("An error occurred while displaying the configuration. Check developer console (F12).");
+    }
+}
+
+function loadConfig() {
+    fetch(CONFIG_API_URL)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(populateForm)
+        .catch(error => {
+            console.error('Could not load or process configuration:', error);
+            alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
+        });
+}
+
+function saveConfig() {
+    const form = document.getElementById('configForm');
+
+    // Start with the original config to preserve uneditable fields like adblock
+    const data = originalConfig;
+
+    // Overwrite with form values
+    data.dns = {
+        listen_port: parseInt(form.elements['dns.listen_port'].value),
+        enable_tcp: form.elements['dns.enable_tcp'].checked,
+        enable_ipv6: form.elements['dns.enable_ipv6'].checked,
+    };
+    data.upstream = {
+        servers: form.elements['upstream.servers'].value.split('\n').filter(s => s.trim() !== ''),
+        strategy: form.elements['upstream.strategy'].value,
+        timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value),
+        concurrency: parseInt(form.elements['upstream.concurrency'].value),
+    };
+    data.ping = {
+        count: parseInt(form.elements['ping.count'].value),
+        timeout_ms: parseInt(form.elements['ping.timeout_ms'].value),
+        concurrency: parseInt(form.elements['ping.concurrency'].value),
+        strategy: form.elements['ping.strategy'].value,
+    };
+    data.cache = {
+        fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value),
+        user_return_ttl: parseInt(form.elements['cache.user_return_ttl'].value),
+        min_ttl_seconds: parseInt(form.elements['cache.min_ttl_seconds'].value),
+        max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value),
+    };
+    data.prefetch = {
+        enabled: form.elements['prefetch.enabled'].checked,
+        top_domains_limit: parseInt(form.elements['prefetch.top_domains_limit'].value),
+        refresh_before_expire_seconds: parseInt(form.elements['prefetch.refresh_before_expire_seconds'].value),
+    };
+    data.webui = {
+        enabled: form.elements['webui.enabled'].checked,
+        listen_port: parseInt(form.elements['webui.listen_port'].value),
+    };
+    data.system = {
+        max_cpu_cores: parseInt(form.elements['system.max_cpu_cores'].value),
+        sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value),
+    };
+
+    fetch(CONFIG_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+        .then(response => {
+            if (response.ok) {
+                alert('Configuration saved and applied successfully!');
+            } else {
+                response.text().then(text => alert('Failed to save configuration: ' + text));
+            }
+        })
+        .catch(error => {
+            console.error('Error saving config:', error);
+            alert('An error occurred while saving the configuration.');
+        });
+}
+
+// Initial Load
+updateDashboard();
+loadConfig();
