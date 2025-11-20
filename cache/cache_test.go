@@ -57,19 +57,16 @@ func TestRawCache(t *testing.T) {
 	domain := "raw.example.com"
 	qtype := dns.TypeAAAA
 
-	entry := &RawCacheEntry{
-		IPs:       []string{"2001:4860:4860::8888"},
-		TTL:       60,
-		Timestamp: time.Now(),
-	}
+	ips := []string{"2001:4860:4860::8888"}
+	upstreamTTL := uint32(60)
 
-	c.SetRaw(domain, qtype, entry.IPs, entry.TTL)
+	c.SetRaw(domain, qtype, ips, upstreamTTL)
 
 	retrieved, ok := c.GetRaw(domain, qtype)
 	assert.True(t, ok, "Expected to find raw cache entry")
 	assert.NotNil(t, retrieved, "Retrieved entry should not be nil")
-	assert.Equal(t, entry.IPs, retrieved.IPs, "IPs should match")
-	assert.Equal(t, entry.TTL, retrieved.TTL, "TTL should match")
+	assert.Equal(t, ips, retrieved.IPs, "IPs should match")
+	assert.Equal(t, upstreamTTL, retrieved.UpstreamTTL, "UpstreamTTL should match")
 }
 
 // TestRawCacheExpiration tests the expiration logic for the raw cache.
@@ -78,13 +75,15 @@ func TestRawCacheExpiration(t *testing.T) {
 	domain := "expired-raw.example.com"
 	qtype := dns.TypeA
 
-	entry := &RawCacheEntry{
-		IPs:       []string{"1.2.3.4"},
-		TTL:       60,
-		Timestamp: time.Now().Add(-100 * time.Second), // Expired
+	// 直接设置过期的缓存条目（不通过 SetRaw，因为它会覆盖 AcquisitionTime）
+	c.mu.Lock()
+	key := cacheKey(domain, qtype)
+	c.rawCache[key] = &RawCacheEntry{
+		IPs:             []string{"1.2.3.4"},
+		UpstreamTTL:     60,
+		AcquisitionTime: time.Now().Add(-100 * time.Second), // 100秒前获取，TTL 60秒，已过期
 	}
-
-	c.SetRaw(domain, qtype, entry.IPs, entry.TTL)
+	c.mu.Unlock()
 
 	_, ok := c.GetRaw(domain, qtype)
 	assert.False(t, ok, "Expected expired raw entry to be invalid")

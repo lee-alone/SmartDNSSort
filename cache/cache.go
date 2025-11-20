@@ -8,15 +8,15 @@ import (
 
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
-	IPs       []string  // 原始 IP 列表
-	TTL       uint32    // 上游 DNS 返回的 TTL
-	Timestamp time.Time // 缓存时间
+	IPs             []string  // 原始 IP 列表
+	UpstreamTTL     uint32    // 上游 DNS 返回的原始 TTL（秒）
+	AcquisitionTime time.Time // 从上游获取的时间
 }
-
 
 // IsExpired 检查原始缓存是否过期
 func (e *RawCacheEntry) IsExpired() bool {
-	return time.Since(e.Timestamp).Seconds() > float64(e.TTL)
+	elapsed := time.Since(e.AcquisitionTime).Seconds()
+	return elapsed > float64(e.UpstreamTTL)
 }
 
 // SortedCacheEntry 排序后的缓存项
@@ -94,17 +94,27 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 	return entry, true
 }
 
+// GetRawUnsafe 获取原始缓存（不检查过期，用于 TTL 计算）
+func (c *Cache) GetRawUnsafe(domain string, qtype uint16) (*RawCacheEntry, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := cacheKey(domain, qtype)
+	entry, exists := c.rawCache[key]
+	return entry, exists
+}
+
 // SetRaw 设置原始缓存（上游 DNS 响应）
-// 返回是否设置成功（过期检查）
-func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, ttl uint32) {
+// ttl 参数是上游 DNS 返回的原始 TTL（秒）
+func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, upstreamTTL uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	key := cacheKey(domain, qtype)
 	c.rawCache[key] = &RawCacheEntry{
-		IPs:       ips,
-		TTL:       ttl,
-		Timestamp: time.Now(),
+		IPs:             ips,
+		UpstreamTTL:     upstreamTTL,
+		AcquisitionTime: time.Now(),
 	}
 }
 
@@ -198,19 +208,19 @@ func (c *Cache) GetStats() (hits, misses int64) {
 
 // Clear 清空缓存
 func (c *Cache) Clear() {
-    c.mu.Lock()
-    defer c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-    // 首先关闭所有进行中的排序任务的 Done 通道，避免 goroutine 泄漏
-    for _, state := range c.sortingState {
-        if state.InProgress && state.Done != nil {
-            close(state.Done)
-        }
-    }
+	// 首先关闭所有进行中的排序任务的 Done 通道，避免 goroutine 泄漏
+	for _, state := range c.sortingState {
+		if state.InProgress && state.Done != nil {
+			close(state.Done)
+		}
+	}
 
-    c.rawCache = make(map[string]*RawCacheEntry)
-    c.sortedCache = make(map[string]*SortedCacheEntry)
-    c.sortingState = make(map[string]*SortingState)
+	c.rawCache = make(map[string]*RawCacheEntry)
+	c.sortedCache = make(map[string]*SortedCacheEntry)
+	c.sortingState = make(map[string]*SortingState)
 }
 
 // CleanExpired 清理过期项

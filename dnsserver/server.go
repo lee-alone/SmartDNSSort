@@ -27,7 +27,6 @@ type Server struct {
 	cache              *cache.Cache
 	upstream           *upstream.Upstream
 	pinger             *ping.Pinger
-	dnsServer          *dns.Server
 	sortQueue          *cache.SortQueue
 	prefetcher         *prefetch.Prefetcher
 	recentQueries      [20]string // Circular buffer for recent queries
@@ -237,7 +236,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		domain, len(ips), upstreamTTL, ips)
 
 	// 使用 fast_response_ttl 缓存原始响应
-	s.cache.SetRaw(domain, question.Qtype, ips, uint32(currentCfg.Cache.FastResponseTTL))
+	s.cache.SetRaw(domain, question.Qtype, ips, upstreamTTL)
 
 	// 使用 fast_response_ttl 快速返回给用户
 	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
@@ -245,12 +244,27 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(msg)
 
 	// 异步启动 IP 排序任务
-	go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL)
+	go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
+}
+
+// calculateRemainingTTL 计算剩余 TTL
+// 基于上游 TTL 和获取时间，减去已过去的时间，并应用 min/max 限制
+func (s *Server) calculateRemainingTTL(upstreamTTL uint32, acquisitionTime time.Time) int {
+	elapsed := time.Since(acquisitionTime).Seconds()
+	remaining := int(upstreamTTL) - int(elapsed)
+	// 应用 min/max 限制
+	if remaining < s.cfg.Cache.MinTTLSeconds {
+		remaining = s.cfg.Cache.MinTTLSeconds
+	}
+	if remaining > s.cfg.Cache.MaxTTLSeconds {
+		remaining = s.cfg.Cache.MaxTTLSeconds
+	}
+	return remaining
 }
 
 // sortIPsAsync 异步排序 IP 地址
 // 排序完成后会更新排序缓存
-func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstreamTTL uint32) {
+func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstreamTTL uint32, acquisitionTime time.Time) {
 	// 检查是否已有排序任务在进行
 	_, isNew := s.cache.GetOrStartSort(domain, qtype)
 	if !isNew {
@@ -286,7 +300,7 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		Domain: domain,
 		Qtype:  qtype,
 		IPs:    ips,
-		TTL:    upstreamTTL,
+		TTL:    uint32(s.calculateRemainingTTL(upstreamTTL, acquisitionTime)),
 		Callback: func(result *cache.SortedCacheEntry, err error) {
 			s.handleSortComplete(domain, qtype, result, err)
 		},
@@ -320,15 +334,14 @@ func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.S
 	log.Printf("[handleSortComplete] 排序完成: %s (type=%s) -> %v (RTT: %v)\n",
 		domain, dns.TypeToString[qtype], result.IPs, result.RTTs)
 
-	// 应用 TTL 范围限制
-	finalTTL := uint32(result.TTL)
-	if finalTTL < uint32(s.cfg.Cache.MinTTLSeconds) {
-		finalTTL = uint32(s.cfg.Cache.MinTTLSeconds)
+	// 从原始缓存获取获取时间，计算剩余 TTL
+	raw, exists := s.cache.GetRawUnsafe(domain, qtype)
+	if exists && raw != nil {
+		result.TTL = s.calculateRemainingTTL(raw.UpstreamTTL, raw.AcquisitionTime)
+	} else {
+		// 如果原始缓存不存在（极少发生），使用最小 TTL 作为兜底
+		result.TTL = s.cfg.Cache.MinTTLSeconds
 	}
-	if finalTTL > uint32(s.cfg.Cache.MaxTTLSeconds) {
-		finalTTL = uint32(s.cfg.Cache.MaxTTLSeconds)
-	}
-	result.TTL = int(finalTTL)
 
 	// 缓存排序结果
 	s.cache.SetSorted(domain, qtype, result)
@@ -365,7 +378,7 @@ func (s *Server) refreshCacheAsync(domain string, qtype uint16) {
 	s.cache.SetRaw(domain, qtype, result.IPs, result.TTL)
 
 	// 异步排序更新
-	go s.sortIPsAsync(domain, qtype, result.IPs, result.TTL)
+	go s.sortIPsAsync(domain, qtype, result.IPs, result.TTL, time.Now())
 }
 
 // RefreshDomain is the public method to trigger a cache refresh for a domain.

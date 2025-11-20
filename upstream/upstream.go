@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"net"
 	"smartdnssort/stats"
@@ -205,6 +206,34 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 	return &QueryResult{IPs: ips, TTL: ttl, Server: server}
 }
 
+// Exchange 原始 DNS 消息交换（QueryAll 必须依赖它）
+// 为了保持和 queryRandom 一样的行为，这里随机选一个上游服务器进行查询
+func (u *Upstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	if len(u.servers) == 0 {
+		return nil, fmt.Errorf("no upstream servers configured")
+	}
+
+	// 随机选一个服务器，和 queryRandom 策略保持一致（最快）
+	server := u.servers[rand.Intn(len(u.servers))]
+
+	// 确保有端口
+	if _, _, err := net.SplitHostPort(server); err != nil {
+		server = net.JoinHostPort(server, "53")
+	}
+
+	client := &dns.Client{
+		Net:     "udp",
+		Timeout: time.Duration(u.timeoutMs) * time.Millisecond,
+	}
+
+	// 直接使用 miekg/dns 的 ExchangeContext
+	reply, _, err := client.ExchangeContext(ctx, m, server)
+	if err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
 // extractIPs 从 DNS 响应中提取 IP 地址和最小 TTL
 // 返回值：IP 列表、最小 TTL（秒）
 func extractIPs(msg *dns.Msg) ([]string, uint32) {
@@ -236,63 +265,75 @@ func extractIPs(msg *dns.Msg) ([]string, uint32) {
 	return ips, minTTL
 }
 
-// QueryAll 查询域名的所有 A 和 AAAA 记录，返回混合的 IP 列表和最小 TTL
+// QueryAll —— 保底版，Answer + Extra + Ns 段全扫，永不漏 AAAA
 func (u *Upstream) QueryAll(ctx context.Context, domain string) (*QueryResultWithTTL, error) {
-	// 并发查询 A 和 AAAA 记录
-	resChan := make(chan *QueryResultWithTTL, 2)
-	errChan := make(chan error, 2)
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+	m.SetEdns0(4096, true) // 必须！不然很多上游会截断附加记录
 
-	// 查询 A 记录
-	go func() {
-		result, err := u.Query(ctx, domain, dns.TypeA)
-		if err != nil {
-			errChan <- nil // A 记录可能不存在，不作为错误
-		} else {
-			resChan <- result
+	in, err := u.Exchange(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	if in.Rcode != dns.RcodeSuccess {
+		return nil, fmt.Errorf("bad rcode: %d", in.Rcode)
+	}
+
+	var ips []string
+	minTTL := uint32(math.MaxUint32)
+	questionName := in.Question[0].Name
+
+	// 1. Answer 段（最常见）
+	for _, rr := range in.Answer {
+		if rr.Header().Name != questionName {
+			continue
 		}
-	}()
-
-	// 查询 AAAA 记录
-	go func() {
-		result, err := u.Query(ctx, domain, dns.TypeAAAA)
-		if err != nil {
-			errChan <- nil // AAAA 记录可能不存在，不作为错误
-		} else {
-			resChan <- result
-		}
-	}()
-
-	// 收集结果
-	var allIPs []string
-	var minTTL uint32 = 0
-	count := 0
-
-	for count < 2 {
-		select {
-		case result := <-resChan:
-			if result != nil {
-				allIPs = append(allIPs, result.IPs...)
-				// 取最小 TTL
-				if minTTL == 0 || result.TTL < minTTL {
-					minTTL = result.TTL
-				}
+		switch v := rr.(type) {
+		case *dns.A:
+			ips = append(ips, v.A.String())
+			if v.Header().Ttl < minTTL {
+				minTTL = v.Header().Ttl
 			}
-			count++
-		case <-errChan:
-			count++
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case *dns.AAAA:
+			ips = append(ips, v.AAAA.String())
+			if v.Header().Ttl < minTTL {
+				minTTL = v.Header().Ttl
+			}
 		}
 	}
 
-	if len(allIPs) == 0 {
-		return nil, fmt.Errorf("no A or AAAA records found")
+	// 2. Extra 段（Unbound 疯狂爱放这里！）
+	for _, rr := range in.Extra {
+		if rr.Header().Name != questionName {
+			continue
+		}
+		if aaaa, ok := rr.(*dns.AAAA); ok {
+			ips = append(ips, aaaa.AAAA.String())
+			if aaaa.Header().Ttl < minTTL {
+				minTTL = aaaa.Header().Ttl
+			}
+		}
 	}
 
-	// 如果 minTTL 未设置，使用默认值
-	if minTTL == 0 {
+	// 3. 极少数情况会放在 Ns 段（保险起见也扫一下）
+	for _, rr := range in.Ns {
+		if rr.Header().Name != questionName {
+			continue
+		}
+		if aaaa, ok := rr.(*dns.AAAA); ok {
+			ips = append(ips, aaaa.AAAA.String())
+			if aaaa.Header().Ttl < minTTL {
+				minTTL = aaaa.Header().Ttl
+			}
+		}
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no A/AAAA found for %s", domain)
+	}
+	if minTTL == math.MaxUint32 {
 		minTTL = 60
 	}
 
-	return &QueryResultWithTTL{IPs: allIPs, TTL: minTTL}, nil
+	return &QueryResultWithTTL{IPs: ips, TTL: minTTL}, nil
 }
