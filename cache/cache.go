@@ -44,7 +44,19 @@ type SortingState struct {
 	Error      error             // 排序错误
 }
 
-// Cache DNS 缓存管理器（双层缓存：原始 + 排序）
+// ErrorCacheEntry 错误响应缓存项（用于缓存 DNS 错误响应）
+type ErrorCacheEntry struct {
+	Rcode    int       // DNS 错误码（SERVFAIL, REFUSED 等）
+	CachedAt time.Time // 缓存时间
+	TTL      int       // 缓存 TTL（秒）
+}
+
+// IsExpired 检查错误缓存是否过期
+func (e *ErrorCacheEntry) IsExpired() bool {
+	return time.Since(e.CachedAt).Seconds() > float64(e.TTL)
+}
+
+// Cache DNS 缓存管理器（三层缓存：原始 + 排序 + 错误）
 type Cache struct {
 	mu sync.RWMutex // 保护以下字段
 
@@ -57,6 +69,9 @@ type Cache struct {
 	// 第三层：排序队列状态（追踪当前正在排序的域名，防止重复）
 	sortingState map[string]*SortingState
 
+	// 第四层：错误缓存（DNS 错误响应）
+	errorCache map[string]*ErrorCacheEntry
+
 	// 统计信息（原子操作）
 	hits   int64
 	misses int64
@@ -68,6 +83,7 @@ func NewCache() *Cache {
 		rawCache:     make(map[string]*RawCacheEntry),
 		sortedCache:  make(map[string]*SortedCacheEntry),
 		sortingState: make(map[string]*SortingState),
+		errorCache:   make(map[string]*ErrorCacheEntry),
 	}
 }
 
@@ -189,6 +205,37 @@ func (c *Cache) ClearSort(domain string, qtype uint16) {
 	delete(c.sortingState, key)
 }
 
+// GetError 获取错误缓存
+func (c *Cache) GetError(domain string, qtype uint16) (*ErrorCacheEntry, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := cacheKey(domain, qtype)
+	entry, exists := c.errorCache[key]
+	if !exists {
+		return nil, false
+	}
+
+	if entry.IsExpired() {
+		return nil, false
+	}
+
+	return entry, true
+}
+
+// SetError 设置错误缓存
+func (c *Cache) SetError(domain string, qtype uint16, rcode int, ttl int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	key := cacheKey(domain, qtype)
+	c.errorCache[key] = &ErrorCacheEntry{
+		Rcode:    rcode,
+		CachedAt: time.Now(),
+		TTL:      ttl,
+	}
+}
+
 // Record 记录缓存命中（已废弃，改用 atomic 操作）
 func (c *Cache) RecordHit() {
 	atomic.AddInt64(&c.hits, 1)
@@ -221,6 +268,7 @@ func (c *Cache) Clear() {
 	c.rawCache = make(map[string]*RawCacheEntry)
 	c.sortedCache = make(map[string]*SortedCacheEntry)
 	c.sortingState = make(map[string]*SortingState)
+	c.errorCache = make(map[string]*ErrorCacheEntry)
 }
 
 // CleanExpired 清理过期项
@@ -249,6 +297,13 @@ func (c *Cache) CleanExpired() {
 	for domain, state := range c.sortingState {
 		if !state.InProgress {
 			delete(c.sortingState, domain)
+		}
+	}
+
+	// 清理过期的错误缓存
+	for domain, entry := range c.errorCache {
+		if entry.IsExpired() {
+			delete(c.errorCache, domain)
 		}
 	}
 }

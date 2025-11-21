@@ -26,7 +26,8 @@
                         <button id="clearCacheButton" class="btn btn-warning">Clear DNS Cache</button>
                         <button id="clearStatsButton" class="btn btn-danger">Clear All
                             Stats</button>
-                        <button id="refreshButton" class="btn btn-primary">Refresh</button>
+                        <button id="refreshButton" class="btn btn-success">Refresh</button>
+                        <button id="restartButton" class="btn btn-secondary">Restart Service</button>
                     </div>
                 </div>
                 <div class="card">
@@ -184,6 +185,16 @@
                                     <option value="avg">Avg</option>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="ping.max_test_ips">Max Test IPs</label>
+                                <input type="number" id="ping.max_test_ips" name="ping.max_test_ips">
+                                <small>Maximum number of IPs to test per sort (0 = unlimited).</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="ping.rtt_cache_ttl_seconds">RTT Cache TTL (s)</label>
+                                <input type="number" id="ping.rtt_cache_ttl_seconds" name="ping.rtt_cache_ttl_seconds">
+                                <small>Cache duration for RTT results (0 = disabled).</small>
+                            </div>
                         </fieldset>
 
                         <fieldset id="config-cache">
@@ -203,6 +214,17 @@
                             <div class="form-group">
                                 <label for="cache.max_ttl_seconds">Max TTL (s)</label>
                                 <input type="number" id="cache.max_ttl_seconds" name="cache.max_ttl_seconds">
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.negative_ttl_seconds">Negative Cache TTL (s)</label>
+                                <input type="number" id="cache.negative_ttl_seconds" name="cache.negative_ttl_seconds">
+                                <small>TTL for NXDOMAIN/NODATA responses.</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.error_cache_ttl_seconds">Error Cache TTL (s)</label>
+                                <input type="number" id="cache.error_cache_ttl_seconds"
+                                    name="cache.error_cache_ttl_seconds">
+                                <small>TTL for SERVFAIL/REFUSED responses.</small>
                             </div>
                         </fieldset>
 
@@ -246,6 +268,11 @@
                                 <label for="system.sort_queue_workers">Sort Queue Workers</label>
                                 <input type="number" id="system.sort_queue_workers" name="system.sort_queue_workers">
                                 <small>Number of parallel sorting tasks.</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="system.refresh_workers">Refresh Workers</label>
+                                <input type="number" id="system.refresh_workers" name="system.refresh_workers">
+                                <small>Number of async cache refresh workers.</small>
                             </div>
                         </fieldset>
                     </form>

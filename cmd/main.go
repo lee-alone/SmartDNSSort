@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"smartdnssort/config"
@@ -80,6 +81,12 @@ func main() {
 	}
 
 	// 正常的 DNS 服务器启动流程
+	// 验证并修复配置文件
+	log.Printf("Validating config file: %s\n", *configPath)
+	if err := config.ValidateAndRepairConfig(*configPath); err != nil {
+		log.Fatalf("Failed to validate/repair config: %v", err)
+	}
+
 	// 加载配置
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
@@ -104,7 +111,58 @@ func main() {
 
 	// 启动 Web API 服务（可选）
 	if cfg.WebUI.Enabled {
-		webServer := webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, *configPath)
+		var webServer *webapi.Server
+
+		// 定义重启回调函数
+		restartFunc := func() {
+			log.Println("Restarting service...")
+
+			// 1. 停止 Web 服务 (释放 8080 端口)
+			if webServer != nil {
+				log.Println("Stopping Web API server...")
+				if err := webServer.Stop(); err != nil {
+					log.Printf("Failed to stop Web API server: %v", err)
+				}
+			}
+
+			// 2. 停止 DNS 服务 (释放 53 端口)
+			log.Println("Stopping DNS server...")
+			dnsServer.Shutdown()
+
+			// 3. 检查是否为 systemd 服务 (仅 Linux)
+			// systemd 会设置 INVOCATION_ID 环境变量
+			if runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "" {
+				log.Println("Detected systemd environment. Exiting to trigger systemd restart...")
+				os.Exit(0)
+			}
+
+			// 4. 手动重启 (Windows 或 Linux 手动运行)
+			executable, err := os.Executable()
+			if err != nil {
+				log.Printf("Failed to get executable path: %v", err)
+				os.Exit(1)
+			}
+
+			log.Printf("Spawning new process: %s %v", executable, os.Args[1:])
+
+			// 启动新进程
+			cmd := exec.Command(executable, os.Args[1:]...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+			cmd.Env = os.Environ()
+
+			if err := cmd.Start(); err != nil {
+				log.Printf("Failed to start new process: %v", err)
+				// 如果启动失败，我们仍然退出，因为旧服务已经停止了
+				os.Exit(1)
+			}
+
+			log.Println("New process started. Exiting current process...")
+			os.Exit(0)
+		}
+
+		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, *configPath, restartFunc)
 		go func() {
 			if err := webServer.Start(); err != nil {
 				log.Printf("Web API server error: %v\n", err)

@@ -37,20 +37,22 @@ type IPResult struct {
 
 // Server Web API 服务器
 type Server struct {
-	cfg        *config.Config
-	dnsCache   *cache.Cache
-	dnsServer  *dnsserver.Server
-	listener   http.Server
-	configPath string // Store the path to the config file
+	cfg         *config.Config
+	dnsCache    *cache.Cache
+	dnsServer   *dnsserver.Server
+	listener    http.Server
+	configPath  string // Store the path to the config file
+	restartFunc func() // 重启服务的回调函数
 }
 
 // NewServer 创建新的 Web API 服务器
-func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server, configPath string) *Server {
+func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server, configPath string, restartFunc func()) *Server {
 	return &Server{
-		cfg:        cfg,
-		dnsCache:   dnsCache,
-		dnsServer:  dnsServer,
-		configPath: configPath,
+		cfg:         cfg,
+		dnsCache:    dnsCache,
+		dnsServer:   dnsServer,
+		configPath:  configPath,
+		restartFunc: restartFunc,
 	}
 }
 
@@ -68,9 +70,10 @@ func (s *Server) Start() error {
 	http.HandleFunc("/api/stats", s.handleStats)
 	http.HandleFunc("/api/stats/clear", s.handleClearStats) // New
 	http.HandleFunc("/api/cache/clear", s.handleClearCache)
-	http.HandleFunc("/api/config", s.handleConfig) // New endpoint for config
+	http.HandleFunc("/api/config", s.handleConfig)                // New endpoint for config
 	http.HandleFunc("/api/recent-queries", s.handleRecentQueries) // New
 	http.HandleFunc("/api/hot-domains", s.handleHotDomains)       // New
+	http.HandleFunc("/api/restart", s.handleRestart)              // New endpoint for restart
 	http.HandleFunc("/health", s.handleHealth)
 
 	// 首先尝试使用内嵌的 web 文件
@@ -354,4 +357,29 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Configuration updated and applied successfully."))
+}
+
+// handleRestart handles restarting the service.
+// Usage: POST /api/restart
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	log.Println("Service restart requested via API.")
+
+	// 先响应客户端
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Service restart initiated."))
+
+	// 在goroutine中执行重启,避免阻塞响应
+	if s.restartFunc != nil {
+		go func() {
+			log.Println("Executing restart function...")
+			s.restartFunc()
+		}()
+	} else {
+		log.Println("No restart function configured. Please restart manually.")
+	}
 }

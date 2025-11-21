@@ -289,8 +289,29 @@ legend {
     background-color: #0069d9;
 }
 
+.btn-secondary {
+    background-color: #6c757d;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+}
+
+.btn-success {
+    background-color: #28a745;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+}
+
 .management-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+}
+
+.management-actions .btn {
+    flex: 0 0 calc(50% - 5px);
+    width: calc(50% - 5px);
 }

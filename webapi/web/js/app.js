@@ -113,6 +113,25 @@ document.getElementById('clearStatsButton').addEventListener('click', () => {
 
 document.getElementById('refreshButton').addEventListener('click', updateDashboard);
 
+document.getElementById('restartButton').addEventListener('click', () => {
+    if (!confirm('Are you sure you want to restart the service? The connection will be temporarily interrupted.')) return;
+    fetch('/api/restart', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                alert('Service restart initiated. The page will reload automatically in 5 seconds.');
+                // 等待5秒后自动刷新页面
+                setTimeout(() => {
+                    location.reload();
+                }, 5000);
+            } else {
+                alert('Failed to restart service.');
+            }
+        })
+        .catch(error => {
+            alert('An error occurred while trying to restart the service.');
+            console.error('Restart error:', error);
+        });
+});
 
 
 // --- Configuration Logic ---
@@ -144,10 +163,14 @@ function populateForm(config) {
         setValue('ping.timeout_ms', config.ping.timeout_ms);
         setValue('ping.concurrency', config.ping.concurrency);
         setValue('ping.strategy', config.ping.strategy);
+        setValue('ping.max_test_ips', config.ping.max_test_ips);
+        setValue('ping.rtt_cache_ttl_seconds', config.ping.rtt_cache_ttl_seconds);
         setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
         setValue('cache.user_return_ttl', config.cache.user_return_ttl);
         setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
         setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
+        setValue('cache.negative_ttl_seconds', config.cache.negative_ttl_seconds);
+        setValue('cache.error_cache_ttl_seconds', config.cache.error_cache_ttl_seconds);
         setChecked('prefetch.enabled', config.prefetch.enabled);
         setValue('prefetch.top_domains_limit', config.prefetch.top_domains_limit);
         setValue('prefetch.refresh_before_expire_seconds', config.prefetch.refresh_before_expire_seconds);
@@ -155,6 +178,7 @@ function populateForm(config) {
         setValue('webui.listen_port', config.webui.listen_port);
         setValue('system.max_cpu_cores', config.system.max_cpu_cores);
         setValue('system.sort_queue_workers', config.system.sort_queue_workers);
+        setValue('system.refresh_workers', config.system.refresh_workers);
 
         // Array values
         setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
@@ -202,12 +226,16 @@ function saveConfig() {
         timeout_ms: parseInt(form.elements['ping.timeout_ms'].value),
         concurrency: parseInt(form.elements['ping.concurrency'].value),
         strategy: form.elements['ping.strategy'].value,
+        max_test_ips: parseInt(form.elements['ping.max_test_ips'].value),
+        rtt_cache_ttl_seconds: parseInt(form.elements['ping.rtt_cache_ttl_seconds'].value),
     };
     data.cache = {
         fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value),
         user_return_ttl: parseInt(form.elements['cache.user_return_ttl'].value),
         min_ttl_seconds: parseInt(form.elements['cache.min_ttl_seconds'].value),
         max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value),
+        negative_ttl_seconds: parseInt(form.elements['cache.negative_ttl_seconds'].value),
+        error_cache_ttl_seconds: parseInt(form.elements['cache.error_cache_ttl_seconds'].value),
     };
     data.prefetch = {
         enabled: form.elements['prefetch.enabled'].checked,
@@ -221,6 +249,7 @@ function saveConfig() {
     data.system = {
         max_cpu_cores: parseInt(form.elements['system.max_cpu_cores'].value),
         sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value),
+        refresh_workers: parseInt(form.elements['system.refresh_workers'].value),
     };
 
     fetch(CONFIG_API_URL, {

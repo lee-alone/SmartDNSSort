@@ -42,6 +42,10 @@ ping:
   concurrency: 16
   # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
   strategy: "min"
+  # 每次排序最多测试的 IP 数量（0 表示不限制）
+  max_test_ips: 8
+  # 单个 IP 的 RTT (延迟) 结果缓存时间（秒，0 表示禁用）
+  rtt_cache_ttl_seconds: 60
 
 # DNS 缓存配置
 cache:
@@ -55,6 +59,10 @@ cache:
   # 缓存最大 TTL（生存时间，秒）
   # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 max 为 0 时只限制最小值
   max_ttl_seconds: 84600
+  # 负向缓存（域名不存在或无记录）的 TTL（秒）。默认值：300秒
+  negative_ttl_seconds: 300
+  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒）。默认值：30秒
+  error_cache_ttl_seconds: 30
 
 # 热点域名提前刷新机制
 prefetch:
@@ -85,6 +93,8 @@ system:
   max_cpu_cores: 0
   # IP 排序队列的工作线程数（0 表示根据 CPU 核心数自动调整）
   sort_queue_workers: 0
+  # 异步缓存刷新工作线程数（0 表示根据 CPU 核心数自动调整）
+  refresh_workers: 4
 `
 
 type Config struct {
@@ -112,17 +122,21 @@ type UpstreamConfig struct {
 }
 
 type PingConfig struct {
-	Count       int    `yaml:"count" json:"count"`
-	TimeoutMs   int    `yaml:"timeout_ms" json:"timeout_ms"`
-	Concurrency int    `yaml:"concurrency" json:"concurrency"`
-	Strategy    string `yaml:"strategy" json:"strategy"`
+	Count              int    `yaml:"count" json:"count"`
+	TimeoutMs          int    `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency        int    `yaml:"concurrency" json:"concurrency"`
+	Strategy           string `yaml:"strategy" json:"strategy"`
+	MaxTestIPs         int    `yaml:"max_test_ips" json:"max_test_ips"`
+	RttCacheTtlSeconds int    `yaml:"rtt_cache_ttl_seconds" json:"rtt_cache_ttl_seconds"`
 }
 
 type CacheConfig struct {
-	FastResponseTTL int `yaml:"fast_response_ttl" json:"fast_response_ttl"`
-	UserReturnTTL   int `yaml:"user_return_ttl" json:"user_return_ttl"`
-	MinTTLSeconds   int `yaml:"min_ttl_seconds" json:"min_ttl_seconds"`
-	MaxTTLSeconds   int `yaml:"max_ttl_seconds" json:"max_ttl_seconds"`
+	FastResponseTTL    int `yaml:"fast_response_ttl" json:"fast_response_ttl"`
+	UserReturnTTL      int `yaml:"user_return_ttl" json:"user_return_ttl"`
+	MinTTLSeconds      int `yaml:"min_ttl_seconds" json:"min_ttl_seconds"`
+	MaxTTLSeconds      int `yaml:"max_ttl_seconds" json:"max_ttl_seconds"`
+	NegativeTTLSeconds int `yaml:"negative_ttl_seconds" json:"negative_ttl_seconds"`       // 负向缓存(NXDOMAIN/NODATA)的TTL
+	ErrorCacheTTL      int `yaml:"error_cache_ttl_seconds" json:"error_cache_ttl_seconds"` // 错误响应缓存的TTL
 }
 
 type PrefetchConfig struct {
@@ -144,11 +158,69 @@ type AdBlockConfig struct {
 type SystemConfig struct {
 	MaxCPUCores      int `yaml:"max_cpu_cores" json:"max_cpu_cores"`
 	SortQueueWorkers int `yaml:"sort_queue_workers" json:"sort_queue_workers"`
+	RefreshWorkers   int `yaml:"refresh_workers" json:"refresh_workers"`
 }
 
 // CreateDefaultConfig 创建默认配置文件
 func CreateDefaultConfig(filePath string) error {
 	return os.WriteFile(filePath, []byte(DefaultConfigContent), 0644)
+}
+
+// ValidateAndRepairConfig 检查并修复配置文件中缺失的字段
+// 该函数会读取现有配置,将其与默认配置合并,补充缺失的字段
+func ValidateAndRepairConfig(filePath string) error {
+	// 如果文件不存在,直接创建默认配置
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return CreateDefaultConfig(filePath)
+	}
+
+	// 读取现有配置
+	existingData, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	// 解析现有配置到map
+	var existingConfig map[string]interface{}
+	if err := yaml.Unmarshal(existingData, &existingConfig); err != nil {
+		return err
+	}
+
+	// 解析默认配置到map
+	var defaultConfig map[string]interface{}
+	if err := yaml.Unmarshal([]byte(DefaultConfigContent), &defaultConfig); err != nil {
+		return err
+	}
+
+	// 合并配置(保留现有值,只添加缺失的字段)
+	mergeConfig(existingConfig, defaultConfig)
+
+	// 将合并后的配置写回文件
+	mergedData, err := yaml.Marshal(existingConfig)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, mergedData, 0644)
+}
+
+// mergeConfig 递归合并配置,将default中存在但existing中不存在的字段添加到existing
+func mergeConfig(existing, defaultCfg map[string]interface{}) {
+	for key, defaultValue := range defaultCfg {
+		if existingValue, exists := existing[key]; exists {
+			// 如果existing中存在该key,检查是否为嵌套map
+			if existingMap, ok := existingValue.(map[string]interface{}); ok {
+				if defaultMap, ok := defaultValue.(map[string]interface{}); ok {
+					// 递归合并嵌套map
+					mergeConfig(existingMap, defaultMap)
+				}
+			}
+			// 如果不是map或值已存在,保留existing中的值
+		} else {
+			// 如果existing中不存在该key,添加默认值
+			existing[key] = defaultValue
+		}
+	}
 }
 
 // LoadConfig 从 YAML 文件加载配置
@@ -194,6 +266,12 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Ping.Concurrency == 0 {
 		cfg.Ping.Concurrency = 16
 	}
+	if cfg.Ping.MaxTestIPs == 0 {
+		cfg.Ping.MaxTestIPs = 8
+	}
+	if cfg.Ping.RttCacheTtlSeconds == 0 {
+		cfg.Ping.RttCacheTtlSeconds = 60
+	}
 	if cfg.Cache.FastResponseTTL == 0 {
 		cfg.Cache.FastResponseTTL = 60
 	}
@@ -204,6 +282,12 @@ func LoadConfig(filePath string) (*Config, error) {
 	//   - 仅 max 为 0: 只限制最小值
 	if cfg.Cache.UserReturnTTL == 0 {
 		cfg.Cache.UserReturnTTL = 500
+	}
+	if cfg.Cache.NegativeTTLSeconds == 0 {
+		cfg.Cache.NegativeTTLSeconds = 300
+	}
+	if cfg.Cache.ErrorCacheTTL == 0 {
+		cfg.Cache.ErrorCacheTTL = 30
 	}
 	if cfg.Prefetch.TopDomainsLimit == 0 {
 		cfg.Prefetch.TopDomainsLimit = 1000
@@ -222,6 +306,14 @@ func LoadConfig(filePath string) (*Config, error) {
 			cfg.System.SortQueueWorkers = cfg.System.MaxCPUCores
 		} else {
 			cfg.System.SortQueueWorkers = 4
+		}
+	}
+	if cfg.System.RefreshWorkers == 0 {
+		// Default to 4 or MaxCPUCores if MaxCPUCores is less than 4
+		if cfg.System.MaxCPUCores < 4 {
+			cfg.System.RefreshWorkers = cfg.System.MaxCPUCores
+		} else {
+			cfg.System.RefreshWorkers = 4
 		}
 	}
 

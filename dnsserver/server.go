@@ -29,9 +29,12 @@ type Server struct {
 	pinger             *ping.Pinger
 	sortQueue          *cache.SortQueue
 	prefetcher         *prefetch.Prefetcher
+	refreshQueue       *RefreshQueue
 	recentQueries      [20]string // Circular buffer for recent queries
 	recentQueriesIndex int
 	recentQueriesMu    sync.Mutex
+	udpServer          *dns.Server
+	tcpServer          *dns.Server
 }
 
 // NewServer 创建新的 DNS 服务器
@@ -39,14 +42,21 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 创建异步排序队列
 	sortQueue := cache.NewSortQueue(cfg.System.SortQueueWorkers, 200, 10*time.Second)
 
+	// 创建异步刷新队列
+	refreshQueue := NewRefreshQueue(cfg.System.RefreshWorkers, 100)
+
 	server := &Server{
-		cfg:       cfg,
-		stats:     s,
-		cache:     cache.NewCache(),
-		upstream:  upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
-		pinger:    ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.Strategy),
-		sortQueue: sortQueue,
+		cfg:          cfg,
+		stats:        s,
+		cache:        cache.NewCache(),
+		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
+		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
+		sortQueue:    sortQueue,
+		refreshQueue: refreshQueue,
 	}
+
+	// 设置刷新队列的工作函数
+	refreshQueue.SetWorkFunc(server.refreshCacheAsync)
 
 	// Create the prefetcher, but don't start it yet
 	server.prefetcher = prefetch.NewPrefetcher(&cfg.Prefetch, s, server.cache, server)
@@ -90,7 +100,7 @@ func (s *Server) Start() error {
 	dns.HandleFunc(".", s.handleQuery)
 
 	// 启动 UDP 服务器
-	udpServer := &dns.Server{
+	s.udpServer = &dns.Server{
 		Addr:    addr,
 		Net:     "udp",
 		Handler: dns.DefaultServeMux,
@@ -98,7 +108,7 @@ func (s *Server) Start() error {
 
 	// 启动 TCP 服务器（如果启用）
 	if s.cfg.DNS.EnableTCP {
-		tcpServer := &dns.Server{
+		s.tcpServer = &dns.Server{
 			Addr:    addr,
 			Net:     "tcp",
 			Handler: dns.DefaultServeMux,
@@ -106,7 +116,7 @@ func (s *Server) Start() error {
 
 		go func() {
 			log.Printf("TCP DNS server started on %s\n", addr)
-			if err := tcpServer.ListenAndServe(); err != nil {
+			if err := s.tcpServer.ListenAndServe(); err != nil {
 				log.Printf("TCP server error: %v\n", err)
 			}
 		}()
@@ -119,7 +129,7 @@ func (s *Server) Start() error {
 	s.prefetcher.Start()
 
 	log.Printf("UDP DNS server started on %s\n", addr)
-	return udpServer.ListenAndServe()
+	return s.udpServer.ListenAndServe()
 }
 
 // handleQuery DNS 查询处理函数（三阶段逻辑）
@@ -173,6 +183,17 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
+	// ========== 优先检查错误缓存 ==========
+	// 如果该域名最近返回过错误,直接从缓存返回错误,避免重复查询
+	if errEntry, ok := s.cache.GetError(domain, question.Qtype); ok {
+		currentStats.IncCacheHits()
+		log.Printf("[handleQuery] 错误缓存命中: %s (type=%s) rcode=%d\n",
+			domain, dns.TypeToString[question.Qtype], errEntry.Rcode)
+		msg.SetRcode(r, errEntry.Rcode)
+		w.WriteMsg(msg)
+		return
+	}
+
 	// ========== 阶段二：排序完成后缓存命中 ==========
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
@@ -186,12 +207,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	currentStats.IncCacheMisses()
-
 	// ========== 阶段三:缓存过期后再次访问 ==========
 	// 检查原始缓存(上游 DNS 响应缓存)
 	// GetRaw会返回过期的缓存,我们需要检查并决定如何处理
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
+		currentStats.IncCacheHits()
 		// 无论是否过期,都立即返回缓存数据
 		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v (过期:%v)\n",
 			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.IsExpired())
@@ -205,10 +225,13 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		if raw.IsExpired() {
 			log.Printf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)\n",
 				domain, dns.TypeToString[question.Qtype])
-			go s.refreshCacheAsync(domain, question.Qtype)
+			task := RefreshTask{Domain: domain, Qtype: question.Qtype}
+			s.refreshQueue.Submit(task)
 		}
 		return
 	}
+
+	currentStats.IncCacheMisses()
 
 	// ========== 阶段一：首次查询（无缓存）==========
 	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
@@ -227,6 +250,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			currentStats.IncUpstreamFailures()
 			log.Printf("[handleQuery] 上游查询失败: %v\n", err)
+			// 缓存错误响应,避免短时间内重复查询
+			s.cache.SetError(domain, question.Qtype, dns.RcodeServerFailure, currentCfg.Cache.ErrorCacheTTL)
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(msg)
 			return
@@ -374,7 +399,10 @@ func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.S
 
 // refreshCacheAsync 异步刷新缓存（用于缓存过期后）
 // 重新查询上游 DNS 并排序，更新缓存
-func (s *Server) refreshCacheAsync(domain string, qtype uint16) {
+func (s *Server) refreshCacheAsync(task RefreshTask) {
+	domain := task.Domain
+	qtype := task.Qtype
+
 	log.Printf("[refreshCacheAsync] 开始异步刷新缓存: %s (type=%s)\n", domain, dns.TypeToString[qtype])
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cfg.Upstream.TimeoutMs)*time.Millisecond)
@@ -407,7 +435,8 @@ func (s *Server) refreshCacheAsync(domain string, qtype uint16) {
 // It satisfies the prefetch.Refresher interface.
 func (s *Server) RefreshDomain(domain string, qtype uint16) {
 	// Run in a goroutine to avoid blocking the caller (e.g., the prefetcher loop)
-	go s.refreshCacheAsync(domain, qtype)
+	task := RefreshTask{Domain: domain, Qtype: qtype}
+	s.refreshQueue.Submit(task)
 }
 
 // buildDNSResponse 构造 DNS 响应
@@ -543,7 +572,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newPinger *ping.Pinger
 	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
 		log.Println("Reloading Pinger due to configuration changes.")
-		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.Strategy)
+		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.Strategy)
 	}
 
 	var newSortQueue *cache.SortQueue
@@ -574,6 +603,13 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		})
 	}
 
+	var newRefreshQueue *RefreshQueue
+	if s.cfg.System.RefreshWorkers != newCfg.System.RefreshWorkers {
+		log.Printf("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
+		newRefreshQueue = NewRefreshQueue(newCfg.System.RefreshWorkers, 100)
+		newRefreshQueue.SetWorkFunc(s.refreshCacheAsync)
+	}
+
 	var newPrefetcher *prefetch.Prefetcher
 	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
 		log.Println("Reloading Prefetcher due to configuration changes.")
@@ -597,6 +633,11 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		s.sortQueue = newSortQueue
 	}
 
+	if newRefreshQueue != nil {
+		s.refreshQueue.Stop()
+		s.refreshQueue = newRefreshQueue
+	}
+
 	if newPrefetcher != nil {
 		s.prefetcher.Stop()
 		s.prefetcher = newPrefetcher
@@ -613,7 +654,20 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown() {
 	log.Printf("[Server] 开始关闭服务器...\n")
+
+	if s.udpServer != nil {
+		if err := s.udpServer.Shutdown(); err != nil {
+			log.Printf("[Server] UDP server shutdown error: %v", err)
+		}
+	}
+	if s.tcpServer != nil {
+		if err := s.tcpServer.Shutdown(); err != nil {
+			log.Printf("[Server] TCP server shutdown error: %v", err)
+		}
+	}
+
 	s.sortQueue.Stop()
 	s.prefetcher.Stop()
+	s.refreshQueue.Stop()
 	log.Printf("[Server] 服务器已关闭\n")
 }

@@ -16,16 +16,26 @@ type Result struct {
 	Loss float64
 }
 
+// rttCacheEntry RTT 缓存条目
+type rttCacheEntry struct {
+	rtt       int
+	expiresAt time.Time
+}
+
 // Pinger IP ping 测试模块
 type Pinger struct {
-	count       int
-	timeoutMs   int
-	concurrency int
-	strategy    string // min, avg
+	count              int
+	timeoutMs          int
+	concurrency        int
+	strategy           string // min, avg
+	maxTestIPs         int
+	rttCacheTtlSeconds int
+	rttCache           map[string]*rttCacheEntry
+	rttCacheMu         sync.RWMutex
 }
 
 // NewPinger 创建新的 pinger
-func NewPinger(count, timeoutMs, concurrency int, strategy string) *Pinger {
+func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int, strategy string) *Pinger {
 	if count <= 0 {
 		count = 3
 	}
@@ -39,53 +49,127 @@ func NewPinger(count, timeoutMs, concurrency int, strategy string) *Pinger {
 		strategy = "min"
 	}
 
-	return &Pinger{
-		count:       count,
-		timeoutMs:   timeoutMs,
-		concurrency: concurrency,
-		strategy:    strategy,
+	p := &Pinger{
+		count:              count,
+		timeoutMs:          timeoutMs,
+		concurrency:        concurrency,
+		strategy:           strategy,
+		maxTestIPs:         maxTestIPs,
+		rttCacheTtlSeconds: rttCacheTtlSeconds,
+		rttCache:           make(map[string]*rttCacheEntry),
+	}
+
+	if p.rttCacheTtlSeconds > 0 {
+		go p.startRttCacheCleaner()
+	}
+
+	return p
+}
+
+func (p *Pinger) startRttCacheCleaner() {
+	ticker := time.NewTicker(time.Duration(p.rttCacheTtlSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		p.rttCacheMu.Lock()
+		for ip, entry := range p.rttCache {
+			if time.Now().After(entry.expiresAt) {
+				delete(p.rttCache, ip)
+			}
+		}
+		p.rttCacheMu.Unlock()
 	}
 }
 
-// PingIPs 并发 ping 多个 IP，返回排序后的结果
-func (p *Pinger) PingIPs(ctx context.Context, ips []string) []Result {
+// PingAndSort 对 IP 列表进行 ping 测试并排序，返回完整结果（包括 RTT）
+//
+// 该函数实现了两个核心优化:
+// 1. 智能探测 (Intelligent Probing): 如果设置了 maxTestIPs > 0，则只对列表中的前 N 个 IP 进行测试。
+// 2. RTT 缓存 (RTT Caching): 在 ping 之前检查缓存。如果 IP 的延迟数据在缓存中且未过期，则直接使用，避免重复 ping。
+func (p *Pinger) PingAndSort(ctx context.Context, ips []string) []Result {
 	if len(ips) == 0 {
 		return []Result{}
 	}
 
-	log.Printf("[PingIPs] 开始对 %d 个 IP 进行并发ping测试，并发数:%d, 每个IP测试次数:%d\n", len(ips), p.concurrency, p.count)
+	// 1. 智能探测：如果设置了 maxTestIPs，则截取部分 IP 进行测试
+	var ipsToTest []string
+	if p.maxTestIPs > 0 && len(ips) > p.maxTestIPs {
+		ipsToTest = ips[:p.maxTestIPs]
+		log.Printf("[PingAndSort] IP 数量超过 max_test_ips (%d)，只测试前 %d 个 IP\n", p.maxTestIPs, p.maxTestIPs)
+	} else {
+		ipsToTest = ips
+	}
 
-	// 使用 semaphore 控制并发
+	// 2. RTT 缓存检查
+	var ipsToPing []string
+	var cachedResults []Result
+	if p.rttCacheTtlSeconds > 0 {
+		p.rttCacheMu.RLock()
+		for _, ip := range ipsToTest {
+			if entry, exists := p.rttCache[ip]; exists && time.Now().Before(entry.expiresAt) {
+				// 缓存命中且未过期
+				cachedResults = append(cachedResults, Result{IP: ip, RTT: entry.rtt, Loss: 0})
+			} else {
+				// 缓存未命中或已过期
+				ipsToPing = append(ipsToPing, ip)
+			}
+		}
+		p.rttCacheMu.RUnlock()
+		log.Printf("[PingAndSort] RTT 缓存检查完成: %d 个命中, %d 个需要 ping\n", len(cachedResults), len(ipsToPing))
+	} else {
+		// 未启用 RTT 缓存
+		ipsToPing = ipsToTest
+	}
+
+	// 3. 对需要 ping 的 IP 进行并发测试
+	var pingedResults []Result
+	if len(ipsToPing) > 0 {
+		pingedResults = p.performConcurrentPing(ctx, ipsToPing)
+	}
+
+	// 4. 更新 RTT 缓存
+	if p.rttCacheTtlSeconds > 0 && len(pingedResults) > 0 {
+		p.rttCacheMu.Lock()
+		for _, res := range pingedResults {
+			if res.Loss == 0 { // 只缓存成功的 ping 结果
+				p.rttCache[res.IP] = &rttCacheEntry{
+					rtt:       res.RTT,
+					expiresAt: time.Now().Add(time.Duration(p.rttCacheTtlSeconds) * time.Second),
+				}
+			}
+		}
+		p.rttCacheMu.Unlock()
+	}
+
+	// 5. 合并缓存结果和新 ping 的结果
+	finalResults := append(cachedResults, pingedResults...)
+
+	// 6. 对最终结果进行排序
+	p.sortResults(finalResults)
+
+	log.Printf("[PingAndSort] 排序完成，最终结果: %v\n", finalResults)
+
+	return finalResults
+}
+
+// performConcurrentPing 并发 ping 多个 IP，返回未排序的结果
+func (p *Pinger) performConcurrentPing(ctx context.Context, ips []string) []Result {
+	log.Printf("[performConcurrentPing] 开始对 %d 个 IP 进行并发ping测试，并发数:%d, 每个IP测试次数:%d\n", len(ips), p.concurrency, p.count)
+
 	sem := make(chan struct{}, p.concurrency)
-	results := make([]Result, 0, len(ips))
 	resultCh := make(chan Result, len(ips))
 	var wg sync.WaitGroup
-	var runningMu sync.Mutex
-	currentlyRunning := 0
 
-	for idx, ip := range ips {
+	for _, ip := range ips {
 		wg.Add(1)
-		go func(index int, ipAddr string) {
+		go func(ipAddr string) {
 			defer wg.Done()
-			log.Printf("[PingIPs] IP #%d (%s) 等待信号量...", index+1, ipAddr)
-			sem <- struct{}{} // 获取信号量
-
-			runningMu.Lock()
-			currentlyRunning++
-			log.Printf("[PingIPs] IP #%d (%s) 开始ping (当前正在执行:%d/%d)", index+1, ipAddr, currentlyRunning, p.concurrency)
-			runningMu.Unlock()
-
-			defer func() {
-				<-sem
-				runningMu.Lock()
-				currentlyRunning--
-				runningMu.Unlock()
-			}()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
 			result := p.pingIP(ctx, ipAddr)
-			// 总是发送结果，包括失败的 IP
 			resultCh <- *result
-		}(idx, ip)
+		}(ip)
 	}
 
 	go func() {
@@ -93,18 +177,12 @@ func (p *Pinger) PingIPs(ctx context.Context, ips []string) []Result {
 		close(resultCh)
 	}()
 
-	// 收集结果
+	results := make([]Result, 0, len(ips))
 	for result := range resultCh {
 		results = append(results, result)
 	}
 
-	log.Printf("[PingIPs] 所有ping测试完成，收集了 %d 个结果\n", len(results))
-
-	// 排序
-	p.sortResults(results)
-
-	log.Printf("[PingIPs] 排序完成，最终结果: %v\n", results)
-
+	log.Printf("[performConcurrentPing] 所有 ping 测试完成，收集了 %d 个结果\n", len(results))
 	return results
 }
 
@@ -114,105 +192,64 @@ func (p *Pinger) pingIP(ctx context.Context, ip string) *Result {
 	var minRTT int = 999999
 	successCount := 0
 
-	log.Printf("[pingIP %s] 开始对IP进行 %d 次ping测试\n", ip, p.count)
-
 	for i := 0; i < p.count; i++ {
 		rtt := p.tcpPing(ctx, ip)
 		if rtt >= 0 {
 			totalRTT += int64(rtt)
 			successCount++
-			// 记录最小 RTT
 			if rtt < minRTT {
 				minRTT = rtt
 			}
-			log.Printf("[pingIP %s] 尝试 #%d: RTT=%dms\n", ip, i+1, rtt)
-		} else {
-			log.Printf("[pingIP %s] 尝试 #%d: 失败\n", ip, i+1)
 		}
 	}
 
-	var avgRTT int
+	var finalRTT int
 	if successCount == 0 {
-		// Ping 失败：设置高的 RTT 值，排在后面
-		avgRTT = 999999 // 设置为很高的值，确保排在最后
-		log.Printf("[pingIP %s] 最终: 全部失败，RTT=999999\n", ip)
+		finalRTT = 999999 // 失败则 RTT 设为极大值
 	} else if p.strategy == "avg" {
-		avgRTT = int(totalRTT / int64(successCount))
-		log.Printf("[pingIP %s] 最终: 成功%d/%d次，RTT=%dms (avg)，丢包率%.1f%%\n", ip, successCount, p.count, avgRTT, float64(p.count-successCount)/float64(p.count)*100)
+		finalRTT = int(totalRTT / int64(successCount))
 	} else {
-		// min strategy: 使用最小 RTT
-		avgRTT = minRTT
-		log.Printf("[pingIP %s] 最终: 成功%d/%d次，RTT=%dms (min)，丢包率%.1f%%\n", ip, successCount, p.count, avgRTT, float64(p.count-successCount)/float64(p.count)*100)
+		finalRTT = minRTT // 默认使用 min 策略
 	}
 
 	lossRate := float64(p.count-successCount) / float64(p.count) * 100
 
-	// 总是返回结果，即使 Ping 失败也会返回（RTT 为 999999）
 	return &Result{
 		IP:   ip,
-		RTT:  avgRTT,
+		RTT:  finalRTT,
 		Loss: lossRate,
 	}
 }
 
 // tcpPing TCP Ping 测试（模拟真实网络环境）
 func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
-	start := time.Now()
-
 	// 尝试连接常见的 HTTP/HTTPS 端口
 	ports := []string{"80", "443"}
 	for _, port := range ports {
-	addr := net.JoinHostPort(ip, port)
-
-		// 设置超时
-		deadline := time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond)
-		newCtx, cancel := context.WithDeadline(ctx, deadline)
-
-		dialer := &net.Dialer{
-			Timeout: time.Duration(p.timeoutMs) * time.Millisecond,
-		}
-
-		conn, err := dialer.DialContext(newCtx, "tcp", addr)
-		cancel()
-
+		addr := net.JoinHostPort(ip, port)
+		dialer := &net.Dialer{Timeout: time.Duration(p.timeoutMs) * time.Millisecond}
+		
+		start := time.Now()
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		
 		if err == nil {
 			conn.Close()
-			elapsed := time.Since(start).Milliseconds()
-			return int(elapsed)
+			return int(time.Since(start).Milliseconds())
 		}
 	}
-
 	return -1 // 失败返回 -1
 }
 
 // sortResults 按 RTT 排序结果
 // 排序规则：
-// 1. 首先按成功率排序（成功率高的优先）
+// 1. 首先按丢包率排序（丢包率低的优先）
 // 2. 然后按 RTT 排序（RTT 低的优先）
-// 3. Ping 失败的 IP（RTT=999999）自动排在最后
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
-		// 首先按成功率排序（成功率高的优先）
+		// Ping 失败的（Loss 100%）排在后面
 		if results[i].Loss != results[j].Loss {
 			return results[i].Loss < results[j].Loss
 		}
-		// 然后按 RTT 排序（RTT 低的优先）
-		// Ping 失败的 IP RTT 为 999999，会自动排到最后
 		return results[i].RTT < results[j].RTT
 	})
-}
-
-// SortIPs 将 IP 列表按 RTT 排序，返回排序后的 IP 列表
-func (p *Pinger) SortIPs(ctx context.Context, ips []string) []string {
-	results := p.PingIPs(ctx, ips)
-	sortedIPs := make([]string, len(results))
-	for i, result := range results {
-		sortedIPs[i] = result.IP
-	}
-	return sortedIPs
-}
-
-// PingAndSort 对 IP 列表进行 ping 测试并排序，返回完整结果（包括 RTT）
-func (p *Pinger) PingAndSort(ctx context.Context, ips []string) []Result {
-	return p.PingIPs(ctx, ips)
 }
