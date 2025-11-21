@@ -50,8 +50,10 @@ cache:
   # 缓存命中时返回给客户端的 TTL。默认值：500秒
   user_return_ttl: 500
   # 缓存最小 TTL（生存时间，秒）
+  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 min 为 0 时只限制最大值
   min_ttl_seconds: 3600
   # 缓存最大 TTL（生存时间，秒）
+  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 max 为 0 时只限制最小值
   max_ttl_seconds: 84600
 
 # 热点域名提前刷新机制
@@ -195,12 +197,11 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Cache.FastResponseTTL == 0 {
 		cfg.Cache.FastResponseTTL = 60
 	}
-	if cfg.Cache.MinTTLSeconds == 0 {
-		cfg.Cache.MinTTLSeconds = 60
-	}
-	if cfg.Cache.MaxTTLSeconds == 0 {
-		cfg.Cache.MaxTTLSeconds = 600
-	}
+	// Note: MinTTLSeconds 和 MaxTTLSeconds 允许为 0
+	// 0 有特殊含义:
+	//   - 两个都为 0: 不修改上游 TTL
+	//   - 仅 min 为 0: 只限制最大值
+	//   - 仅 max 为 0: 只限制最小值
 	if cfg.Cache.UserReturnTTL == 0 {
 		cfg.Cache.UserReturnTTL = 500
 	}

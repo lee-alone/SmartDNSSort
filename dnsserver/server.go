@@ -188,19 +188,25 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	currentStats.IncCacheMisses()
 
-	// ========== 阶段三：缓存过期后再次访问 ==========
-	// 检查原始缓存（上游 DNS 响应缓存）
+	// ========== 阶段三:缓存过期后再次访问 ==========
+	// 检查原始缓存(上游 DNS 响应缓存)
+	// GetRaw会返回过期的缓存,我们需要检查并决定如何处理
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
-		log.Printf("[handleQuery] 原始缓存命中（缓存已过期，但仍在池中）: %s (type=%s) -> %v\n",
-			domain, dns.TypeToString[question.Qtype], raw.IPs)
+		// 无论是否过期,都立即返回缓存数据
+		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v (过期:%v)\n",
+			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.IsExpired())
 
-		// 立即返回旧缓存，使用 fast_response_ttl
+		// 立即返回缓存,使用 fast_response_ttl
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		s.buildDNSResponse(msg, domain, raw.IPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
-		// 异步重新查询和排序（更新缓存）
-		go s.refreshCacheAsync(domain, question.Qtype)
+		// 如果缓存已过期,异步重新查询和排序(更新缓存)
+		if raw.IsExpired() {
+			log.Printf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)\n",
+				domain, dns.TypeToString[question.Qtype])
+			go s.refreshCacheAsync(domain, question.Qtype)
+		}
 		return
 	}
 
@@ -249,16 +255,32 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 // calculateRemainingTTL 计算剩余 TTL
 // 基于上游 TTL 和获取时间，减去已过去的时间，并应用 min/max 限制
+// 特殊语义：
+//   - min 和 max 都为 0: 不修改上游 TTL
+//   - 仅 min 为 0: 只限制最大值
+//   - 仅 max 为 0: 只限制最小值
 func (s *Server) calculateRemainingTTL(upstreamTTL uint32, acquisitionTime time.Time) int {
 	elapsed := time.Since(acquisitionTime).Seconds()
 	remaining := int(upstreamTTL) - int(elapsed)
-	// 应用 min/max 限制
-	if remaining < s.cfg.Cache.MinTTLSeconds {
-		remaining = s.cfg.Cache.MinTTLSeconds
+
+	minTTL := s.cfg.Cache.MinTTLSeconds
+	maxTTL := s.cfg.Cache.MaxTTLSeconds
+
+	// 如果 min 和 max 都为 0，不修改上游 TTL
+	if minTTL == 0 && maxTTL == 0 {
+		return remaining
 	}
-	if remaining > s.cfg.Cache.MaxTTLSeconds {
-		remaining = s.cfg.Cache.MaxTTLSeconds
+
+	// 应用最小值限制（如果 min > 0）
+	if minTTL > 0 && remaining < minTTL {
+		remaining = minTTL
 	}
+
+	// 应用最大值限制（如果 max > 0）
+	if maxTTL > 0 && remaining > maxTTL {
+		remaining = maxTTL
+	}
+
 	return remaining
 }
 
@@ -432,8 +454,14 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 }
 
 // cleanCacheRoutine 定期清理过期缓存
+// 使用固定的清理间隔,与 min_ttl_seconds 配置无关
 func (s *Server) cleanCacheRoutine() {
-	ticker := time.NewTicker(time.Duration(s.cfg.Cache.MinTTLSeconds) * time.Second)
+	// 使用固定的60秒清理间隔
+	// 注意：这个间隔与 min_ttl_seconds 是独立的概念
+	// min_ttl_seconds 用于限制返回给用户的 TTL，而这里决定多久清理一次过期缓存
+	const cleanInterval = 60 * time.Second
+
+	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {

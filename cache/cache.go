@@ -77,6 +77,8 @@ func cacheKey(domain string, qtype uint16) string {
 }
 
 // GetRaw 获取原始缓存（上游 DNS 响应）
+// 注意:此方法不检查过期,调用方需要自行判断是否过期
+// 即使过期也返回缓存,用于阶段三:返回旧数据+异步刷新
 func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -87,10 +89,8 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 		return nil, false
 	}
 
-	if entry.IsExpired() {
-		return nil, false
-	}
-
+	// 不检查过期,即使过期也返回
+	// 调用方可以通过entry.IsExpired()自行判断
 	return entry, true
 }
 
@@ -229,8 +229,11 @@ func (c *Cache) CleanExpired() {
 	defer c.mu.Unlock()
 
 	// 清理过期的原始缓存
+	// 保留过期但未超过 grace period (1小时) 的条目，以便支持 stale-while-revalidate
+	const gracePeriod = 3600 * time.Second
 	for domain, entry := range c.rawCache {
-		if entry.IsExpired() {
+		elapsed := time.Since(entry.AcquisitionTime).Seconds()
+		if elapsed > float64(entry.UpstreamTTL)+gracePeriod.Seconds() {
 			delete(c.rawCache, domain)
 		}
 	}
