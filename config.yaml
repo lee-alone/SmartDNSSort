@@ -1,38 +1,90 @@
+# SmartDNSSort 配置文件
+
+# DNS 服务器配置
 dns:
-    listen_port: 53
-    enable_tcp: true
-    enable_ipv6: true
+  # DNS 监听端口（默认 53）
+  listen_port: 53
+  # 是否启用 TCP 协议（用于大型 DNS 查询，默认 true）
+  enable_tcp: true
+  # 是否启用 IPv6 支持（默认 true）
+  enable_ipv6: true
+
+# 上游 DNS 服务器配置
 upstream:
-    servers:
-        - 192.168.1.25
-    strategy: random
-    timeout_ms: 3000
-    concurrency: 4
+  # 上游 DNS 服务器地址列表
+  servers:
+    - "192.168.1.25"
+
+  # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
+  strategy: "random"
+  # 上游服务器响应超时时间（毫秒）
+  timeout_ms: 3000
+  # 并发查询数量
+  concurrency: 100
+  # 是否将上游错误（如SERVFAIL, timeout）转换为 NXDOMAIN 响应给客户端（默认 true）
+  # 这可以加快客户端的失败重试行为，但可能会隐藏上游服务器的真实问题。
+  nxdomain_for_errors: true
+
+# Ping 检测配置（用于选择最优的 DNS 服务器）
 ping:
-    count: 3
-    timeout_ms: 500
-    concurrency: 16
-    strategy: min
-    max_test_ips: 8
-    rtt_cache_ttl_seconds: 60
+  # 每次 Ping 的数据包个数
+  count: 3
+  # Ping 响应超时时间（毫秒）
+  timeout_ms: 500
+  # 并发 Ping 的数量
+  concurrency: 16
+  # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
+  strategy: "min"
+  # 每次排序最多测试的 IP 数量（0 表示不限制）
+  max_test_ips: 0
+  # 单个 IP 的 RTT (延迟) 结果缓存时间（秒，0 表示禁用）
+  rtt_cache_ttl_seconds: 900
+
+# DNS 缓存配置
 cache:
-    fast_response_ttl: 60
-    user_return_ttl: 120
-    min_ttl_seconds: 60
-    max_ttl_seconds: 180
-    negative_ttl_seconds: 300
-    error_cache_ttl_seconds: 30
+  # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
+  fast_response_ttl: 15
+  # 缓存命中时返回给客户端的 TTL。默认值：500秒
+  user_return_ttl: 500
+  # 缓存最小 TTL（生存时间，秒）
+  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 min 为 0 时只限制最大值
+  min_ttl_seconds: 3600
+  # 缓存最大 TTL（生存时间，秒）
+  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 max 为 0 时只限制最小值
+  max_ttl_seconds: 84600
+  # 负向缓存（域名不存在或无记录）的 TTL（秒）。默认值：300秒
+  negative_ttl_seconds: 300
+  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒）。默认值：30秒
+  error_cache_ttl_seconds: 30
+
+# 热点域名提前刷新机制
 prefetch:
-    enabled: true
-    top_domains_limit: 1000
-    refresh_before_expire_seconds: 30
+  # 是否启用预取功能
+  enabled: true
+  # 记录最近访问频率最高的前 N 个域名
+  top_domains_limit: 1000
+  # 在缓存即将过期前指定秒数触发后台异步更新
+  refresh_before_expire_seconds: 10
+
+# Web UI 管理界面配置
 webui:
-    enabled: true
-    listen_port: 8080
+  # 是否启用 Web 管理界面（默认 true）
+  enabled: true
+  # Web 界面监听端口（默认 8080）
+  listen_port: 8080
+
+# 广告拦截配置
 adblock:
-    enabled: false
-    rule_file: rules.txt
+  # 是否启用广告拦截功能（默认 false）
+  enabled: false
+  # 广告拦截规则文件路径
+  rule_file: "rules.txt"
+
+# 系统性能配置
 system:
-    max_cpu_cores: 16
-    sort_queue_workers: 4
-    refresh_workers: 4
+  # 最大 CPU 核心数（0 表示不限制，使用全部可用核心）
+  max_cpu_cores: 0
+  # IP 排序队列的工作线程数（0 表示根据 CPU 核心数自动调整）
+  sort_queue_workers: 0
+  # 异步缓存刷新工作线程数（0 表示根据 CPU 核心数自动调整）
+  refresh_workers: 0

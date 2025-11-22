@@ -23,14 +23,17 @@ dns:
 upstream:
   # 上游 DNS 服务器地址列表
   servers:
-    - "192.168.1.10"
-    - "192.168.1.11"
+    - "192.168.1.25"
+
   # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
   strategy: "random"
   # 上游服务器响应超时时间（毫秒）
   timeout_ms: 3000
   # 并发查询数量
-  concurrency: 4
+  concurrency: 100
+  # 是否将上游错误（如SERVFAIL, timeout）转换为 NXDOMAIN 响应给客户端（默认 true）
+  # 这可以加快客户端的失败重试行为，但可能会隐藏上游服务器的真实问题。
+  nxdomain_for_errors: true
 
 # Ping 检测配置（用于选择最优的 DNS 服务器）
 ping:
@@ -43,14 +46,14 @@ ping:
   # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
   strategy: "min"
   # 每次排序最多测试的 IP 数量（0 表示不限制）
-  max_test_ips: 8
+  max_test_ips: 0
   # 单个 IP 的 RTT (延迟) 结果缓存时间（秒，0 表示禁用）
-  rtt_cache_ttl_seconds: 60
+  rtt_cache_ttl_seconds: 900
 
 # DNS 缓存配置
 cache:
   # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
-  fast_response_ttl: 60
+  fast_response_ttl: 15
   # 缓存命中时返回给客户端的 TTL。默认值：500秒
   user_return_ttl: 500
   # 缓存最小 TTL（生存时间，秒）
@@ -71,7 +74,7 @@ prefetch:
   # 记录最近访问频率最高的前 N 个域名
   top_domains_limit: 1000
   # 在缓存即将过期前指定秒数触发后台异步更新
-  refresh_before_expire_seconds: 30
+  refresh_before_expire_seconds: 10
 
 # Web UI 管理界面配置
 webui:
@@ -94,7 +97,7 @@ system:
   # IP 排序队列的工作线程数（0 表示根据 CPU 核心数自动调整）
   sort_queue_workers: 0
   # 异步缓存刷新工作线程数（0 表示根据 CPU 核心数自动调整）
-  refresh_workers: 4
+  refresh_workers: 0
 `
 
 type Config struct {
@@ -115,10 +118,11 @@ type DNSConfig struct {
 }
 
 type UpstreamConfig struct {
-	Servers     []string `yaml:"servers" json:"servers"`
-	Strategy    string   `yaml:"strategy" json:"strategy"`
-	TimeoutMs   int      `yaml:"timeout_ms" json:"timeout_ms"`
-	Concurrency int      `yaml:"concurrency" json:"concurrency"`
+	Servers           []string `yaml:"servers" json:"servers"`
+	Strategy          string   `yaml:"strategy" json:"strategy"`
+	TimeoutMs         int      `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency       int      `yaml:"concurrency" json:"concurrency"`
+	NxdomainForErrors bool     `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
 }
 
 type PingConfig struct {
@@ -252,7 +256,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.DNS.ListenPort = 53
 	}
 	if cfg.Upstream.TimeoutMs == 0 {
-		cfg.Upstream.TimeoutMs = 300
+		cfg.Upstream.TimeoutMs = 3000
 	}
 	if cfg.Upstream.Concurrency == 0 {
 		cfg.Upstream.Concurrency = 4
@@ -301,20 +305,12 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.System.MaxCPUCores = runtime.NumCPU() // Default to all available cores
 	}
 	if cfg.System.SortQueueWorkers == 0 {
-		// Default to 4 or MaxCPUCores if MaxCPUCores is less than 4
-		if cfg.System.MaxCPUCores < 4 {
-			cfg.System.SortQueueWorkers = cfg.System.MaxCPUCores
-		} else {
-			cfg.System.SortQueueWorkers = 4
-		}
+		// Default to MaxCPUCores for better concurrency performance
+		cfg.System.SortQueueWorkers = cfg.System.MaxCPUCores
 	}
 	if cfg.System.RefreshWorkers == 0 {
-		// Default to 4 or MaxCPUCores if MaxCPUCores is less than 4
-		if cfg.System.MaxCPUCores < 4 {
-			cfg.System.RefreshWorkers = cfg.System.MaxCPUCores
-		} else {
-			cfg.System.RefreshWorkers = 4
-		}
+		// Default to MaxCPUCores for better concurrency performance
+		cfg.System.RefreshWorkers = cfg.System.MaxCPUCores
 	}
 
 	return &cfg, nil

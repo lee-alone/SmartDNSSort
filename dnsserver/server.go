@@ -12,6 +12,7 @@ import (
 	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -174,6 +175,12 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	question := r.Question[0]
 	domain := strings.TrimRight(question.Name, ".")
 
+	// ========== 规则过滤 ==========
+	// 在处理任何逻辑之前，首先应用本地规则
+	if s.handleLocalRules(w, r, msg, domain, question) {
+		return // 如果规则已处理该请求，则直接返回
+	}
+
 	// 仅处理 A 和 AAAA 查询
 	if question.Qtype != dns.TypeA && question.Qtype != dns.TypeAAAA {
 		msg.SetRcode(r, dns.RcodeNotImplemented)
@@ -250,10 +257,58 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			currentStats.IncUpstreamFailures()
 			log.Printf("[handleQuery] 上游查询失败: %v\n", err)
-			// 缓存错误响应,避免短时间内重复查询
-			s.cache.SetError(domain, question.Qtype, dns.RcodeServerFailure, currentCfg.Cache.ErrorCacheTTL)
-			msg.SetRcode(r, dns.RcodeServerFailure)
-			w.WriteMsg(msg)
+
+			if currentCfg.Upstream.NxdomainForErrors {
+				// ---- 增强的错误处理逻辑 (性能模式) ----
+				originalRcode := dns.RcodeServerFailure // 默认为 SERVFAIL
+
+				// 尝试从错误信息中解析原始 Rcode
+				errStr := err.Error()
+				if strings.Contains(errStr, "rcode=") {
+					parts := strings.Split(errStr, "rcode=")
+					if len(parts) > 1 {
+						rcodeInt, convErr := strconv.Atoi(parts[1])
+						if convErr == nil {
+							originalRcode = rcodeInt
+						}
+					}
+				}
+
+				// 缓存真实的错误码
+				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
+
+				// 对客户端，统一返回 NXDOMAIN 以加速浏览器行为
+				responseRcode := dns.RcodeNameError
+				if originalRcode == dns.RcodeNameError {
+					responseRcode = dns.RcodeNameError // 如果上游本就返回 NXDOMAIN，则保持不变
+				}
+
+				log.Printf("[handleQuery] 智能错误处理 (性能模式): 原始Rcode=%d, 响应Rcode=%d\n", originalRcode, responseRcode)
+
+				msg.SetRcode(r, responseRcode)
+				w.WriteMsg(msg)
+			} else {
+				// ---- 增强的错误处理逻辑 (诊断模式) ----
+				originalRcode := dns.RcodeServerFailure // 默认为 SERVFAIL
+
+				// 尝试从错误信息中解析原始 Rcode
+				errStr := err.Error()
+				if strings.Contains(errStr, "rcode=") {
+					parts := strings.Split(errStr, "rcode=")
+					if len(parts) > 1 {
+						rcodeInt, convErr := strconv.Atoi(parts[1])
+						if convErr == nil {
+							originalRcode = rcodeInt
+						}
+					}
+				}
+
+				// 缓存并响应真实的错误码
+				log.Printf("[handleQuery] 智能错误处理 (诊断模式): 转发原始Rcode=%d\n", originalRcode)
+				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
+				msg.SetRcode(r, originalRcode)
+				w.WriteMsg(msg)
+			}
 			return
 		}
 	}
@@ -276,6 +331,65 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// 异步启动 IP 排序任务
 	go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
+}
+
+// handleLocalRules applies a set of hardcoded rules to block or redirect common bogus queries.
+// It returns true if the query was handled, meaning the caller should stop processing.
+func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg, domain string, question dns.Question) bool {
+	// Rule: Single-label domain (no dots)
+	if !strings.Contains(domain, ".") {
+		log.Printf("[QueryFilter] REFUSED: single-label domain query for '%s'", domain)
+		msg.SetRcode(r, dns.RcodeRefused)
+		w.WriteMsg(msg)
+		return true
+	}
+
+	// Rule: localhost
+	if domain == "localhost" {
+		log.Printf("[QueryFilter] STATIC: localhost query for '%s'", domain)
+		var ips []string
+		if question.Qtype == dns.TypeA {
+			ips = []string{"127.0.0.1"}
+		} else if question.Qtype == dns.TypeAAAA {
+			ips = []string{"::1"}
+		}
+		s.buildDNSResponse(msg, domain, ips, question.Qtype, 3600) // 1 hour TTL
+		w.WriteMsg(msg)
+		return true
+	}
+
+	// Rule: Reverse DNS queries
+	if strings.HasSuffix(domain, ".in-addr.arpa") || strings.HasSuffix(domain, ".ip6.arpa") {
+		log.Printf("[QueryFilter] REFUSED: reverse DNS query for '%s'", domain)
+		msg.SetRcode(r, dns.RcodeRefused)
+		w.WriteMsg(msg)
+		return true
+	}
+
+	// Rule: Blocklist for specific domains and suffixes
+	// Using a map for exact matches is efficient.
+	blockedDomains := map[string]int{
+		"local":                     dns.RcodeRefused,
+		"corp":                      dns.RcodeRefused,
+		"home":                      dns.RcodeRefused,
+		"lan":                       dns.RcodeRefused,
+		"internal":                  dns.RcodeRefused,
+		"intranet":                  dns.RcodeRefused,
+		"private":                   dns.RcodeRefused,
+		"home.arpa":                 dns.RcodeRefused,
+		"wpad":                      dns.RcodeNameError, // NXDOMAIN is better for wpad
+		"isatap":                    dns.RcodeRefused,
+		"teredo.ipv6.microsoft.com": dns.RcodeNameError,
+	}
+
+	if rcode, ok := blockedDomains[domain]; ok {
+		log.Printf("[QueryFilter] Rule match for '%s', responding with %s", domain, dns.RcodeToString[rcode])
+		msg.SetRcode(r, rcode)
+		w.WriteMsg(msg)
+		return true
+	}
+
+	return false // Not handled by filter
 }
 
 // calculateRemainingTTL 计算剩余 TTL
