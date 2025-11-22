@@ -159,13 +159,6 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	currentStats.IncQueries()
 
-	// 记录域名查询
-	if len(r.Question) > 0 {
-		domain := strings.TrimRight(r.Question[0].Name, ".")
-		currentStats.RecordDomainQuery(domain)
-		s.RecordRecentQuery(domain)
-	}
-
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Compress = false
@@ -191,15 +184,20 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	// ✅ 记录域名查询（在过滤后，只记录合法查询）
+	// 这样可以防止被拒绝的域名（如 .in-addr.arpa）被记录到统计和预取列表中
+	currentStats.RecordDomainQuery(domain)
+	s.RecordRecentQuery(domain)
+
 	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
 	// ========== 优先检查错误缓存 ==========
-	// 如果该域名最近返回过错误,直接从缓存返回错误,避免重复查询
-	if errEntry, ok := s.cache.GetError(domain, question.Qtype); ok {
+	// 只缓存 NXDOMAIN（域名不存在）错误，不缓存 SERVFAIL 等临时错误
+	if _, ok := s.cache.GetError(domain, question.Qtype); ok {
 		currentStats.IncCacheHits()
-		log.Printf("[handleQuery] 错误缓存命中: %s (type=%s) rcode=%d\n",
-			domain, dns.TypeToString[question.Qtype], errEntry.Rcode)
-		msg.SetRcode(r, errEntry.Rcode)
+		log.Printf("[handleQuery] NXDOMAIN 缓存命中: %s (type=%s)\n",
+			domain, dns.TypeToString[question.Qtype])
+		msg.SetRcode(r, dns.RcodeNameError)
 		w.WriteMsg(msg)
 		return
 	}
@@ -281,31 +279,24 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			currentStats.IncUpstreamFailures()
 			log.Printf("[handleQuery] 上游查询失败: %v\n", err)
 
-			if currentCfg.Upstream.NxdomainForErrors {
-				// ---- 增强的错误处理逻辑 (性能模式) ----
-				originalRcode := parseRcodeFromError(err)
+			originalRcode := parseRcodeFromError(err)
 
-				// 缓存真实的错误码
+			// ✅ 关键修改：区分对待不同错误类型
+			if originalRcode == dns.RcodeNameError {
+				// NXDOMAIN：域名确实不存在，可以缓存并返回错误
 				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
-
-				// 对客户端，统一返回 NXDOMAIN 以加速浏览器行为
-				responseRcode := dns.RcodeNameError
-				if originalRcode == dns.RcodeNameError {
-					responseRcode = dns.RcodeNameError // 如果上游本就返回 NXDOMAIN，则保持不变
-				}
-
-				log.Printf("[handleQuery] 智能错误处理 (性能模式): 原始Rcode=%d, 响应Rcode=%d\n", originalRcode, responseRcode)
-
-				msg.SetRcode(r, responseRcode)
+				log.Printf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s\n", domain)
+				msg.SetRcode(r, dns.RcodeNameError)
 				w.WriteMsg(msg)
 			} else {
-				// ---- 增强的错误处理逻辑 (诊断模式) ----
-				originalRcode := parseRcodeFromError(err)
+				// SERVFAIL/超时：临时错误，不缓存
+				// ✅ 返回 NOERROR 但无 Answer（空响应），防止 Windows 缓存
+				log.Printf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d\n", domain, originalRcode)
 
-				// 缓存并响应真实的错误码
-				log.Printf("[handleQuery] 智能错误处理 (诊断模式): 转发原始Rcode=%d\n", originalRcode)
-				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
-				msg.SetRcode(r, originalRcode)
+				// 返回成功但无数据，让客户端快速重试
+				// 这样 Windows 不会缓存错误响应
+				msg.SetRcode(r, dns.RcodeSuccess)
+				msg.Answer = nil // 确保没有 Answer
 				w.WriteMsg(msg)
 			}
 			return
