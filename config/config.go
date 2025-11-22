@@ -259,7 +259,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.Upstream.TimeoutMs = 3000
 	}
 	if cfg.Upstream.Concurrency == 0 {
-		cfg.Upstream.Concurrency = 4
+		cfg.Upstream.Concurrency = 100
 	}
 	if cfg.Ping.Count == 0 {
 		cfg.Ping.Count = 3

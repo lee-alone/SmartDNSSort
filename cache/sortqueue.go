@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -197,23 +198,8 @@ func (sq *SortQueue) GetStats() (processed, failed int64) {
 
 // 缓存的错误类型
 var (
-	ErrQueueClosed    = NewError("sort queue is closed")
-	ErrSortFuncNotSet = NewError("sort function not set")
-	ErrSortTimeout    = NewError("sort operation timeout")
-	ErrInvalidIPList  = NewError("invalid IP list")
+	ErrQueueClosed    = errors.New("sort queue is closed")
+	ErrSortFuncNotSet = errors.New("sort function not set")
+	ErrSortTimeout    = errors.New("sort operation timeout")
+	ErrInvalidIPList  = errors.New("invalid IP list")
 )
-
-// Error 自定义错误类型
-type Error struct {
-	msg string
-}
-
-// NewError 创建新的错误
-func NewError(msg string) *Error {
-	return &Error{msg: msg}
-}
-
-// Error 实现 error 接口
-func (e *Error) Error() string {
-	return e.msg
-}

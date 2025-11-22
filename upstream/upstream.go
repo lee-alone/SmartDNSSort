@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"smartdnssort/stats"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 // QueryResult 查询结果
 type QueryResult struct {
 	IPs    []string
+	CNAME  string // 添加 CNAME 字段
 	TTL    uint32 // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
 	Error  error
 	Server string // 添加服务器字段
@@ -24,8 +26,9 @@ type QueryResult struct {
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
 type QueryResultWithTTL struct {
-	IPs []string
-	TTL uint32 // 上游 DNS 返回的 TTL
+	IPs   []string
+	CNAME string // 添加 CNAME 字段
+	TTL   uint32 // 上游 DNS 返回的 TTL
 }
 
 // Upstream 上游 DNS 查询模块
@@ -105,13 +108,14 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 	ipMap := make(map[string]bool) // 使用 map 进行去重
 	var allIPs []string
 	var minTTL uint32 = 0 // 所有 IP 中的最小 TTL
+	var finalCNAME string
 	successCount := 0
 	failureCount := 0
 
 	for result := range resultCh {
-		if result.Error == nil && len(result.IPs) > 0 {
+		if result.Error == nil && (len(result.IPs) > 0 || result.CNAME != "") {
 			successCount++
-			log.Printf("[queryParallel] 服务器 %s 查询成功，返回 %d 个IP (TTL=%d秒): %v\n", result.Server, len(result.IPs), result.TTL, result.IPs)
+			log.Printf("[queryParallel] 服务器 %s 查询成功，返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", result.Server, len(result.IPs), result.CNAME, result.TTL, result.IPs)
 			if u.stats != nil {
 				u.stats.IncUpstreamSuccess(result.Server)
 			}
@@ -126,6 +130,10 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 			if minTTL == 0 || result.TTL < minTTL {
 				minTTL = result.TTL
 			}
+			// 优先保留 CNAME
+			if result.CNAME != "" {
+				finalCNAME = result.CNAME
+			}
 		} else {
 			failureCount++
 			log.Printf("[queryParallel] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
@@ -137,11 +145,11 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 
 	log.Printf("[queryParallel] 查询完成: 成功%d个, 失败%d个, 合并后共 %d 个唯一IP (最小TTL=%d秒): %v\n", successCount, failureCount, len(allIPs), minTTL, allIPs)
 
-	if len(allIPs) == 0 {
+	if len(allIPs) == 0 && finalCNAME == "" {
 		return nil, fmt.Errorf("all upstream servers failed")
 	}
 
-	return &QueryResultWithTTL{IPs: allIPs, TTL: minTTL}, nil
+	return &QueryResultWithTTL{IPs: allIPs, CNAME: finalCNAME, TTL: minTTL}, nil
 }
 
 // queryRandom 随机选择一个上游 DNS 服务器进行查询
@@ -166,22 +174,12 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 	if u.stats != nil {
 		u.stats.IncUpstreamSuccess(server)
 	}
-	log.Printf("[queryRandom] 查询成功，返回 %d 个IP (TTL=%d秒): %v\n", len(result.IPs), result.TTL, result.IPs)
-	return &QueryResultWithTTL{IPs: result.IPs, TTL: result.TTL}, nil
+	log.Printf("[queryRandom] 查询成功，返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", len(result.IPs), result.CNAME, result.TTL, result.IPs)
+	return &QueryResultWithTTL{IPs: result.IPs, CNAME: result.CNAME, TTL: result.TTL}, nil
 }
 
 // querySingleServer 查询单个上游 DNS 服务器
 func (u *Upstream) querySingleServer(ctx context.Context, server, domain string, qtype uint16) *QueryResult {
-	// 确保服务器地址格式正确
-	if _, _, err := net.SplitHostPort(server); err != nil {
-		server = net.JoinHostPort(server, "53")
-	}
-
-	client := &dns.Client{
-		Timeout: time.Duration(u.timeoutMs) * time.Millisecond,
-		Net:     "udp",
-	}
-
 	// 构造 DNS 请求
 	msg := new(dns.Msg)
 	msg.SetQuestion(dns.Fqdn(domain), qtype)
@@ -189,7 +187,7 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 	log.Printf("[querySingleServer] 向 %s 查询 %s (type=%s)\n", server, domain, dns.TypeToString[qtype])
 
 	// 执行查询
-	reply, _, err := client.ExchangeContext(ctx, msg, server)
+	reply, _, err := u.doExchange(ctx, server, msg)
 	if err != nil {
 		log.Printf("[querySingleServer] 查询 %s 失败: %v\n", server, err)
 		return &QueryResult{Error: err, Server: server}
@@ -201,9 +199,9 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 	}
 
 	// 提取 IP 地址和 TTL
-	ips, ttl := extractIPs(reply)
-	log.Printf("[querySingleServer] %s 返回 %d 个IP (TTL=%d秒): %v\n", server, len(ips), ttl, ips)
-	return &QueryResult{IPs: ips, TTL: ttl, Server: server}
+	ips, cname, ttl := extractIPs(reply)
+	log.Printf("[querySingleServer] %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", server, len(ips), cname, ttl, ips)
+	return &QueryResult{IPs: ips, CNAME: cname, TTL: ttl, Server: server}
 }
 
 // Exchange 原始 DNS 消息交换（QueryAll 必须依赖它）
@@ -216,6 +214,15 @@ func (u *Upstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
 	// 随机选一个服务器，和 queryRandom 策略保持一致（最快）
 	server := u.servers[rand.Intn(len(u.servers))]
 
+	reply, _, err := u.doExchange(ctx, server, m)
+	if err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
+// doExchange 执行底层的 DNS 交换
+func (u *Upstream) doExchange(ctx context.Context, server string, m *dns.Msg) (*dns.Msg, time.Duration, error) {
 	// 确保有端口
 	if _, _, err := net.SplitHostPort(server); err != nil {
 		server = net.JoinHostPort(server, "53")
@@ -226,18 +233,14 @@ func (u *Upstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
 		Timeout: time.Duration(u.timeoutMs) * time.Millisecond,
 	}
 
-	// 直接使用 miekg/dns 的 ExchangeContext
-	reply, _, err := client.ExchangeContext(ctx, m, server)
-	if err != nil {
-		return nil, err
-	}
-	return reply, nil
+	return client.ExchangeContext(ctx, m, server)
 }
 
-// extractIPs 从 DNS 响应中提取 IP 地址和最小 TTL
-// 返回值：IP 列表、最小 TTL（秒）
-func extractIPs(msg *dns.Msg) ([]string, uint32) {
+// extractIPs 从 DNS 响应中提取 IP 地址、CNAME 和最小 TTL
+// 返回值：IP 列表、CNAME、最小 TTL（秒）
+func extractIPs(msg *dns.Msg) ([]string, string, uint32) {
 	var ips []string
+	var cname string
 	var minTTL uint32 = 0 // 0 表示未设置
 
 	for _, answer := range msg.Answer {
@@ -254,6 +257,13 @@ func extractIPs(msg *dns.Msg) ([]string, uint32) {
 			if minTTL == 0 || rr.Hdr.Ttl < minTTL {
 				minTTL = rr.Hdr.Ttl
 			}
+		case *dns.CNAME:
+			if cname == "" {
+				cname = rr.Target
+			}
+			if minTTL == 0 || rr.Hdr.Ttl < minTTL {
+				minTTL = rr.Hdr.Ttl
+			}
 		}
 	}
 
@@ -262,78 +272,82 @@ func extractIPs(msg *dns.Msg) ([]string, uint32) {
 		minTTL = 60
 	}
 
-	return ips, minTTL
+	return ips, cname, minTTL
 }
 
-// QueryAll —— 保底版，Answer + Extra + Ns 段全扫，永不漏 AAAA
+// QueryAll 增强版：主动查询 A 和 AAAA 记录，并处理 CNAME
 func (u *Upstream) QueryAll(ctx context.Context, domain string) (*QueryResultWithTTL, error) {
-	m := new(dns.Msg)
-	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
-	m.SetEdns0(4096, true) // 必须！不然很多上游会截断附加记录
-
-	in, err := u.Exchange(ctx, m)
-	if err != nil {
-		return nil, err
-	}
-	if in.Rcode != dns.RcodeSuccess {
-		return nil, fmt.Errorf("bad rcode: %d", in.Rcode)
-	}
-
-	var ips []string
+	log.Printf("[QueryAll] Starting aggregated query for %s", domain)
+	var allIPs []string
+	var finalCname string
 	minTTL := uint32(math.MaxUint32)
-	questionName := in.Question[0].Name
+	ipMap := make(map[string]bool)
+	var queryErr error
 
-	// 1. Answer 段（最常见）
-	for _, rr := range in.Answer {
-		if rr.Header().Name != questionName {
-			continue
+	// 1. 首先查询 A 记录
+	resultA, errA := u.Query(ctx, domain, dns.TypeA)
+	if errA == nil && resultA != nil {
+		if resultA.CNAME != "" {
+			finalCname = resultA.CNAME
 		}
-		switch v := rr.(type) {
-		case *dns.A:
-			ips = append(ips, v.A.String())
-			if v.Header().Ttl < minTTL {
-				minTTL = v.Header().Ttl
+		if resultA.TTL > 0 && resultA.TTL < minTTL {
+			minTTL = resultA.TTL
+		}
+		for _, ip := range resultA.IPs {
+			if !ipMap[ip] {
+				ipMap[ip] = true
+				allIPs = append(allIPs, ip)
 			}
-		case *dns.AAAA:
-			ips = append(ips, v.AAAA.String())
-			if v.Header().Ttl < minTTL {
-				minTTL = v.Header().Ttl
+		}
+		log.Printf("[QueryAll] A query for %s returned CNAME: '%s', IPs: %v", domain, resultA.CNAME, resultA.IPs)
+	} else {
+		log.Printf("[QueryAll] A query for %s failed or returned no data: %v", domain, errA)
+		queryErr = errA // 存储错误
+	}
+
+	// 2. 决定 AAAA 查询的目标域名
+	domainForAAAA := domain
+	if finalCname != "" {
+		domainForAAAA = strings.TrimRight(finalCname, ".")
+	}
+
+	// 3. 查询 AAAA 记录
+	resultAAAA, errAAAA := u.Query(ctx, domainForAAAA, dns.TypeAAAA)
+	if errAAAA == nil && resultAAAA != nil {
+		// 如果 A 查询没有 CNAME，但 AAAA 查询有，则使用它
+		if finalCname == "" && resultAAAA.CNAME != "" {
+			finalCname = resultAAAA.CNAME
+		}
+		// 只有当查询的是原始域名时，才考虑 AAAA 的 TTL
+		if domainForAAAA == domain && resultAAAA.TTL > 0 && resultAAAA.TTL < minTTL {
+			minTTL = resultAAAA.TTL
+		}
+		for _, ip := range resultAAAA.IPs {
+			if !ipMap[ip] {
+				ipMap[ip] = true
+				allIPs = append(allIPs, ip)
 			}
+		}
+		log.Printf("[QueryAll] AAAA query for %s returned CNAME: '%s', IPs: %v", domainForAAAA, resultAAAA.CNAME, resultAAAA.IPs)
+	} else {
+		log.Printf("[QueryAll] AAAA query for %s failed or returned no data: %v", domainForAAAA, errAAAA)
+		if queryErr != nil {
+			queryErr = fmt.Errorf("A_err: %v, AAAA_err: %v", queryErr, errAAAA)
+		} else {
+			queryErr = errAAAA
 		}
 	}
 
-	// 2. Extra 段（Unbound 疯狂爱放这里！）
-	for _, rr := range in.Extra {
-		if rr.Header().Name != questionName {
-			continue
-		}
-		if aaaa, ok := rr.(*dns.AAAA); ok {
-			ips = append(ips, aaaa.AAAA.String())
-			if aaaa.Header().Ttl < minTTL {
-				minTTL = aaaa.Header().Ttl
-			}
-		}
+	// 4. 如果两个查询都失败且没有获取到任何信息，返回错误
+	if len(allIPs) == 0 && finalCname == "" {
+		log.Printf("[QueryAll] Aggregated query for %s failed. No IPs or CNAME found. Final error: %v", domain, queryErr)
+		return nil, fmt.Errorf("no A/AAAA/CNAME found for %s: %w", domain, queryErr)
 	}
 
-	// 3. 极少数情况会放在 Ns 段（保险起见也扫一下）
-	for _, rr := range in.Ns {
-		if rr.Header().Name != questionName {
-			continue
-		}
-		if aaaa, ok := rr.(*dns.AAAA); ok {
-			ips = append(ips, aaaa.AAAA.String())
-			if aaaa.Header().Ttl < minTTL {
-				minTTL = aaaa.Header().Ttl
-			}
-		}
-	}
-
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("no A/AAAA found for %s", domain)
-	}
 	if minTTL == math.MaxUint32 {
-		minTTL = 60
+		minTTL = 60 // 默认 TTL
 	}
 
-	return &QueryResultWithTTL{IPs: ips, TTL: minTTL}, nil
+	log.Printf("[QueryAll] Aggregated query completed: domain=%s, CNAME=%s, IPs=%v, TTL=%d\n", domain, finalCname, allIPs, minTTL)
+	return &QueryResultWithTTL{IPs: allIPs, CNAME: finalCname, TTL: minTTL}, nil
 }

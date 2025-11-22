@@ -33,7 +33,7 @@ Thumbs.db
 dist/
 build/
 bin/
-
+.gemini/
 # Binaries and executables
 SmartDNSSort
 SmartDNSSort-*

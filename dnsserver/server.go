@@ -12,7 +12,6 @@ import (
 	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,8 +73,12 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 func (s *Server) performPingSort(ctx context.Context, ips []string) ([]string, []int, error) {
 	log.Printf("[performPingSort] 对 %d 个 IP 进行 ping 排序\n", len(ips))
 
+	s.mu.RLock()
+	pinger := s.pinger
+	s.mu.RUnlock()
+
 	// 使用现有的 Pinger 进行 ping 测试和排序
-	pingResults := s.pinger.PingAndSort(ctx, ips)
+	pingResults := pinger.PingAndSort(ctx, ips)
 
 	if len(pingResults) == 0 {
 		return nil, nil, fmt.Errorf("ping sort returned no results")
@@ -209,7 +212,20 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			domain, dns.TypeToString[question.Qtype], sorted.IPs, currentCfg.Cache.UserReturnTTL)
 
 		// 使用 user_return_ttl 作为响应的 TTL
-		s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, uint32(currentCfg.Cache.UserReturnTTL))
+		userTTL := uint32(currentCfg.Cache.UserReturnTTL)
+
+		// 检查是否有 CNAME（从原始缓存获取）
+		var cname string
+		if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok && raw.CNAME != "" {
+			cname = raw.CNAME
+		}
+
+		// 构造响应
+		if cname != "" {
+			s.buildDNSResponseWithCNAME(msg, domain, cname, sorted.IPs, question.Qtype, userTTL)
+		} else {
+			s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, userTTL)
+		}
 		w.WriteMsg(msg)
 		return
 	}
@@ -220,12 +236,18 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
 		currentStats.IncCacheHits()
 		// 无论是否过期,都立即返回缓存数据
-		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v (过期:%v)\n",
-			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.IsExpired())
+		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)\n",
+			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAME, raw.IsExpired())
 
 		// 立即返回缓存,使用 fast_response_ttl
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-		s.buildDNSResponse(msg, domain, raw.IPs, question.Qtype, fastTTL)
+
+		// 构造响应
+		if raw.CNAME != "" {
+			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAME, raw.IPs, question.Qtype, fastTTL)
+		} else {
+			s.buildDNSResponse(msg, domain, raw.IPs, question.Qtype, fastTTL)
+		}
 		w.WriteMsg(msg)
 
 		// 如果缓存已过期,异步重新查询和排序(更新缓存)
@@ -249,6 +271,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	result, err := currentUpstream.QueryAll(ctx, domain)
 	var ips []string
+	var cname string
 	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
@@ -260,19 +283,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 			if currentCfg.Upstream.NxdomainForErrors {
 				// ---- 增强的错误处理逻辑 (性能模式) ----
-				originalRcode := dns.RcodeServerFailure // 默认为 SERVFAIL
-
-				// 尝试从错误信息中解析原始 Rcode
-				errStr := err.Error()
-				if strings.Contains(errStr, "rcode=") {
-					parts := strings.Split(errStr, "rcode=")
-					if len(parts) > 1 {
-						rcodeInt, convErr := strconv.Atoi(parts[1])
-						if convErr == nil {
-							originalRcode = rcodeInt
-						}
-					}
-				}
+				originalRcode := parseRcodeFromError(err)
 
 				// 缓存真实的错误码
 				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
@@ -289,19 +300,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 				w.WriteMsg(msg)
 			} else {
 				// ---- 增强的错误处理逻辑 (诊断模式) ----
-				originalRcode := dns.RcodeServerFailure // 默认为 SERVFAIL
-
-				// 尝试从错误信息中解析原始 Rcode
-				errStr := err.Error()
-				if strings.Contains(errStr, "rcode=") {
-					parts := strings.Split(errStr, "rcode=")
-					if len(parts) > 1 {
-						rcodeInt, convErr := strconv.Atoi(parts[1])
-						if convErr == nil {
-							originalRcode = rcodeInt
-						}
-					}
-				}
+				originalRcode := parseRcodeFromError(err)
 
 				// 缓存并响应真实的错误码
 				log.Printf("[handleQuery] 智能错误处理 (诊断模式): 转发原始Rcode=%d\n", originalRcode)
@@ -315,22 +314,94 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	if result != nil {
 		ips = result.IPs
+		cname = result.CNAME
 		upstreamTTL = result.TTL
 	}
 
-	log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP (TTL=%d秒): %v\n",
-		domain, len(ips), upstreamTTL, ips)
+	// 如果有 IP（可能同时有 CNAME）
+	if len(ips) > 0 {
+		log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+			domain, len(ips), cname, upstreamTTL, ips)
 
-	// 使用 fast_response_ttl 缓存原始响应
-	s.cache.SetRaw(domain, question.Qtype, ips, upstreamTTL)
+		// 分离 IPv4 和 IPv6 地址
+		var ipv4s, ipv6s []string
+		for _, ipStr := range ips {
+			ip := net.ParseIP(ipStr)
+			if ip == nil {
+				continue
+			}
+			if ip.To4() != nil {
+				ipv4s = append(ipv4s, ipStr)
+			} else {
+				ipv6s = append(ipv6s, ipStr)
+			}
+		}
 
-	// 使用 fast_response_ttl 快速返回给用户
-	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-	s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
-	w.WriteMsg(msg)
+		// 为 A 和 AAAA 记录分别设置缓存和启动排序
+		if len(ipv4s) > 0 {
+			s.cache.SetRaw(domain, dns.TypeA, ipv4s, cname, upstreamTTL)
+			go s.sortIPsAsync(domain, dns.TypeA, ipv4s, upstreamTTL, time.Now())
+		}
+		if len(ipv6s) > 0 {
+			s.cache.SetRaw(domain, dns.TypeAAAA, ipv6s, cname, upstreamTTL)
+			go s.sortIPsAsync(domain, dns.TypeAAAA, ipv6s, upstreamTTL, time.Now())
+		}
 
-	// 异步启动 IP 排序任务
-	go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
+		// 使用 fast_response_ttl 快速返回给用户
+		// 注意：这里的 build 函数会根据 question.Qtype 从所有 ips 中筛选出正确的类型
+		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
+
+		// 如果有 CNAME，同时返回 CNAME 记录和 A/AAAA 记录
+		if cname != "" {
+			log.Printf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs\n", domain, cname)
+			s.buildDNSResponseWithCNAME(msg, domain, cname, ips, question.Qtype, fastTTL)
+		} else {
+			s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
+		}
+		w.WriteMsg(msg)
+
+		// 注意：因为上面已经为特定的 qtype 启动了排序，这里不再需要重复启动
+		return
+	}
+
+	// 如果没有 IP 但有 CNAME，进行递归解析
+	if cname != "" {
+		log.Printf("[handleQuery] 上游查询返回 CNAME，开始递归解析: %s -> %s\n", domain, cname)
+
+		// 递归解析 CNAME
+		finalResult, err := s.resolveCNAME(ctx, cname, question.Qtype)
+		if err != nil {
+			log.Printf("[handleQuery] CNAME 递归解析失败: %v\n", err)
+			msg.SetRcode(r, dns.RcodeServerFailure)
+			w.WriteMsg(msg)
+			return
+		}
+
+		// 我们现在有了最终的 IP，需要将它们和原始的 CNAME 链一起返回
+		// 缓存原始查询的原始响应（CNAME）
+		s.cache.SetRaw(domain, question.Qtype, nil, cname, upstreamTTL)
+
+		// 缓存 CNAME 目标的解析结果（IPs）
+		// 注意：这里我们使用 cname 作为 key
+		cnameTargetDomain := strings.TrimRight(dns.Fqdn(cname), ".")
+		s.cache.SetRaw(cnameTargetDomain, question.Qtype, finalResult.IPs, "", finalResult.TTL)
+
+		// 使用 fast_response_ttl 快速返回给用户
+		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
+
+		// 构造包含 CNAME 和最终 IP 的响应
+		s.buildDNSResponseWithCNAME(msg, domain, cname, finalResult.IPs, question.Qtype, fastTTL)
+		w.WriteMsg(msg)
+
+		// 异步为 CNAME 目标启动排序 (注意：不是原始域名)
+		go s.sortIPsAsync(cnameTargetDomain, question.Qtype, finalResult.IPs, finalResult.TTL, time.Now())
+		return
+	}
+
+	// 如果既没有 IP 也没有 CNAME，或者之前的逻辑已经处理了返回
+	// 这里实际上 result != nil 且 len(ips) == 0 且 cname == "" 的情况应该在 upstream 报错了
+	// 但为了安全起见，如果走到这里，我们记录日志
+	log.Printf("[handleQuery] 上游查询返回空结果: %s\n", domain)
 }
 
 // handleLocalRules applies a set of hardcoded rules to block or redirect common bogus queries.
@@ -348,9 +419,10 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	if domain == "localhost" {
 		log.Printf("[QueryFilter] STATIC: localhost query for '%s'", domain)
 		var ips []string
-		if question.Qtype == dns.TypeA {
+		switch question.Qtype {
+		case dns.TypeA:
 			ips = []string{"127.0.0.1"}
-		} else if question.Qtype == dns.TypeAAAA {
+		case dns.TypeAAAA:
 			ips = []string{"::1"}
 		}
 		s.buildDNSResponse(msg, domain, ips, question.Qtype, 3600) // 1 hour TTL
@@ -496,7 +568,7 @@ func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.S
 		domain, dns.TypeToString[qtype], result.IPs, result.RTTs)
 
 	// 从原始缓存获取获取时间，计算剩余 TTL
-	raw, exists := s.cache.GetRawUnsafe(domain, qtype)
+	raw, exists := s.cache.GetRaw(domain, qtype)
 	if exists && raw != nil {
 		result.TTL = s.calculateRemainingTTL(raw.UpstreamTTL, raw.AcquisitionTime)
 	} else {
@@ -539,10 +611,53 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	log.Printf("[refreshCacheAsync] 刷新缓存成功，获得 %d 个IP: %v\n", len(result.IPs), result.IPs)
 
 	// 更新原始缓存
-	s.cache.SetRaw(domain, qtype, result.IPs, result.TTL)
+	s.cache.SetRaw(domain, qtype, result.IPs, result.CNAME, result.TTL)
 
 	// 异步排序更新
 	go s.sortIPsAsync(domain, qtype, result.IPs, result.TTL, time.Now())
+}
+
+// resolveCNAME 递归解析 CNAME，直到找到 IP 地址
+func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) (*upstream.QueryResultWithTTL, error) {
+	const maxRedirects = 10
+	currentDomain := domain
+
+	for i := 0; i < maxRedirects; i++ {
+		log.Printf("[resolveCNAME] 递归查询 #%d: %s (type=%s)\n", i+1, currentDomain, dns.TypeToString[qtype])
+
+		// 检查上下文是否已取消
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		// 去掉末尾的点, 以符合内部查询习惯
+		queryDomain := strings.TrimRight(currentDomain, ".")
+
+		result, err := s.upstream.Query(ctx, queryDomain, qtype)
+		if err != nil {
+			return nil, fmt.Errorf("cname resolution failed for %s: %v", queryDomain, err)
+		}
+
+		// 如果找到了 IP，解析结束
+		if len(result.IPs) > 0 {
+			log.Printf("[resolveCNAME] 成功解析到 IP: %v for domain %s\n", result.IPs, queryDomain)
+			// CNAME链的最终结果的CNAME字段应为空
+			result.CNAME = ""
+			return result, nil
+		}
+
+		// 如果没有 IP 但有 CNAME，继续重定向
+		if result.CNAME != "" {
+			log.Printf("[resolveCNAME] 发现下一跳 CNAME: %s -> %s\n", queryDomain, result.CNAME)
+			currentDomain = result.CNAME
+			continue
+		}
+
+		// 如果既没有 IP 也没有 CNAME，说明解析中断
+		return nil, fmt.Errorf("cname resolution failed: no IPs or further CNAME found for %s", queryDomain)
+	}
+
+	return nil, fmt.Errorf("cname resolution failed: exceeded max redirects for %s", domain)
 }
 
 // RefreshDomain is the public method to trigger a cache refresh for a domain.
@@ -585,6 +700,67 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 				msg.Answer = append(msg.Answer, &dns.AAAA{
 					Hdr: dns.RR_Header{
 						Name:   fqdn,
+						Rrtype: dns.TypeAAAA,
+						Class:  dns.ClassINET,
+						Ttl:    ttl,
+					},
+					AAAA: parsedIP,
+				})
+			}
+		}
+	}
+}
+
+// buildDNSResponseWithCNAME 构造包含 CNAME 和 IP 的完整 DNS 响应
+// 响应格式：
+//
+//	www.example.com.  300  IN  CNAME  cdn.example.com.
+//	cdn.example.com.  300  IN  A      1.2.3.4
+func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname string, ips []string, qtype uint16, ttl uint32) {
+	fqdn := dns.Fqdn(domain)
+	target := dns.Fqdn(cname)
+
+	log.Printf("[buildDNSResponseWithCNAME] 构造 CNAME 响应链: %s -> %s, 包含 %d 个IP, TTL=%d\n",
+		domain, cname, len(ips), ttl)
+
+	// 1. 首先添加 CNAME 记录
+	msg.Answer = append(msg.Answer, &dns.CNAME{
+		Hdr: dns.RR_Header{
+			Name:   fqdn,
+			Rrtype: dns.TypeCNAME,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Target: target,
+	})
+
+	// 2. 然后添加目标域名的 A/AAAA 记录
+	for _, ip := range ips {
+		parsedIP := net.ParseIP(ip)
+		if parsedIP == nil {
+			continue
+		}
+
+		switch qtype {
+		case dns.TypeA:
+			// 返回 IPv4，记录名称使用 CNAME 目标
+			if parsedIP.To4() != nil {
+				msg.Answer = append(msg.Answer, &dns.A{
+					Hdr: dns.RR_Header{
+						Name:   target, // 使用 CNAME 目标作为记录名
+						Rrtype: dns.TypeA,
+						Class:  dns.ClassINET,
+						Ttl:    ttl,
+					},
+					A: parsedIP,
+				})
+			}
+		case dns.TypeAAAA:
+			// 返回 IPv6，记录名称使用 CNAME 目标
+			if parsedIP.To4() == nil && parsedIP.To16() != nil {
+				msg.Answer = append(msg.Answer, &dns.AAAA{
+					Hdr: dns.RR_Header{
+						Name:   target, // 使用 CNAME 目标作为记录名
 						Rrtype: dns.TypeAAAA,
 						Class:  dns.ClassINET,
 						Ttl:    ttl,
@@ -694,26 +870,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		log.Printf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
 		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
 		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
-			// This function will be called by the queue worker.
-			// We need to ensure it uses the *current* pinger from the server.
-			s.mu.RLock()
-			p := s.pinger
-			s.mu.RUnlock()
-
-			pingResults := p.PingAndSort(ctx, ips)
-
-			if len(pingResults) == 0 {
-				return nil, nil, fmt.Errorf("ping sort returned no results")
-			}
-
-			var sortedIPs []string
-			var rtts []int
-			for _, result := range pingResults {
-				sortedIPs = append(sortedIPs, result.IP)
-				rtts = append(rtts, result.RTT)
-				// Note: s.stats.IncPingSuccesses() is not called here as it's handled in performPingSort
-			}
-			return sortedIPs, rtts, nil
+			return s.performPingSort(ctx, ips)
 		})
 	}
 
@@ -739,6 +896,9 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	}
 
 	if newPinger != nil {
+		if s.pinger != nil {
+			s.pinger.Stop()
+		}
 		s.pinger = newPinger
 	}
 

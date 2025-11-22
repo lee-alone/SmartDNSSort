@@ -9,6 +9,7 @@ import (
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
 	IPs             []string  // 原始 IP 列表
+	CNAME           string    // CNAME 记录（如果有）
 	UpstreamTTL     uint32    // 上游 DNS 返回的原始 TTL（秒）
 	AcquisitionTime time.Time // 从上游获取的时间
 }
@@ -110,25 +111,16 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 	return entry, true
 }
 
-// GetRawUnsafe 获取原始缓存（不检查过期，用于 TTL 计算）
-func (c *Cache) GetRawUnsafe(domain string, qtype uint16) (*RawCacheEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	key := cacheKey(domain, qtype)
-	entry, exists := c.rawCache[key]
-	return entry, exists
-}
-
 // SetRaw 设置原始缓存（上游 DNS 响应）
 // ttl 参数是上游 DNS 返回的原始 TTL（秒）
-func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, upstreamTTL uint32) {
+func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cname string, upstreamTTL uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	key := cacheKey(domain, qtype)
 	c.rawCache[key] = &RawCacheEntry{
 		IPs:             ips,
+		CNAME:           cname,
 		UpstreamTTL:     upstreamTTL,
 		AcquisitionTime: time.Now(),
 	}

@@ -32,6 +32,7 @@ type Pinger struct {
 	rttCacheTtlSeconds int
 	rttCache           map[string]*rttCacheEntry
 	rttCacheMu         sync.RWMutex
+	stopChan           chan struct{}
 }
 
 // NewPinger 创建新的 pinger
@@ -57,6 +58,7 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		maxTestIPs:         maxTestIPs,
 		rttCacheTtlSeconds: rttCacheTtlSeconds,
 		rttCache:           make(map[string]*rttCacheEntry),
+		stopChan:           make(chan struct{}),
 	}
 
 	if p.rttCacheTtlSeconds > 0 {
@@ -70,15 +72,25 @@ func (p *Pinger) startRttCacheCleaner() {
 	ticker := time.NewTicker(time.Duration(p.rttCacheTtlSeconds) * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		p.rttCacheMu.Lock()
-		for ip, entry := range p.rttCache {
-			if time.Now().After(entry.expiresAt) {
-				delete(p.rttCache, ip)
+	for {
+		select {
+		case <-ticker.C:
+			p.rttCacheMu.Lock()
+			for ip, entry := range p.rttCache {
+				if time.Now().After(entry.expiresAt) {
+					delete(p.rttCache, ip)
+				}
 			}
+			p.rttCacheMu.Unlock()
+		case <-p.stopChan:
+			return
 		}
-		p.rttCacheMu.Unlock()
 	}
+}
+
+// Stop 停止 Pinger 的后台任务
+func (p *Pinger) Stop() {
+	close(p.stopChan)
 }
 
 // PingAndSort 对 IP 列表进行 ping 测试并排序，返回完整结果（包括 RTT）
@@ -228,10 +240,10 @@ func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
 	for _, port := range ports {
 		addr := net.JoinHostPort(ip, port)
 		dialer := &net.Dialer{Timeout: time.Duration(p.timeoutMs) * time.Millisecond}
-		
+
 		start := time.Now()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
-		
+
 		if err == nil {
 			conn.Close()
 			return int(time.Since(start).Milliseconds())
