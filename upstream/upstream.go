@@ -332,7 +332,7 @@ func (u *Upstream) QueryAll(ctx context.Context, domain string) (*QueryResultWit
 	} else {
 		log.Printf("[QueryAll] AAAA query for %s failed or returned no data: %v", domainForAAAA, errAAAA)
 		if queryErr != nil {
-			queryErr = fmt.Errorf("A_err: %v, AAAA_err: %v", queryErr, errAAAA)
+			queryErr = fmt.Errorf("a_err: %v, aaaa_err: %v", queryErr, errAAAA)
 		} else {
 			queryErr = errAAAA
 		}
