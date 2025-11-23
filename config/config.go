@@ -1,4 +1,4 @@
-package config
+﻿package config
 
 import (
 	"os"
@@ -7,16 +7,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// 默认配置文件内容（包含详细说明）
+// 默认配置文件内容，包含详细说明
 const DefaultConfigContent = `# SmartDNSSort 配置文件
 
 # DNS 服务器配置
 dns:
-  # DNS 监听端口（默认 53）
+  # DNS 监听端口，默认 53
   listen_port: 53
-  # 是否启用 TCP 协议（用于大型 DNS 查询，默认 true）
+  # 是否启用 TCP 协议（用于大型 DNS 查询），默认 true
   enable_tcp: true
-  # 是否启用 IPv6 支持（默认 true）
+  # 是否启用 IPv6 支持，默认 true
   enable_ipv6: true
 
 # 上游 DNS 服务器配置
@@ -25,80 +25,92 @@ upstream:
   servers:
     - "192.168.1.25"
 
-  # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
+  # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器）
   strategy: "random"
   # 上游服务器响应超时时间（毫秒）
   timeout_ms: 5000
-  # 并发查询数量
+  # 最大并发查询数
   concurrency: 100
-  # 是否将上游错误（如SERVFAIL, timeout）转换为 NXDOMAIN 响应给客户端（默认 true）
-  # 这可以加快客户端的失败重试行为，但可能会隐藏上游服务器的真实问题。
+  # 是否将未处理的 SERVFAIL, timeout 转换为 NXDOMAIN 响应给客户端，默认 true
+  # 这可以减少客户端的失败重试行为，但可能会隐藏上游服务器的真实错误
   nxdomain_for_errors: true
 
-# Ping 检测配置（用于选择最优的 DNS 服务器）
+# Ping 检测配置，用于选择最优的 DNS 服务器
 ping:
-  # 每次 Ping 的数据包个数
+  # 每次 Ping 的数据包数量
   count: 3
   # Ping 响应超时时间（毫秒）
   timeout_ms: 1000
-  # 并发 Ping 的数量
+  # 并发 Ping 数量
   concurrency: 16
-  # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
+  # 选择策略：min（选择最小延迟），avg（选择平均延迟）
   strategy: "min"
-  # 每次排序最多测试的 IP 数量（0 表示不限制）
+  # 每个域名测试的 IP 数量，0 表示不限制
   max_test_ips: 0
-  # 单个 IP 的 RTT (延迟) 结果缓存时间（秒，0 表示禁用）
+  # 缓存 IP 的 RTT (延迟) 结果的时间（秒）
   rtt_cache_ttl_seconds: 600
 
 # DNS 缓存配置
 cache:
-  # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
+  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 60
   fast_response_ttl: 15
-  # 缓存命中时返回给客户端的 TTL。默认值：500秒
+  # 正常返回给客户端的 TTL，默认值 600
   user_return_ttl: 600
-  # 缓存最小 TTL（生存时间，秒）
-  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 min 为 0 时只限制最大值
+  # 最小 TTL（秒）
+  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 min > 0 时只增加过小的 TTL
   min_ttl_seconds: 3600
-  # 缓存最大 TTL（生存时间，秒）
-  # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 max 为 0 时只限制最小值
+  # 最大 TTL（秒）
+  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 max > 0 时只减小过大的 TTL
   max_ttl_seconds: 84600
-  # 负向缓存（域名不存在或无记录）的 TTL（秒）。默认值：300秒
+  # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 300
   negative_ttl_seconds: 300
-  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒）。默认值：30秒
+  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒），默认值 30
   error_cache_ttl_seconds: 30
 
-# 热点域名提前刷新机制
+  # 内存缓存管理 (高级)
+  # 最大内存使用量 (MB)。超过此限制将触发LRU淘汰。0表示不限制。
+  max_memory_mb: 128
+  # 是否保留已过期的缓存条目。当内存充足时，可设为 true 以加速后续查询。
+  keep_expired_entries: true
+  # 内存使用达到此百分比阈值时，触发淘汰机制 (0.7-0.95)。
+  eviction_threshold: 0.9
+  # 每次淘汰时，清理缓存总量的百分比 (0.05-0.2)。
+  eviction_batch_percent: 0.1
+  # 在LRU淘汰期间，是否保护预取列表中的域名不被清除。
+  protect_prefetch_domains: true
+
+# 预取配置（提前刷新缓存）
 prefetch:
   # 是否启用预取功能
   enabled: true
-  # 记录最近访问频率最高的前 N 个域名
+  # 记录访问频率最高的 N 个域名
   top_domains_limit: 1000
-  # 在缓存即将过期前指定秒数触发后台异步更新
+  # 在缓存即将过期前指定的时间进行后台异步刷新
   refresh_before_expire_seconds: 10
-  # 最小预取间隔（秒），防止对短 TTL 域名进行过分激进的请求
+  # 最小预取间隔（秒），防止低 TTL 域名引起过度频繁请求
   min_prefetch_interval: 500
 
 # Web UI 管理界面配置
 webui:
-  # 是否启用 Web 管理界面（默认 true）
+  # 是否启用 Web 管理界面，默认 true
   enabled: true
-  # Web 界面监听端口（默认 8080）
+  # Web 管理界面端口，默认 8080
   listen_port: 8080
 
 # 广告拦截配置
 adblock:
-  # 是否启用广告拦截功能（默认 false）
+  # 是否启用广告拦截功能，默认 false
   enabled: false
   # 广告拦截规则文件路径
   rule_file: "rules.txt"
 
-# 系统性能配置
+# 系统资源配置
 system:
-  # 最大 CPU 核心数（0 表示不限制，使用全部可用核心）
+  # 最大 CPU 核心数，0 表示不限制（使用全部可用核心）
   max_cpu_cores: 0
-  # IP 排序队列的工作线程数（0 表示根据 CPU 核心数自动调整）
+  # IP 排序队列的工作线程数，0 表示根据 CPU 核心数自动调整
   sort_queue_workers: 0
-  # 异步缓存刷新工作线程数（0 表示根据 CPU 核心数自动调整）
+  # 异步缓存刷新工作线程数，0 表示根据 CPU 核心数自动调整
   refresh_workers: 0
 `
 
@@ -141,8 +153,15 @@ type CacheConfig struct {
 	UserReturnTTL      int `yaml:"user_return_ttl" json:"user_return_ttl"`
 	MinTTLSeconds      int `yaml:"min_ttl_seconds" json:"min_ttl_seconds"`
 	MaxTTLSeconds      int `yaml:"max_ttl_seconds" json:"max_ttl_seconds"`
-	NegativeTTLSeconds int `yaml:"negative_ttl_seconds" json:"negative_ttl_seconds"`       // 负向缓存(NXDOMAIN/NODATA)的TTL
+	NegativeTTLSeconds int `yaml:"negative_ttl_seconds" json:"negative_ttl_seconds"`       // 否定缓存(NXDOMAIN/NODATA)的TTL
 	ErrorCacheTTL      int `yaml:"error_cache_ttl_seconds" json:"error_cache_ttl_seconds"` // 错误响应缓存的TTL
+
+	// 内存缓存管理 (高级)
+	MaxMemoryMB            int     `yaml:"max_memory_mb" json:"max_memory_mb"`
+	KeepExpiredEntries     bool    `yaml:"keep_expired_entries" json:"keep_expired_entries"`
+	EvictionThreshold      float64 `yaml:"eviction_threshold" json:"eviction_threshold"`
+	EvictionBatchPercent   float64 `yaml:"eviction_batch_percent" json:"eviction_batch_percent"`
+	ProtectPrefetchDomains bool    `yaml:"protect_prefetch_domains" json:"protect_prefetch_domains"`
 }
 
 type PrefetchConfig struct {
@@ -168,15 +187,40 @@ type SystemConfig struct {
 	RefreshWorkers   int `yaml:"refresh_workers" json:"refresh_workers"`
 }
 
+const (
+	// AvgBytesPerDomain 估算每个域名在缓存中占用的平均字节数（包含A和AAAA记录及辅助结构）
+	// 基于以下假设：RawCacheEntry、SortedCacheEntry、map开销、域名/IP字符串存储
+	// 估算细节 (字节):
+	// - RawCacheEntry (含IP): ~80
+	// - SortedCacheEntry (含IP): ~40
+	// - 域名字符串 (e.g., "www.example.com"): ~20
+	// - IPs (4个IPv4, 4个IPv6): (4 * 16) + (4 * 46) = 64 + 184 = 248
+	// - Map 开销 (rawCache, sortedCache 等): ~100
+	// - 预取列表条目: ~50
+	// - 其他运行时开销: 282
+	// 总计: 80+40+20+248+100+50+282 = 820
+	AvgBytesPerDomain = 820
+)
+
+// CalculateMaxEntries 根据最大内存限制计算最大缓存条目数
+func (c *CacheConfig) CalculateMaxEntries() int {
+	if c.MaxMemoryMB <= 0 {
+		// 如果未设置最大内存限制，返回 0 表示不限制
+		return 0
+	}
+	// 最大内存 (字节) / 每个域名的平均字节数
+	return (c.MaxMemoryMB * 1024 * 1024) / AvgBytesPerDomain
+}
+
 // CreateDefaultConfig 创建默认配置文件
 func CreateDefaultConfig(filePath string) error {
 	return os.WriteFile(filePath, []byte(DefaultConfigContent), 0644)
 }
 
-// ValidateAndRepairConfig 检查并修复配置文件中缺失的字段
-// 该函数会读取现有配置,将其与默认配置合并,补充缺失的字段
+// ValidateAndRepairConfig 验证并修复配置文件中缺失的字段
+// 该函数会读取现有配置, 与默认配置合并后, 写入缺失的项
 func ValidateAndRepairConfig(filePath string) error {
-	// 如果文件不存在,直接创建默认配置
+	// 如果文件不存在, 直接创建默认配置
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return CreateDefaultConfig(filePath)
 	}
@@ -199,7 +243,7 @@ func ValidateAndRepairConfig(filePath string) error {
 		return err
 	}
 
-	// 合并配置(保留现有值,只添加缺失的字段)
+	// 合并配置(保留现有值, 只添加缺失的字段)
 	mergeConfig(existingConfig, defaultConfig)
 
 	// 将合并后的配置写回文件
@@ -211,26 +255,26 @@ func ValidateAndRepairConfig(filePath string) error {
 	return os.WriteFile(filePath, mergedData, 0644)
 }
 
-// mergeConfig 递归合并配置,将default中存在但existing中不存在的字段添加到existing
+// mergeConfig 递归合并配置, 将default中存在但existing中不存在的字段添加到existing
 func mergeConfig(existing, defaultCfg map[string]interface{}) {
 	for key, defaultValue := range defaultCfg {
 		if existingValue, exists := existing[key]; exists {
-			// 如果existing中存在该key,检查是否为嵌套map
+			// 如果existing中存在该key, 检查是否为嵌套map
 			if existingMap, ok := existingValue.(map[string]interface{}); ok {
 				if defaultMap, ok := defaultValue.(map[string]interface{}); ok {
 					// 递归合并嵌套map
 					mergeConfig(existingMap, defaultMap)
 				}
 			}
-			// 如果不是map或值已存在,保留existing中的值
+			// 如果不是map或值已存在, 保留existing中的值
 		} else {
-			// 如果existing中不存在该key,添加默认值
+			// 如果existing中不存在该key, 使用默认值
 			existing[key] = defaultValue
 		}
 	}
 }
 
-// LoadConfig 从 YAML 文件加载配置
+// LoadConfig 从YAML文件加载配置
 func LoadConfig(filePath string) (*Config, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -280,11 +324,11 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Cache.FastResponseTTL == 0 {
 		cfg.Cache.FastResponseTTL = 60
 	}
-	// Note: MinTTLSeconds 和 MaxTTLSeconds 允许为 0
-	// 0 有特殊含义:
-	//   - 两个都为 0: 不修改上游 TTL
-	//   - 仅 min 为 0: 只限制最大值
-	//   - 仅 max 为 0: 只限制最小值
+	// Note: MinTTLSeconds 和 MaxTTLSeconds 默认为 0
+	// 0 表示不限制
+	//   - 都设置为 0: 不修改原始 TTL
+	//   - 仅 min > 0: 只增加过小的 TTL
+	//   - 仅 max > 0: 只减小过大的 TTL
 	if cfg.Cache.UserReturnTTL == 0 {
 		cfg.Cache.UserReturnTTL = 500
 	}
@@ -294,6 +338,18 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Cache.ErrorCacheTTL == 0 {
 		cfg.Cache.ErrorCacheTTL = 30
 	}
+
+	// 新增内存管理配置的默认值
+	if cfg.Cache.MaxMemoryMB == 0 {
+		cfg.Cache.MaxMemoryMB = 128
+	}
+	if cfg.Cache.EvictionThreshold == 0 {
+		cfg.Cache.EvictionThreshold = 0.9
+	}
+	if cfg.Cache.EvictionBatchPercent == 0 {
+		cfg.Cache.EvictionBatchPercent = 0.1
+	}
+
 	if cfg.Prefetch.TopDomainsLimit == 0 {
 		cfg.Prefetch.TopDomainsLimit = 1000
 	}

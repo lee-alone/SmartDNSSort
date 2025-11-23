@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	//	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
 

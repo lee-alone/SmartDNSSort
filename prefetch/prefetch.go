@@ -34,16 +34,21 @@ type Prefetcher struct {
 	refresher Refresher
 	stopChan  chan struct{}
 	wg        sync.WaitGroup
+
+	// Internal state for quick lookups
+	topDomainsMu sync.RWMutex
+	topDomains   map[string]bool
 }
 
 // NewPrefetcher creates a new Prefetcher.
 func NewPrefetcher(cfg *config.PrefetchConfig, s Stats, c Cache, r Refresher) *Prefetcher {
 	return &Prefetcher{
-		cfg:       cfg,
-		stats:     s,
-		cache:     c,
-		refresher: r,
-		stopChan:  make(chan struct{}),
+		cfg:        cfg,
+		stats:      s,
+		cache:      c,
+		refresher:  r,
+		stopChan:   make(chan struct{}),
+		topDomains: make(map[string]bool),
 	}
 }
 
@@ -71,7 +76,6 @@ func (p *Prefetcher) Stop() {
 func (p *Prefetcher) prefetchLoop() {
 	defer p.wg.Done()
 
-	// Initial sleep can be short to start quickly, then it becomes adaptive
 	nextSleepDuration := 5 * time.Second
 
 	for {
@@ -87,31 +91,35 @@ func (p *Prefetcher) prefetchLoop() {
 // runPrefetchAndGetNextInterval runs a prefetch cycle and returns the duration until the next cycle should run.
 func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 	log.Println("[Prefetcher] Running prefetch cycle.")
-	topDomains := p.stats.GetTopDomains(p.cfg.TopDomainsLimit)
+	topDomainsList := p.stats.GetTopDomains(p.cfg.TopDomainsLimit)
 
-	if len(topDomains) == 0 {
+	newTopDomains := make(map[string]bool, len(topDomainsList))
+	for _, d := range topDomainsList {
+		newTopDomains[d.Domain] = true
+	}
+	p.topDomainsMu.Lock()
+	p.topDomains = newTopDomains
+	p.topDomainsMu.Unlock()
+
+	if len(topDomainsList) == 0 {
 		log.Println("[Prefetcher] No domains to prefetch. Sleeping for a default interval.")
-		return 5 * time.Minute // Default long poll if no domains
+		return 5 * time.Minute
 	}
 
 	prefetchedCount := 0
-	minTimeToNextRefresh := 24 * time.Hour // Initialize with a very long time
+	minTimeToNextRefresh := 24 * time.Hour
 
-	for _, domainStat := range topDomains {
-		// For now, we assume we should prefetch for both A and AAAA records if they exist.
-		// A more advanced implementation could track query types as well.
+	for _, domainStat := range topDomainsList {
 		for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
 			sortedEntry, exists := p.cache.GetSorted(domainStat.Domain, qtype)
 			if !exists {
-				continue // This domain (for this type) is not in the optimized cache, so nothing to prefetch.
+				continue
 			}
 
 			expiresIn := time.Until(sortedEntry.Timestamp.Add(time.Duration(sortedEntry.TTL) * time.Second))
 
-			// Check MinPrefetchInterval
 			age := time.Since(sortedEntry.Timestamp)
 			if age.Seconds() < float64(p.cfg.MinPrefetchInterval) {
-				// Too soon to refresh based on MinPrefetchInterval
 				wait := time.Duration(p.cfg.MinPrefetchInterval)*time.Second - age
 				if wait > 0 && wait < minTimeToNextRefresh {
 					minTimeToNextRefresh = wait
@@ -119,8 +127,6 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 				continue
 			}
 
-			// Condition to refresh NOW
-			// We use the fixed RefreshBeforeExpireSeconds from config.
 			threshold := float64(p.cfg.RefreshBeforeExpireSeconds)
 
 			if expiresIn.Seconds() < threshold {
@@ -129,11 +135,7 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 				p.refresher.RefreshDomain(domainStat.Domain, qtype)
 				prefetchedCount++
 			} else {
-				// This one doesn't need a refresh now, but let's see when it *will* need one.
-				// The time until it hits the refresh window is `expiresIn - threshold`.
 				timeToNextRefresh := expiresIn - time.Duration(threshold*float64(time.Second))
-
-				// Ensure timeToNextRefresh is positive and update minTimeToNextRefresh
 				if timeToNextRefresh > 0 && timeToNextRefresh < minTimeToNextRefresh {
 					minTimeToNextRefresh = timeToNextRefresh
 				}
@@ -144,12 +146,18 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 		log.Printf("[Prefetcher] Prefetched %d entries.", prefetchedCount)
 	}
 
-	// Add a small buffer to avoid waking up too early due to timing inaccuracies
-	// Also, ensure a minimum sleep duration to prevent busy-looping if minTimeToNextRefresh is very small.
 	if minTimeToNextRefresh < 1*time.Second {
-		minTimeToNextRefresh = 1 * time.Second // Minimum sleep
+		minTimeToNextRefresh = 1 * time.Second
 	}
 
 	log.Printf("[Prefetcher] Next prefetch cycle in %.1f seconds.", minTimeToNextRefresh.Seconds())
 	return minTimeToNextRefresh
+}
+
+// IsTopDomain checks if a domain is currently considered a top domain.
+func (p *Prefetcher) IsTopDomain(domain string) bool {
+	p.topDomainsMu.RLock()
+	defer p.topDomainsMu.RUnlock()
+	_, exists := p.topDomains[domain]
+	return exists
 }

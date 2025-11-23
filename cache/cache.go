@@ -1,6 +1,9 @@
 package cache
 
 import (
+	"smartdnssort/config"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +15,10 @@ type RawCacheEntry struct {
 	CNAME           string    // CNAME 记录（如果有）
 	UpstreamTTL     uint32    // 上游 DNS 返回的原始 TTL（秒）
 	AcquisitionTime time.Time // 从上游获取的时间
+
+	// 新增LRU所需字段
+	LastAccessTime time.Time // 最后访问时间
+	AccessCount    int       // 访问次数统计
 }
 
 // IsExpired 检查原始缓存是否过期
@@ -57,21 +64,26 @@ func (e *ErrorCacheEntry) IsExpired() bool {
 	return time.Since(e.CachedAt).Seconds() > float64(e.TTL)
 }
 
-// Cache DNS 缓存管理器（三层缓存：原始 + 排序 + 错误）
+// PrefetchChecker 定义了检查域名是否为热点域名的接口
+// dnsserver 包中的 Prefetcher 将实现此接口
+type PrefetchChecker interface {
+	IsTopDomain(domain string) bool
+}
+
+// Cache DNS 缓存管理器
 type Cache struct {
 	mu sync.RWMutex // 保护以下字段
 
-	// 第一层：原始缓存（上游 DNS 响应）
-	rawCache map[string]*RawCacheEntry
-
-	// 第二层：排序后的缓存（排序后的 IP 列表）
-	sortedCache map[string]*SortedCacheEntry
-
-	// 第三层：排序队列状态（追踪当前正在排序的域名，防止重复）
+	// 缓存数据
+	rawCache     map[string]*RawCacheEntry
+	sortedCache  map[string]*SortedCacheEntry
 	sortingState map[string]*SortingState
+	errorCache   map[string]*ErrorCacheEntry
 
-	// 第四层：错误缓存（DNS 错误响应）
-	errorCache map[string]*ErrorCacheEntry
+	// 内存管理
+	config     *config.CacheConfig // 缓存配置
+	maxEntries int                 // 根据内存估算的最大条目数
+	prefetcher PrefetchChecker     // 用于检查是否为受保护的域名
 
 	// 统计信息（原子操作）
 	hits   int64
@@ -79,8 +91,10 @@ type Cache struct {
 }
 
 // NewCache 创建新的缓存实例
-func NewCache() *Cache {
+func NewCache(cfg *config.CacheConfig) *Cache {
 	return &Cache{
+		config:       cfg,
+		maxEntries:   cfg.CalculateMaxEntries(),
 		rawCache:     make(map[string]*RawCacheEntry),
 		sortedCache:  make(map[string]*SortedCacheEntry),
 		sortingState: make(map[string]*SortingState),
@@ -106,13 +120,10 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 		return nil, false
 	}
 
-	// 不检查过期,即使过期也返回
-	// 调用方可以通过entry.IsExpired()自行判断
 	return entry, true
 }
 
 // SetRaw 设置原始缓存（上游 DNS 响应）
-// ttl 参数是上游 DNS 返回的原始 TTL（秒）
 func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cname string, upstreamTTL uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -123,7 +134,92 @@ func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cname string, 
 		CNAME:           cname,
 		UpstreamTTL:     upstreamTTL,
 		AcquisitionTime: time.Now(),
+		LastAccessTime:  time.Now(), // 初始化访问时间
 	}
+}
+
+// SetPrefetcher 设置 prefetcher 实例，用于解耦
+func (c *Cache) SetPrefetcher(p PrefetchChecker) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.prefetcher = p
+}
+
+// RecordAccess 记录缓存访问，更新 LRU 时间
+func (c *Cache) RecordAccess(domain string, qtype uint16) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	key := cacheKey(domain, qtype)
+	if entry, exists := c.rawCache[key]; exists {
+		entry.LastAccessTime = time.Now()
+		entry.AccessCount++
+	}
+}
+
+// GetCurrentEntries 获取当前缓存的条目数（仅计算 rawCache）
+func (c *Cache) GetCurrentEntries() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.rawCache)
+}
+
+// GetMemoryUsagePercent 获取当前内存使用百分比
+func (c *Cache) GetMemoryUsagePercent() float64 {
+	if c.maxEntries == 0 {
+		return 0
+	}
+	return float64(c.GetCurrentEntries()) / float64(c.maxEntries)
+}
+
+// GetExpiredEntries 统计已过期的条目数
+func (c *Cache) GetExpiredEntries() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	count := 0
+	for _, entry := range c.rawCache {
+		if entry.IsExpired() {
+			count++
+		}
+	}
+	return count
+}
+
+// GetProtectedEntries 统计受保护的条目数
+func (c *Cache) GetProtectedEntries() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.prefetcher == nil || !c.config.ProtectPrefetchDomains {
+		return 0
+	}
+
+	count := 0
+	for key := range c.rawCache {
+		domain := c.extractDomain(key)
+		if c.isProtectedDomain(domain) {
+			count++
+		}
+	}
+	return count
+}
+
+// extractDomain 从缓存键中提取域名
+func (c *Cache) extractDomain(key string) string {
+	parts := strings.Split(key, "#")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// isProtectedDomain 检查域名是否受保护（例如，是热点域名）
+func (c *Cache) isProtectedDomain(domain string) bool {
+	if c.prefetcher == nil || !c.config.ProtectPrefetchDomains {
+		return false
+	}
+	return c.prefetcher.IsTopDomain(domain)
 }
 
 // GetSorted 获取排序后的缓存
@@ -154,7 +250,6 @@ func (c *Cache) SetSorted(domain string, qtype uint16, entry *SortedCacheEntry) 
 }
 
 // GetOrStartSort 获取排序状态，如果不存在则创建新的排序任务
-// 返回：排序状态、是否是新创建的
 func (c *Cache) GetOrStartSort(domain string, qtype uint16) (*SortingState, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -228,12 +323,12 @@ func (c *Cache) SetError(domain string, qtype uint16, rcode int, ttl int) {
 	}
 }
 
-// Record 记录缓存命中（已废弃，改用 atomic 操作）
+// RecordHit 记录缓存命中
 func (c *Cache) RecordHit() {
 	atomic.AddInt64(&c.hits, 1)
 }
 
-// RecordMiss 记录缓存未命中（已废弃，改用 atomic 操作）
+// RecordMiss 记录缓存未命中
 func (c *Cache) RecordMiss() {
 	atomic.AddInt64(&c.misses, 1)
 }
@@ -250,7 +345,6 @@ func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 首先关闭所有进行中的排序任务的 Done 通道，避免 goroutine 泄漏
 	for _, state := range c.sortingState {
 		if state.InProgress && state.Done != nil {
 			close(state.Done)
@@ -263,39 +357,91 @@ func (c *Cache) Clear() {
 	c.errorCache = make(map[string]*ErrorCacheEntry)
 }
 
-// CleanExpired 清理过期项
+// CleanExpired 智能清理缓存。
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 清理过期的原始缓存
-	// 保留过期但未超过 grace period (1小时) 的条目，以便支持 stale-while-revalidate
-	const gracePeriod = 3600 * time.Second
-	for domain, entry := range c.rawCache {
-		elapsed := time.Since(entry.AcquisitionTime).Seconds()
-		if elapsed > float64(entry.UpstreamTTL)+gracePeriod.Seconds() {
-			delete(c.rawCache, domain)
+	if c.maxEntries == 0 || (float64(len(c.rawCache))/float64(c.maxEntries)) < c.config.EvictionThreshold {
+		if !c.config.KeepExpiredEntries {
+			for key, entry := range c.rawCache {
+				if entry.IsExpired() {
+					c.deleteByKey(key)
+				}
+			}
 		}
+		c.cleanAuxiliaryCaches()
+		return
 	}
 
-	// 清理过期的排序缓存
-	for domain, entry := range c.sortedCache {
+	c.evictLRU()
+	c.cleanAuxiliaryCaches()
+}
+
+// evictLRU 执行 LRU 淘汰算法
+func (c *Cache) evictLRU() {
+	type entryMeta struct {
+		key         string
+		isProtected bool
+		isExpired   bool
+		accessTime  time.Time
+	}
+
+	entries := make([]entryMeta, 0, len(c.rawCache))
+	for key, entry := range c.rawCache {
+		domain := c.extractDomain(key)
+		entries = append(entries, entryMeta{
+			key:         key,
+			isProtected: c.isProtectedDomain(domain),
+			isExpired:   entry.IsExpired(),
+			accessTime:  entry.LastAccessTime,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].isProtected != entries[j].isProtected {
+			return !entries[i].isProtected
+		}
+		if entries[i].isExpired != entries[j].isExpired {
+			return entries[i].isExpired
+		}
+		return entries[i].accessTime.Before(entries[j].accessTime)
+	})
+
+	totalEntries := len(c.rawCache)
+	evictCount := int(float64(totalEntries) * c.config.EvictionBatchPercent)
+	if evictCount == 0 && totalEntries > 0 {
+		evictCount = 1
+	}
+
+	for i := 0; i < evictCount && i < len(entries); i++ {
+		c.deleteByKey(entries[i].key)
+	}
+}
+
+// deleteByKey 从所有缓存中删除一个键
+func (c *Cache) deleteByKey(key string) {
+	delete(c.rawCache, key)
+	delete(c.sortedCache, key)
+	delete(c.sortingState, key)
+	delete(c.errorCache, key)
+}
+
+// cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
+func (c *Cache) cleanAuxiliaryCaches() {
+	for key, entry := range c.sortedCache {
 		if entry.IsExpired() {
-			delete(c.sortedCache, domain)
+			delete(c.sortedCache, key)
 		}
 	}
-
-	// 清理已完成的排序状态（可选）
-	for domain, state := range c.sortingState {
+	for key, state := range c.sortingState {
 		if !state.InProgress {
-			delete(c.sortingState, domain)
+			delete(c.sortingState, key)
 		}
 	}
-
-	// 清理过期的错误缓存
-	for domain, entry := range c.errorCache {
+	for key, entry := range c.errorCache {
 		if entry.IsExpired() {
-			delete(c.errorCache, domain)
+			delete(c.errorCache, key)
 		}
 	}
 }

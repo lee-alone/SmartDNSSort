@@ -48,7 +48,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	server := &Server{
 		cfg:          cfg,
 		stats:        s,
-		cache:        cache.NewCache(),
+		cache:        cache.NewCache(&cfg.Cache),
 		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
@@ -58,8 +58,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 设置刷新队列的工作函数
 	refreshQueue.SetWorkFunc(server.refreshCacheAsync)
 
-	// Create the prefetcher, but don't start it yet
+	// Create the prefetcher and link it with the cache
 	server.prefetcher = prefetch.NewPrefetcher(&cfg.Prefetch, s, server.cache, server)
+	server.cache.SetPrefetcher(server.prefetcher)
 
 	// 设置排序函数：使用 ping 进行 IP 排序
 	sortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
@@ -205,6 +206,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 阶段二：排序完成后缓存命中 ==========
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
+		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
 
 		// 计算剩余 TTL
@@ -258,6 +260,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// 检查原始缓存(上游 DNS 响应缓存)
 	// GetRaw会返回过期的缓存,我们需要检查并决定如何处理
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
+		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
 		// 无论是否过期,都立即返回缓存数据
 		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)\n",

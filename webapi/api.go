@@ -74,31 +74,27 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf(":%d", s.cfg.WebUI.ListenPort)
 
-	// 创建独立的 ServeMux，避免全局路由污染
 	mux := http.NewServeMux()
 
-	// 注册 API 路由
 	mux.HandleFunc("/api/query", s.handleQuery)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/stats/clear", s.handleClearStats)
 	mux.HandleFunc("/api/cache/clear", s.handleClearCache)
+	mux.HandleFunc("/api/cache/memory", s.handleCacheMemoryStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/recent-queries", s.handleRecentQueries)
 	mux.HandleFunc("/api/hot-domains", s.handleHotDomains)
 	mux.HandleFunc("/api/restart", s.handleRestart)
 	mux.HandleFunc("/health", s.handleHealth)
 
-	// 首先尝试使用内嵌的 web 文件
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
 		log.Println("Using embedded web files")
 		mux.Handle("/", s.corsMiddleware(http.FileServer(http.FS(webSubFS))))
 	} else {
-		// 备选：查找 Web 静态文件目录
 		webDir := s.findWebDirectory()
 		if webDir == "" {
 			log.Println("Warning: Could not find web directory. Web UI may not work properly.")
-			log.Println("Expected locations: /var/lib/SmartDNSSort/web, /usr/share/smartdnssort/web, or ./web")
 		} else {
 			log.Printf("Using web directory: %s\n", webDir)
 			fsServer := http.FileServer(http.Dir(webDir))
@@ -115,14 +111,12 @@ func (s *Server) Start() error {
 	return s.listener.ListenAndServe()
 }
 
-// corsMiddleware 添加 CORS 支持
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-		// 处理 preflight 请求
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -132,7 +126,6 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// writeJSONError 写入统一格式的 JSON 错误响应
 func (s *Server) writeJSONError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
@@ -142,7 +135,6 @@ func (s *Server) writeJSONError(w http.ResponseWriter, message string, statusCod
 	})
 }
 
-// writeJSONSuccess 写入统一格式的 JSON 成功响应
 func (s *Server) writeJSONSuccess(w http.ResponseWriter, message string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(APIResponse{
@@ -152,48 +144,28 @@ func (s *Server) writeJSONSuccess(w http.ResponseWriter, message string, data in
 	})
 }
 
-// findWebDirectory 查找 Web 静态文件目录
-// 按优先级查找多个可能的位置
 func (s *Server) findWebDirectory() string {
 	possiblePaths := []string{}
-
-	// 首先：在可执行文件目录查找 web 目录（对 Windows 最有效）
 	if exePath, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(exePath)
-		possiblePaths = append(possiblePaths,
+		possiblePaths = append(possiblePaths, 
 			filepath.Join(execDir, "web"),
-			filepath.Join(execDir, "..", "web"), // 上级目录的 web
+			filepath.Join(execDir, "..", "web"),
 		)
 	}
-
-	// 当前工作目录相对路径（开发环境）
-	possiblePaths = append(possiblePaths,
-		"./web",
-		"web",
-	)
-
-	// Linux 系统路径（Linux 服务部署）
-	possiblePaths = append(possiblePaths,
-		"/var/lib/SmartDNSSort/web",   // Linux 服务部署（推荐）
-		"/usr/share/smartdnssort/web", // FHS 标准路径
-		"/etc/SmartDNSSort/web",       // 备选路径
-	)
+	possiblePaths = append(possiblePaths, "./web", "web")
+	possiblePaths = append(possiblePaths, "/var/lib/SmartDNSSort/web", "/usr/share/smartdnssort/web", "/etc/SmartDNSSort/web")
 
 	for _, path := range possiblePaths {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			// 确认 index.html 存在
 			if _, err := os.Stat(filepath.Join(path, "index.html")); err == nil {
 				return path
 			}
 		}
 	}
-
 	return ""
 }
 
-// handleQuery 处理 DNS 查询 API
-// 使用方法: GET /api/query?domain=example.com&type=A
-// 返回: 包含 IP 和 RTT 信息的 JSON
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	domain := r.URL.Query().Get("domain")
 	queryType := r.URL.Query().Get("type")
@@ -202,12 +174,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing domain parameter", http.StatusBadRequest)
 		return
 	}
-
 	if queryType == "" {
 		queryType = "A"
 	}
 
-	// 解析查询类型
 	var qtype uint16
 	switch strings.ToUpper(queryType) {
 	case "A":
@@ -219,13 +189,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replicate the logic of the old Get method: prefer sorted, fallback to raw.
 	var ipsResult []IPResult
 	var status string
 
-	sortedEntry, ok := s.dnsCache.GetSorted(domain, qtype)
-	if ok {
-		// Found in sorted cache
+	if sortedEntry, ok := s.dnsCache.GetSorted(domain, qtype); ok {
 		status = "cached_sorted"
 		for i, ip := range sortedEntry.IPs {
 			rtt := 0
@@ -234,14 +201,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			}
 			ipsResult = append(ipsResult, IPResult{IP: ip, RTT: rtt})
 		}
-	} else {
-		rawEntry, ok := s.dnsCache.GetRaw(domain, qtype)
-		if ok {
-			// Found in raw cache
-			status = "cached_raw"
-			for _, ip := range rawEntry.IPs {
-				ipsResult = append(ipsResult, IPResult{IP: ip, RTT: 0}) // RTT is not available for raw entries
-			}
+	} else if rawEntry, ok := s.dnsCache.GetRaw(domain, qtype); ok {
+		status = "cached_raw"
+		for _, ip := range rawEntry.IPs {
+			ipsResult = append(ipsResult, IPResult{IP: ip, RTT: 0})
 		}
 	}
 
@@ -250,7 +213,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 构造响应
 	result := QueryResult{
 		Domain: domain,
 		Type:   queryType,
@@ -262,9 +224,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// handleStats 处理统计信息 API
-// 使用方法: GET /api/stats
-// 返回: DNS 查询统计信息
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -272,6 +231,31 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := s.dnsServer.GetStats()
+	cacheCfg := s.dnsServer.GetConfig().Cache
+	currentEntries := s.dnsCache.GetCurrentEntries()
+	expiredEntries := s.dnsCache.GetExpiredEntries()
+	maxEntries := cacheCfg.CalculateMaxEntries()
+	var memoryPercent float64
+	if maxEntries > 0 {
+		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
+	}
+
+	var expiredPercent float64
+	if currentEntries > 0 {
+		expiredPercent = (float64(expiredEntries) / float64(currentEntries)) * 100
+	}
+
+	stats["cache_memory_stats"] = map[string]interface{}{
+		"max_memory_mb":     cacheCfg.MaxMemoryMB,
+		"max_entries":       maxEntries,
+		"current_entries":   currentEntries,
+		"current_memory_mb": int(float64(currentEntries) * config.AvgBytesPerDomain / (1024 * 1024)),
+		"memory_percent":    memoryPercent,
+		"expired_entries":   expiredEntries,
+		"expired_percent":   expiredPercent,
+		"protected_entries": s.dnsCache.GetProtectedEntries(),
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
 		log.Printf("[ERROR] Failed to encode stats: %v", err)
@@ -279,14 +263,47 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleHealth 健康检查
-// 使用方法: GET /health
+func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cacheCfg := s.dnsServer.GetConfig().Cache
+	currentEntries := s.dnsCache.GetCurrentEntries()
+	maxEntries := cacheCfg.CalculateMaxEntries()
+	expiredEntries := s.dnsCache.GetExpiredEntries()
+	protectedEntries := s.dnsCache.GetProtectedEntries()
+
+	var memoryPercent float64
+	if maxEntries > 0 {
+		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
+	}
+
+	var expiredPercent float64
+	if currentEntries > 0 {
+		expiredPercent = (float64(expiredEntries) / float64(currentEntries)) * 100
+	}
+
+	stats := map[string]interface{}{
+		"max_memory_mb":     cacheCfg.MaxMemoryMB,
+		"max_entries":       maxEntries,
+		"current_entries":   currentEntries,
+		"current_memory_mb": int(float64(currentEntries) * config.AvgBytesPerDomain / (1024 * 1024)),
+		"memory_percent":    memoryPercent,
+		"expired_entries":   expiredEntries,
+		"expired_percent":   expiredPercent,
+		"protected_entries": protectedEntries,
+	}
+
+	s.writeJSONSuccess(w, "Cache memory stats retrieved successfully", stats)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"status":"healthy"}`)
 }
 
-// Stop 停止 Web API 服务
 func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -294,8 +311,6 @@ func (s *Server) Stop() error {
 	return s.listener.Shutdown(ctx)
 }
 
-// handleClearCache handles clearing the DNS cache.
-// Usage: POST /api/cache/clear
 func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -306,8 +321,6 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONSuccess(w, "Cache cleared successfully", nil)
 }
 
-// handleClearStats handles clearing all statistics.
-// Usage: POST /api/stats/clear
 func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -318,14 +331,11 @@ func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONSuccess(w, "All stats cleared successfully", nil)
 }
 
-// handleRecentQueries handles fetching the recent queries list.
-// Usage: GET /api/recent-queries
 func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-
 	queries := s.dnsServer.GetRecentQueries()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(queries); err != nil {
@@ -334,22 +344,16 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleHotDomains handles fetching the hot domains list.
-// Usage: GET /api/hot-domains
 func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-
-	// We need to access the stats object from the dnsServer to get the top domains
 	stats := s.dnsServer.GetStats()
 	topDomainsList, ok := stats["top_domains"]
 	if !ok || topDomainsList == nil {
-		// 返回空列表而不是 null
 		topDomainsList = []interface{}{}
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(topDomainsList); err != nil {
 		log.Printf("[ERROR] Failed to encode hot domains: %v", err)
@@ -357,9 +361,6 @@ func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleConfig handles getting and setting the configuration.
-// GET /api/config - returns the current running configuration.
-// POST /api/config - receives a new configuration, saves it, and applies it.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -386,14 +387,10 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Failed to decode new config: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// 1. Validate the new configuration
 	if err := s.validateConfig(&newCfg); err != nil {
 		s.writeJSONError(w, "Configuration validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// 2. Save the new configuration to the YAML file
 	yamlData, err := yaml.Marshal(&newCfg)
 	if err != nil {
 		s.writeJSONError(w, "Failed to marshal new config to YAML: "+err.Error(), http.StatusInternalServerError)
@@ -404,27 +401,18 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Configuration saved to %s", s.configPath)
-
-	// 3. Apply the new configuration to the running server (hot-reload)
 	if err := s.dnsServer.ApplyConfig(&newCfg); err != nil {
 		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
-		// Note: At this point, the config file is updated, but the server state is not.
-		// This might require a manual restart.
 		return
 	}
 	log.Println("Configuration hot-reloaded successfully.")
-
 	s.writeJSONSuccess(w, "Configuration updated and applied successfully", nil)
 }
 
-// validateConfig 验证配置的有效性
 func (s *Server) validateConfig(cfg *config.Config) error {
-	// DNS 配置验证
 	if cfg.DNS.ListenPort <= 0 || cfg.DNS.ListenPort > 65535 {
 		return fmt.Errorf("invalid DNS listen port: %d", cfg.DNS.ListenPort)
 	}
-
-	// Upstream 配置验证
 	if len(cfg.Upstream.Servers) == 0 {
 		return fmt.Errorf("at least one upstream server is required")
 	}
@@ -437,14 +425,9 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" {
 		return fmt.Errorf("invalid upstream strategy: %s (must be 'random' or 'parallel')", cfg.Upstream.Strategy)
 	}
-
-	// Cache 配置验证
 	if cfg.Cache.MinTTLSeconds < 0 {
 		return fmt.Errorf("cache min TTL cannot be negative")
 	}
-	// MaxTTLSeconds can be 0 (meaning no limit if min is also 0, or default behavior),
-	// but if set, it usually shouldn't be negative.
-	// However, config.go says "0 means special meaning". Let's allow 0.
 	if cfg.Cache.MaxTTLSeconds < 0 {
 		return fmt.Errorf("cache max TTL cannot be negative")
 	}
@@ -463,8 +446,6 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Cache.ErrorCacheTTL < 0 {
 		return fmt.Errorf("cache error TTL cannot be negative")
 	}
-
-	// Ping 配置验证
 	if cfg.Ping.Count <= 0 {
 		return fmt.Errorf("ping count must be positive")
 	}
@@ -483,8 +464,6 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" {
 		return fmt.Errorf("invalid ping strategy: %s (must be 'min' or 'avg')", cfg.Ping.Strategy)
 	}
-
-	// Prefetch 配置验证
 	if cfg.Prefetch.TopDomainsLimit <= 0 {
 		return fmt.Errorf("prefetch top domains limit must be positive")
 	}
@@ -494,8 +473,6 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Prefetch.MinPrefetchInterval < 0 {
 		return fmt.Errorf("prefetch min interval cannot be negative")
 	}
-
-	// System 配置验证
 	if cfg.System.MaxCPUCores < 0 {
 		return fmt.Errorf("system max CPU cores cannot be negative")
 	}
@@ -505,29 +482,19 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.System.RefreshWorkers < 0 {
 		return fmt.Errorf("system refresh workers cannot be negative")
 	}
-
-	// WebUI 配置验证
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
 	}
-
 	return nil
 }
 
-// handleRestart handles restarting the service.
-// Usage: POST /api/restart
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-
 	log.Println("Service restart requested via API.")
-
-	// 先响应客户端
 	s.writeJSONSuccess(w, "Service restart initiated", nil)
-
-	// 在goroutine中执行重启,避免阻塞响应
 	if s.restartFunc != nil {
 		go func() {
 			log.Println("Executing restart function...")

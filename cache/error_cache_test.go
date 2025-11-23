@@ -1,6 +1,7 @@
-package cache
+﻿package cache
 
 import (
+	"smartdnssort/config"
 	"testing"
 	"time"
 
@@ -8,8 +9,25 @@ import (
 )
 
 // TestErrorCacheStorage 测试错误缓存存储
+func getDefaultCacheConfig() *config.CacheConfig {
+	return &config.CacheConfig{
+		MinTTLSeconds:        3600,
+		MaxTTLSeconds:        84600,
+		NegativeTTLSeconds:   300,
+		ErrorCacheTTL:        30,
+		FastResponseTTL:      15,
+		UserReturnTTL:        600,
+		MaxMemoryMB:          500, // Default value for tests
+		KeepExpiredEntries:   false,
+		EvictionThreshold:    0.9,
+		EvictionBatchPercent: 0.1,
+		ProtectPrefetchDomains: false,
+	}
+}
+
+// TestErrorCacheStorage 测试错误缓存存储
 func TestErrorCacheStorage(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "error.example.com"
 	qtype := dns.TypeA
 	rcode := dns.RcodeServerFailure
@@ -35,7 +53,7 @@ func TestErrorCacheStorage(t *testing.T) {
 
 // TestErrorCacheExpiration 测试错误缓存过期
 func TestErrorCacheExpiration(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "expired.error.com"
 	qtype := dns.TypeA
 	rcode := dns.RcodeRefused
@@ -66,7 +84,7 @@ func TestErrorCacheExpiration(t *testing.T) {
 
 // TestErrorCacheCleanup 测试错误缓存清理
 func TestErrorCacheCleanup(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "cleanup.error.com"
 	qtype := dns.TypeA
 	rcode := dns.RcodeServerFailure
@@ -100,7 +118,7 @@ func TestErrorCacheCleanup(t *testing.T) {
 
 // TestErrorCacheClear 测试清空错误缓存
 func TestErrorCacheClear(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "clear.error.com"
 	qtype := dns.TypeA
 	rcode := dns.RcodeServerFailure
@@ -127,7 +145,7 @@ func TestErrorCacheClear(t *testing.T) {
 
 // TestErrorCacheMultipleDomains 测试多个域名的错误缓存
 func TestErrorCacheMultipleDomains(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 
 	domains := []string{"error1.com", "error2.com", "error3.com"}
 	rcodes := []int{dns.RcodeServerFailure, dns.RcodeRefused, dns.RcodeServerFailure}
@@ -176,3 +194,4 @@ func TestErrorCacheIsExpiredMethod(t *testing.T) {
 		t.Error("Expected entry to not be expired")
 	}
 }
+

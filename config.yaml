@@ -56,6 +56,11 @@ cache:
   negative_ttl_seconds: 300
   # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒）。默认值：30秒
   error_cache_ttl_seconds: 30
+  max_memory_mb: 500
+  keep_expired_entries: true
+  eviction_threshold: 0.9
+  eviction_batch_percent: 0.1
+  protect_prefetch_domains: true
 
 # 热点域名提前刷新机制
 prefetch:

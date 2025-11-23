@@ -1,4 +1,4 @@
-package cache
+﻿package cache
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 
 // TestSortedCache tests basic Get/Set operations for the sorted cache.
 func TestSortedCache(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "sorted.example.com"
 	qtype := dns.TypeA
 
@@ -33,7 +33,7 @@ func TestSortedCache(t *testing.T) {
 
 // TestSortedCacheExpiration tests the expiration logic for the sorted cache.
 func TestSortedCacheExpiration(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "expired-sorted.example.com"
 	qtype := dns.TypeA
 
@@ -53,7 +53,7 @@ func TestSortedCacheExpiration(t *testing.T) {
 
 // TestRawCache tests basic Get/Set operations for the raw cache.
 func TestRawCache(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "raw.example.com"
 	qtype := dns.TypeAAAA
 
@@ -71,7 +71,7 @@ func TestRawCache(t *testing.T) {
 
 // TestRawCacheExpiration tests the expiration logic for the raw cache.
 func TestRawCacheExpiration(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "expired-raw.example.com"
 	qtype := dns.TypeA
 
@@ -92,7 +92,7 @@ func TestRawCacheExpiration(t *testing.T) {
 
 // TestRawCacheCleanup tests that expired entries are eventually cleaned up after the grace period.
 func TestRawCacheCleanup(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	domain := "cleanup.example.com"
 	qtype := dns.TypeA
 
@@ -131,7 +131,7 @@ func TestRawCacheCleanup(t *testing.T) {
 
 // TestCleanExpired tests the cleaning of expired entries.
 func TestCleanExpired(t *testing.T) {
-	c := NewCache()
+	c := NewCache(getDefaultCacheConfig())
 	expiredDomain := "expired.com"
 	validDomain := "valid.com"
 	qtype := dns.TypeA

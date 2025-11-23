@@ -1,4 +1,4 @@
-let originalConfig = {}; // Store the original config to preserve uneditable fields
+﻿let originalConfig = {}; // Store the original config to preserve uneditable fields
 
 // --- Tab Management ---
 function showTab(tabName) {
@@ -29,6 +29,20 @@ function updateDashboard() {
                 document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
                 document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
                 document.getElementById('goroutines').textContent = sys.goroutines || 0;
+            }
+            if (data.cache_memory_stats) {
+                const mem = data.cache_memory_stats;
+                const memoryUsageBar = document.getElementById('memory_usage_bar');
+                const memoryUsageText = document.getElementById('memory_usage_text');
+                const cacheEntries = document.getElementById('cache_entries');
+                const expiredEntries = document.getElementById('expired_entries');
+                const protectedEntries = document.getElementById('protected_entries');
+
+                memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
+                memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
+                cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
+                expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
+                protectedEntries.textContent = mem.protected_entries.toLocaleString();
             }
             if (data.upstream_stats) {
                 const upstreamTable = document.getElementById('upstream_stats').getElementsByTagName('tbody')[0];
@@ -171,6 +185,14 @@ function populateForm(config) {
         setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
         setValue('cache.negative_ttl_seconds', config.cache.negative_ttl_seconds);
         setValue('cache.error_cache_ttl_seconds', config.cache.error_cache_ttl_seconds);
+
+        // Advanced Cache Settings
+        setValue('cache.max_memory_mb', config.cache.max_memory_mb);
+        setValue('cache.eviction_threshold', config.cache.eviction_threshold);
+        setValue('cache.eviction_batch_percent', config.cache.eviction_batch_percent);
+        setChecked('cache.keep_expired_entries', config.cache.keep_expired_entries);
+        setChecked('cache.protect_prefetch_domains', config.cache.protect_prefetch_domains);
+
         setChecked('prefetch.enabled', config.prefetch.enabled);
         setValue('prefetch.top_domains_limit', config.prefetch.top_domains_limit);
         setValue('prefetch.refresh_before_expire_seconds', config.prefetch.refresh_before_expire_seconds);
@@ -236,6 +258,12 @@ function saveConfig() {
         max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value),
         negative_ttl_seconds: parseInt(form.elements['cache.negative_ttl_seconds'].value),
         error_cache_ttl_seconds: parseInt(form.elements['cache.error_cache_ttl_seconds'].value),
+        // Memory cache settings
+        max_memory_mb: parseInt(form.elements['cache.max_memory_mb'].value),
+        eviction_threshold: parseFloat(form.elements['cache.eviction_threshold'].value),
+        eviction_batch_percent: parseFloat(form.elements['cache.eviction_batch_percent'].value),
+        keep_expired_entries: form.elements['cache.keep_expired_entries'].checked,
+        protect_prefetch_domains: form.elements['cache.protect_prefetch_domains'].checked,
     };
     data.prefetch = {
         enabled: form.elements['prefetch.enabled'].checked,
@@ -273,3 +301,5 @@ function saveConfig() {
 // Initial Load
 updateDashboard();
 loadConfig();
+
+
