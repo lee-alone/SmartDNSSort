@@ -72,7 +72,7 @@ func (p *Prefetcher) prefetchLoop() {
 	defer p.wg.Done()
 
 	// Initial sleep can be short to start quickly, then it becomes adaptive
-	nextSleepDuration := 5 * time.Second 
+	nextSleepDuration := 5 * time.Second
 
 	for {
 		select {
@@ -88,7 +88,7 @@ func (p *Prefetcher) prefetchLoop() {
 func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 	log.Println("[Prefetcher] Running prefetch cycle.")
 	topDomains := p.stats.GetTopDomains(p.cfg.TopDomainsLimit)
-	
+
 	if len(topDomains) == 0 {
 		log.Println("[Prefetcher] No domains to prefetch. Sleeping for a default interval.")
 		return 5 * time.Minute // Default long poll if no domains
@@ -107,18 +107,32 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 			}
 
 			expiresIn := time.Until(sortedEntry.Timestamp.Add(time.Duration(sortedEntry.TTL) * time.Second))
-			
+
+			// Check MinPrefetchInterval
+			age := time.Since(sortedEntry.Timestamp)
+			if age.Seconds() < float64(p.cfg.MinPrefetchInterval) {
+				// Too soon to refresh based on MinPrefetchInterval
+				wait := time.Duration(p.cfg.MinPrefetchInterval)*time.Second - age
+				if wait > 0 && wait < minTimeToNextRefresh {
+					minTimeToNextRefresh = wait
+				}
+				continue
+			}
+
 			// Condition to refresh NOW
-			if expiresIn.Seconds() < float64(p.cfg.RefreshBeforeExpireSeconds) {
+			// We use the fixed RefreshBeforeExpireSeconds from config.
+			threshold := float64(p.cfg.RefreshBeforeExpireSeconds)
+
+			if expiresIn.Seconds() < threshold {
 				log.Printf("[Prefetcher] Prefetching %s (type %s), expires in %.1f seconds.",
 					domainStat.Domain, dns.TypeToString[qtype], expiresIn.Seconds())
 				p.refresher.RefreshDomain(domainStat.Domain, qtype)
 				prefetchedCount++
 			} else {
 				// This one doesn't need a refresh now, but let's see when it *will* need one.
-				// The time until it hits the refresh window is `expiresIn - refresh_before_expire_seconds`.
-				timeToNextRefresh := expiresIn - (time.Duration(p.cfg.RefreshBeforeExpireSeconds) * time.Second)
-				
+				// The time until it hits the refresh window is `expiresIn - threshold`.
+				timeToNextRefresh := expiresIn - time.Duration(threshold*float64(time.Second))
+
 				// Ensure timeToNextRefresh is positive and update minTimeToNextRefresh
 				if timeToNextRefresh > 0 && timeToNextRefresh < minTimeToNextRefresh {
 					minTimeToNextRefresh = timeToNextRefresh
@@ -132,10 +146,10 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 
 	// Add a small buffer to avoid waking up too early due to timing inaccuracies
 	// Also, ensure a minimum sleep duration to prevent busy-looping if minTimeToNextRefresh is very small.
-	if minTimeToNextRefresh < 1 * time.Second {
+	if minTimeToNextRefresh < 1*time.Second {
 		minTimeToNextRefresh = 1 * time.Second // Minimum sleep
 	}
-	
+
 	log.Printf("[Prefetcher] Next prefetch cycle in %.1f seconds.", minTimeToNextRefresh.Seconds())
 	return minTimeToNextRefresh
 }

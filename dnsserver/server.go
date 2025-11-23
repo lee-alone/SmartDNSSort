@@ -206,11 +206,37 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
 		currentStats.IncCacheHits()
-		log.Printf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (TTL=%d秒)\n",
-			domain, dns.TypeToString[question.Qtype], sorted.IPs, currentCfg.Cache.UserReturnTTL)
 
-		// 使用 user_return_ttl 作为响应的 TTL
-		userTTL := uint32(currentCfg.Cache.UserReturnTTL)
+		// 计算剩余 TTL
+		elapsed := time.Since(sorted.Timestamp).Seconds()
+		remaining := int(sorted.TTL) - int(elapsed)
+		if remaining < 0 {
+			remaining = 0
+		}
+
+		// 计算返回给用户的 TTL
+		// 逻辑：
+		// 1. 基础是真实的剩余 TTL (remaining)
+		// 2. 如果配置了 UserReturnTTL，将其作为上限
+		// 3. 为了避免 "UserReturnTTL < remaining" 时出现 TTL 恒定不变的问题，
+		//    我们使用锯齿状 (Sawtooth) 逻辑：UserReturnTTL - (elapsed % UserReturnTTL)
+		//    这样可以保证 TTL 始终随时间递减，且不超过 UserReturnTTL
+		var userTTL uint32
+		if currentCfg.Cache.UserReturnTTL > 0 {
+			cycleOffset := int(elapsed) % currentCfg.Cache.UserReturnTTL
+			cappedTTL := currentCfg.Cache.UserReturnTTL - cycleOffset
+
+			if remaining < cappedTTL {
+				userTTL = uint32(remaining)
+			} else {
+				userTTL = uint32(cappedTTL)
+			}
+		} else {
+			userTTL = uint32(remaining)
+		}
+
+		log.Printf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (原始TTL=%d, 剩余=%d, 返回=%d)\n",
+			domain, dns.TypeToString[question.Qtype], sorted.IPs, sorted.TTL, remaining, userTTL)
 
 		// 检查是否有 CNAME（从原始缓存获取）
 		var cname string
@@ -254,6 +280,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 				domain, dns.TypeToString[question.Qtype])
 			task := RefreshTask{Domain: domain, Qtype: question.Qtype}
 			s.refreshQueue.Submit(task)
+		} else {
+			// 如果缓存未过期但我们走到了这里（说明没有命中有序缓存），
+			// 尝试启动异步排序以"升级"为有序缓存
+			// sortIPsAsync 内部会自动去重，不会重复启动任务
+			go s.sortIPsAsync(domain, question.Qtype, raw.IPs, raw.UpstreamTTL, raw.AcquisitionTime)
 		}
 		return
 	}

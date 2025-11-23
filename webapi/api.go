@@ -434,16 +434,34 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.Concurrency <= 0 {
 		return fmt.Errorf("upstream concurrency must be positive")
 	}
+	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" {
+		return fmt.Errorf("invalid upstream strategy: %s (must be 'random' or 'parallel')", cfg.Upstream.Strategy)
+	}
 
 	// Cache 配置验证
 	if cfg.Cache.MinTTLSeconds < 0 {
 		return fmt.Errorf("cache min TTL cannot be negative")
 	}
-	if cfg.Cache.MaxTTLSeconds <= 0 {
-		return fmt.Errorf("cache max TTL must be positive")
+	// MaxTTLSeconds can be 0 (meaning no limit if min is also 0, or default behavior),
+	// but if set, it usually shouldn't be negative.
+	// However, config.go says "0 means special meaning". Let's allow 0.
+	if cfg.Cache.MaxTTLSeconds < 0 {
+		return fmt.Errorf("cache max TTL cannot be negative")
 	}
-	if cfg.Cache.MinTTLSeconds > cfg.Cache.MaxTTLSeconds {
+	if cfg.Cache.MinTTLSeconds > 0 && cfg.Cache.MaxTTLSeconds > 0 && cfg.Cache.MinTTLSeconds > cfg.Cache.MaxTTLSeconds {
 		return fmt.Errorf("cache min TTL cannot be greater than max TTL")
+	}
+	if cfg.Cache.FastResponseTTL <= 0 {
+		return fmt.Errorf("cache fast response TTL must be positive")
+	}
+	if cfg.Cache.UserReturnTTL <= 0 {
+		return fmt.Errorf("cache user return TTL must be positive")
+	}
+	if cfg.Cache.NegativeTTLSeconds < 0 {
+		return fmt.Errorf("cache negative TTL cannot be negative")
+	}
+	if cfg.Cache.ErrorCacheTTL < 0 {
+		return fmt.Errorf("cache error TTL cannot be negative")
 	}
 
 	// Ping 配置验证
@@ -455,6 +473,37 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	}
 	if cfg.Ping.Concurrency <= 0 {
 		return fmt.Errorf("ping concurrency must be positive")
+	}
+	if cfg.Ping.MaxTestIPs < 0 {
+		return fmt.Errorf("ping max test IPs cannot be negative")
+	}
+	if cfg.Ping.RttCacheTtlSeconds < 0 {
+		return fmt.Errorf("ping RTT cache TTL cannot be negative")
+	}
+	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" {
+		return fmt.Errorf("invalid ping strategy: %s (must be 'min' or 'avg')", cfg.Ping.Strategy)
+	}
+
+	// Prefetch 配置验证
+	if cfg.Prefetch.TopDomainsLimit <= 0 {
+		return fmt.Errorf("prefetch top domains limit must be positive")
+	}
+	if cfg.Prefetch.RefreshBeforeExpireSeconds <= 0 {
+		return fmt.Errorf("prefetch refresh before expire seconds must be positive")
+	}
+	if cfg.Prefetch.MinPrefetchInterval < 0 {
+		return fmt.Errorf("prefetch min interval cannot be negative")
+	}
+
+	// System 配置验证
+	if cfg.System.MaxCPUCores < 0 {
+		return fmt.Errorf("system max CPU cores cannot be negative")
+	}
+	if cfg.System.SortQueueWorkers < 0 {
+		return fmt.Errorf("system sort queue workers cannot be negative")
+	}
+	if cfg.System.RefreshWorkers < 0 {
+		return fmt.Errorf("system refresh workers cannot be negative")
 	}
 
 	// WebUI 配置验证

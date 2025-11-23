@@ -28,7 +28,7 @@ upstream:
   # 查询策略：parallel（并行查询所有服务器）或 random（随机选择一个服务器）
   strategy: "random"
   # 上游服务器响应超时时间（毫秒）
-  timeout_ms: 3000
+  timeout_ms: 5000
   # 并发查询数量
   concurrency: 100
   # 是否将上游错误（如SERVFAIL, timeout）转换为 NXDOMAIN 响应给客户端（默认 true）
@@ -40,7 +40,7 @@ ping:
   # 每次 Ping 的数据包个数
   count: 3
   # Ping 响应超时时间（毫秒）
-  timeout_ms: 500
+  timeout_ms: 1000
   # 并发 Ping 的数量
   concurrency: 16
   # 选择策略：min（选择最低延迟）或 avg（选择平均延迟最低）
@@ -48,14 +48,14 @@ ping:
   # 每次排序最多测试的 IP 数量（0 表示不限制）
   max_test_ips: 0
   # 单个 IP 的 RTT (延迟) 结果缓存时间（秒，0 表示禁用）
-  rtt_cache_ttl_seconds: 900
+  rtt_cache_ttl_seconds: 600
 
 # DNS 缓存配置
 cache:
   # 首次查询或过期缓存返回时使用的 TTL（快速响应）。默认值：60秒
   fast_response_ttl: 15
   # 缓存命中时返回给客户端的 TTL。默认值：500秒
-  user_return_ttl: 500
+  user_return_ttl: 600
   # 缓存最小 TTL（生存时间，秒）
   # 设置为 0 有特殊含义：如果 min 和 max 都为 0，不修改上游TTL；仅 min 为 0 时只限制最大值
   min_ttl_seconds: 3600
@@ -75,6 +75,8 @@ prefetch:
   top_domains_limit: 1000
   # 在缓存即将过期前指定秒数触发后台异步更新
   refresh_before_expire_seconds: 10
+  # 最小预取间隔（秒），防止对短 TTL 域名进行过分激进的请求
+  min_prefetch_interval: 500
 
 # Web UI 管理界面配置
 webui:
@@ -147,6 +149,7 @@ type PrefetchConfig struct {
 	Enabled                    bool `yaml:"enabled" json:"enabled"`
 	TopDomainsLimit            int  `yaml:"top_domains_limit" json:"top_domains_limit"`
 	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds" json:"refresh_before_expire_seconds"`
+	MinPrefetchInterval        int  `yaml:"min_prefetch_interval" json:"min_prefetch_interval"`
 }
 
 type WebUIConfig struct {
@@ -256,7 +259,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.DNS.ListenPort = 53
 	}
 	if cfg.Upstream.TimeoutMs == 0 {
-		cfg.Upstream.TimeoutMs = 3000
+		cfg.Upstream.TimeoutMs = 5000
 	}
 	if cfg.Upstream.Concurrency == 0 {
 		cfg.Upstream.Concurrency = 100
@@ -265,16 +268,14 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.Ping.Count = 3
 	}
 	if cfg.Ping.TimeoutMs == 0 {
-		cfg.Ping.TimeoutMs = 500
+		cfg.Ping.TimeoutMs = 1000
 	}
 	if cfg.Ping.Concurrency == 0 {
 		cfg.Ping.Concurrency = 16
 	}
-	if cfg.Ping.MaxTestIPs == 0 {
-		cfg.Ping.MaxTestIPs = 8
-	}
+	// MaxTestIPs: 0 means unlimited, so we don't need to set a default if it's 0.
 	if cfg.Ping.RttCacheTtlSeconds == 0 {
-		cfg.Ping.RttCacheTtlSeconds = 60
+		cfg.Ping.RttCacheTtlSeconds = 600
 	}
 	if cfg.Cache.FastResponseTTL == 0 {
 		cfg.Cache.FastResponseTTL = 60
@@ -297,7 +298,10 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.Prefetch.TopDomainsLimit = 1000
 	}
 	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
-		cfg.Prefetch.RefreshBeforeExpireSeconds = 30
+		cfg.Prefetch.RefreshBeforeExpireSeconds = 10
+	}
+	if cfg.Prefetch.MinPrefetchInterval == 0 {
+		cfg.Prefetch.MinPrefetchInterval = 500 // Default to 500 seconds to prevent busy loops
 	}
 
 	// System defaults
