@@ -29,6 +29,8 @@ upstream:
   strategy: "random"
   # 上游服务器响应超时时间（毫秒）
   timeout_ms: 5000
+  # 并行查询时的并发数（仅在 strategy 为 parallel 时有效）
+  concurrency: 3
 
   # 是否将未处理的 SERVFAIL, timeout 转换为 NXDOMAIN 响应给客户端，默认 true
   # 这可以减少客户端的失败重试行为，但可能会隐藏上游服务器的真实错误
@@ -131,9 +133,10 @@ type DNSConfig struct {
 }
 
 type UpstreamConfig struct {
-	Servers   []string `yaml:"servers" json:"servers"`
-	Strategy  string   `yaml:"strategy" json:"strategy"`
-	TimeoutMs int      `yaml:"timeout_ms" json:"timeout_ms"`
+	Servers     []string `yaml:"servers" json:"servers"`
+	Strategy    string   `yaml:"strategy" json:"strategy"`
+	TimeoutMs   int      `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency int      `yaml:"concurrency" json:"concurrency"` // 并行查询时的并发数
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
 }
@@ -303,6 +306,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Upstream.TimeoutMs == 0 {
 		cfg.Upstream.TimeoutMs = 5000
+	}
+	if cfg.Upstream.Concurrency == 0 {
+		cfg.Upstream.Concurrency = 3
 	}
 
 	if cfg.Ping.Count == 0 {

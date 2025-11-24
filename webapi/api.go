@@ -422,6 +422,9 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" {
 		return fmt.Errorf("invalid upstream strategy: %s (must be 'random' or 'parallel')", cfg.Upstream.Strategy)
 	}
+	if cfg.Upstream.Concurrency <= 0 {
+		return fmt.Errorf("upstream concurrency must be positive")
+	}
 	if cfg.Cache.MinTTLSeconds < 0 {
 		return fmt.Errorf("cache min TTL cannot be negative")
 	}

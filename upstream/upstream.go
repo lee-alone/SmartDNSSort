@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"smartdnssort/stats"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -31,37 +32,137 @@ type QueryResultWithTTL struct {
 
 // Upstream 上游 DNS 查询模块
 type Upstream struct {
-	servers   []string
-	strategy  string // parallel, random
-	timeoutMs int
-	stats     *stats.Stats
+	servers     []string
+	strategy    string // parallel, random
+	timeoutMs   int
+	concurrency int // 并行查询时的并发数
+	stats       *stats.Stats
 }
 
 // NewUpstream 创建上游 DNS 查询器
-func NewUpstream(servers []string, strategy string, timeoutMs int, s *stats.Stats) *Upstream {
+func NewUpstream(servers []string, strategy string, timeoutMs int, concurrency int, s *stats.Stats) *Upstream {
 	if len(servers) == 0 {
 		servers = []string{"8.8.8.8:53", "1.1.1.1:53"}
 	}
-	// 默认为 random 策略，避免并发查询带来的高负载
-	if strategy == "" || strategy == "parallel" {
+	if strategy == "" {
 		strategy = "random"
 	}
 	if timeoutMs <= 0 {
 		timeoutMs = 300
 	}
+	if concurrency <= 0 {
+		concurrency = 3
+	}
 
 	return &Upstream{
-		servers:   servers,
-		strategy:  strategy,
-		timeoutMs: timeoutMs,
-		stats:     s,
+		servers:     servers,
+		strategy:    strategy,
+		timeoutMs:   timeoutMs,
+		concurrency: concurrency,
+		stats:       s,
 	}
 }
 
 // Query 查询域名，返回 IP 列表和 TTL
 func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
-	// 目前仅支持 random 策略，简化逻辑并降低上游压力
+	if u.strategy == "parallel" {
+		return u.queryParallel(ctx, domain, qtype)
+	}
 	return u.queryRandom(ctx, domain, qtype)
+}
+
+// queryParallel 并行查询多个上游 DNS 服务器，返回最快的成功响应
+func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+	if len(u.servers) == 0 {
+		return nil, fmt.Errorf("no upstream servers configured")
+	}
+
+	log.Printf("[queryParallel] 并行查询 %d 个服务器，查询 %s (type=%s)，并发数=%d\n",
+		len(u.servers), domain, dns.TypeToString[qtype], u.concurrency)
+
+	// 创建结果通道
+	resultChan := make(chan *QueryResult, len(u.servers))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// 使用 semaphore 控制并发数
+	sem := make(chan struct{}, u.concurrency)
+	var wg sync.WaitGroup
+
+	// 并发查询所有服务器
+	for _, server := range u.servers {
+		wg.Add(1)
+		go func(srv string) {
+			defer wg.Done()
+
+			// 获取信号量
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// 如果已经取消，直接返回
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			result := u.querySingleServer(ctx, srv, domain, qtype)
+
+			// 只发送结果，不管成功还是失败
+			select {
+			case resultChan <- result:
+			case <-ctx.Done():
+			}
+		}(server)
+	}
+
+	// 启动一个 goroutine 等待所有查询完成后关闭通道
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果
+	var firstError error
+	successCount := 0
+	failureCount := 0
+
+	for result := range resultChan {
+		if result.Error != nil {
+			failureCount++
+			if u.stats != nil {
+				// 只有非 NXDOMAIN 的错误才计为上游失败
+				if result.Rcode != dns.RcodeNameError {
+					u.stats.IncUpstreamFailure(result.Server)
+				}
+			}
+			if firstError == nil {
+				firstError = result.Error
+			}
+			log.Printf("[queryParallel] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
+			continue
+		}
+
+		// 找到第一个成功的响应
+		successCount++
+		if u.stats != nil {
+			u.stats.IncUpstreamSuccess(result.Server)
+		}
+		log.Printf("[queryParallel] 服务器 %s 查询成功（第%d个成功），返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+			result.Server, successCount, len(result.IPs), result.CNAME, result.TTL, result.IPs)
+
+		// 取消其他正在进行的查询
+		cancel()
+
+		return &QueryResultWithTTL{IPs: result.IPs, CNAME: result.CNAME, TTL: result.TTL}, nil
+	}
+
+	// 所有服务器都失败了
+	log.Printf("[queryParallel] 所有 %d 个服务器查询均失败\n", failureCount)
+	if firstError != nil {
+		return nil, firstError
+	}
+	return nil, fmt.Errorf("all upstream servers failed")
 }
 
 // queryRandom 随机选择一个上游 DNS 服务器进行查询

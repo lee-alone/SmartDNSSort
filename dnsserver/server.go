@@ -49,7 +49,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		cfg:          cfg,
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
-		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, s),
+		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
@@ -877,7 +877,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newUpstream *upstream.Upstream
 	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
 		log.Println("Reloading Upstream client due to configuration changes.")
-		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, s.stats)
+		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
 	}
 
 	var newPinger *ping.Pinger
