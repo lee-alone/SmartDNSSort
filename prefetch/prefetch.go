@@ -118,15 +118,8 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 
 			expiresIn := time.Until(sortedEntry.Timestamp.Add(time.Duration(sortedEntry.TTL) * time.Second))
 
-			age := time.Since(sortedEntry.Timestamp)
-			if age.Seconds() < float64(p.cfg.MinPrefetchInterval) {
-				wait := time.Duration(p.cfg.MinPrefetchInterval)*time.Second - age
-				if wait > 0 && wait < minTimeToNextRefresh {
-					minTimeToNextRefresh = wait
-				}
-				continue
-			}
-
+			// 移除 min_prefetch_interval 检查，直接依靠过期时间判断
+			// min_ttl_seconds 配置已经提供了足够的保护，防止过度预取
 			threshold := float64(p.cfg.RefreshBeforeExpireSeconds)
 
 			if expiresIn.Seconds() < threshold {

@@ -462,24 +462,6 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 		return fmt.Errorf("ping RTT cache TTL cannot be negative")
 	}
 	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" {
-		return fmt.Errorf("invalid ping strategy: %s (must be 'min' or 'avg')", cfg.Ping.Strategy)
-	}
-	if cfg.Prefetch.TopDomainsLimit <= 0 {
-		return fmt.Errorf("prefetch top domains limit must be positive")
-	}
-	if cfg.Prefetch.RefreshBeforeExpireSeconds <= 0 {
-		return fmt.Errorf("prefetch refresh before expire seconds must be positive")
-	}
-	if cfg.Prefetch.MinPrefetchInterval < 0 {
-		return fmt.Errorf("prefetch min interval cannot be negative")
-	}
-	if cfg.System.MaxCPUCores < 0 {
-		return fmt.Errorf("system max CPU cores cannot be negative")
-	}
-	if cfg.System.SortQueueWorkers < 0 {
-		return fmt.Errorf("system sort queue workers cannot be negative")
-	}
-	if cfg.System.RefreshWorkers < 0 {
 		return fmt.Errorf("system refresh workers cannot be negative")
 	}
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {

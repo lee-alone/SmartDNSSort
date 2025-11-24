@@ -144,42 +144,4 @@ func TestRunPrefetch(t *testing.T) {
 
 		assert.False(t, mockRefresher.wasRefreshed("not-in-cache.com"), "Expected no domains to be refreshed")
 	})
-
-	// --- Scenario 5: MinPrefetchInterval Logic ---
-	t.Run("respects MinPrefetchInterval", func(t *testing.T) {
-		intervalCfg := &config.PrefetchConfig{
-			Enabled:                    true,
-			TopDomainsLimit:            10,
-			RefreshBeforeExpireSeconds: 30,
-			MinPrefetchInterval:        60,
-		}
-
-		domainTooSoon := "too-soon.com"
-
-		mockStats := &mockStats{
-			topDomains: []stats.DomainCount{
-				{Domain: domainTooSoon, Count: 100},
-			},
-		}
-
-		mockCache := &mockCache{
-			sortedCache: map[string]*cache.SortedCacheEntry{
-				// TTL=10. Threshold=5.
-				// Age=6. Expires in 4. 4 < 5 is True.
-				// BUT Age (6) < MinInterval (60). Should NOT refresh.
-				"too-soon.com#1": {
-					IPs:       []string{"1.1.1.1"},
-					Timestamp: time.Now().Add(-6 * time.Second),
-					TTL:       10,
-					IsValid:   true,
-				},
-			},
-		}
-		mockRefresher := &mockRefresher{}
-
-		p := NewPrefetcher(intervalCfg, mockStats, mockCache, mockRefresher)
-		_ = p.runPrefetchAndGetNextInterval()
-
-		assert.False(t, mockRefresher.wasRefreshed(domainTooSoon), "Expected domain within MinPrefetchInterval NOT to be refreshed")
-	})
 }

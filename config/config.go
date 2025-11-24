@@ -49,11 +49,11 @@ ping:
   # 每个域名测试的 IP 数量，0 表示不限制
   max_test_ips: 0
   # 缓存 IP 的 RTT (延迟) 结果的时间（秒）
-  rtt_cache_ttl_seconds: 600
+  rtt_cache_ttl_seconds: 60
 
 # DNS 缓存配置
 cache:
-  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 60
+  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 15
   fast_response_ttl: 15
   # 正常返回给客户端的 TTL，默认值 600
   user_return_ttl: 600
@@ -87,9 +87,7 @@ prefetch:
   # 记录访问频率最高的 N 个域名
   top_domains_limit: 1000
   # 在缓存即将过期前指定的时间进行后台异步刷新
-  refresh_before_expire_seconds: 10
-  # 最小预取间隔（秒），防止低 TTL 域名引起过度频繁请求
-  min_prefetch_interval: 500
+  refresh_before_expire_seconds: 30
 
 # Web UI 管理界面配置
 webui:
@@ -170,7 +168,6 @@ type PrefetchConfig struct {
 	Enabled                    bool `yaml:"enabled" json:"enabled"`
 	TopDomainsLimit            int  `yaml:"top_domains_limit" json:"top_domains_limit"`
 	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds" json:"refresh_before_expire_seconds"`
-	MinPrefetchInterval        int  `yaml:"min_prefetch_interval" json:"min_prefetch_interval"`
 }
 
 type WebUIConfig struct {
@@ -358,9 +355,6 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
 		cfg.Prefetch.RefreshBeforeExpireSeconds = 10
-	}
-	if cfg.Prefetch.MinPrefetchInterval == 0 {
-		cfg.Prefetch.MinPrefetchInterval = 500 // Default to 500 seconds to prevent busy loops
 	}
 
 	// System defaults
