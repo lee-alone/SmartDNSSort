@@ -95,7 +95,8 @@ func main() {
 	}
 
 	// 初始化统计模块
-	s := stats.NewStats()
+	s := stats.NewStats(&cfg.Stats)
+	defer s.Stop()
 
 	// 启动 DNS 服务器
 	dnsServer := dnsserver.NewServer(cfg, s)

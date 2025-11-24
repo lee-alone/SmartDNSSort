@@ -24,8 +24,14 @@ func TestHandleQuery_CacheStats(t *testing.T) {
 		Upstream: config.UpstreamConfig{
 			TimeoutMs: 100,
 		},
+		Stats: config.StatsConfig{
+			HotDomainsWindowHours:   24,
+			HotDomainsBucketMinutes: 60,
+			HotDomainsShardCount:    16,
+			HotDomainsMaxPerBucket:  5000,
+		},
 	}
-	s := stats.NewStats()
+	s := stats.NewStats(&cfg.Stats)
 	server := NewServer(cfg, s)
 
 	// Mock domain and IP

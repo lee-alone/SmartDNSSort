@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"smartdnssort/config"
 	"smartdnssort/stats"
 	"testing"
 	"time"
@@ -17,7 +18,13 @@ func TestParallelQuery(t *testing.T) {
 		"223.5.5.5:53",
 	}
 
-	s := stats.NewStats()
+	cfg := &config.StatsConfig{
+		HotDomainsWindowHours:   24,
+		HotDomainsBucketMinutes: 60,
+		HotDomainsShardCount:    16,
+		HotDomainsMaxPerBucket:  5000,
+	}
+	s := stats.NewStats(cfg)
 
 	// 测试 parallel 策略
 	t.Run("Parallel Strategy", func(t *testing.T) {
@@ -92,7 +99,13 @@ func TestParallelQueryFailover(t *testing.T) {
 		"198.51.100.1:53", // 无效的 IP（TEST-NET-2）
 	}
 
-	s := stats.NewStats()
+	cfg := &config.StatsConfig{
+		HotDomainsWindowHours:   24,
+		HotDomainsBucketMinutes: 60,
+		HotDomainsShardCount:    16,
+		HotDomainsMaxPerBucket:  5000,
+	}
+	s := stats.NewStats(cfg)
 	u := NewUpstream(servers, "parallel", 1000, 3, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -3,7 +3,7 @@ package stats
 import (
 	"log"
 	"runtime"
-	"sort"
+	"smartdnssort/config"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,12 +28,12 @@ type Stats struct {
 	upstreamSuccess map[string]*int64
 	upstreamFailure map[string]*int64
 
-	// 新增：按域名统计查询次数
-	domainQueries map[string]*int64
+	// 新增：Hot Domains 追踪器
+	hotDomains *HotDomainsTracker
 }
 
 // NewStats 创建新的统计实例
-func NewStats() *Stats {
+func NewStats(cfg *config.StatsConfig) *Stats {
 	// 初始化 gopsutil 的 CPU 使用率计算
 	// 第一次调用 Percent 会返回 0，所以在这里预热一下
 	go func() {
@@ -47,7 +47,7 @@ func NewStats() *Stats {
 		failedNodes:     make(map[string]int64),
 		upstreamSuccess: make(map[string]*int64),
 		upstreamFailure: make(map[string]*int64),
-		domainQueries:   make(map[string]*int64),
+		hotDomains:      NewHotDomainsTracker(cfg),
 	}
 }
 
@@ -238,8 +238,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 
 // RecordDomainQuery 记录域名查询次数
 func (s *Stats) RecordDomainQuery(domain string) {
-	counter := s.getOrCreateCounter(domain, s.domainQueries)
-	atomic.AddInt64(counter, 1)
+	s.hotDomains.RecordQuery(domain)
 }
 
 // DomainCount 用于排序的结构体
@@ -250,38 +249,7 @@ type DomainCount struct {
 
 // GetTopDomains 获取查询次数最多的域名
 func (s *Stats) GetTopDomains(limit int) []DomainCount {
-	s.mu.RLock()
-	// 复制 map 以避免长时间锁定
-	copiedMap := make(map[string]int64, len(s.domainQueries))
-	for domain, counter := range s.domainQueries {
-		copiedMap[domain] = atomic.LoadInt64(counter)
-	}
-	s.mu.RUnlock()
-
-	if len(copiedMap) == 0 {
-		return nil
-	}
-
-	// 转换为切片以便排序
-	domainCounts := make([]DomainCount, 0, len(copiedMap))
-	for domain, count := range copiedMap {
-		domainCounts = append(domainCounts, DomainCount{Domain: domain, Count: count})
-	}
-
-	// 对切片进行排序（降序）
-	// sort.Slice is stable, which is good
-	sort.Slice(domainCounts, func(i, j int) bool {
-		if domainCounts[i].Count != domainCounts[j].Count {
-			return domainCounts[i].Count > domainCounts[j].Count
-		}
-		return domainCounts[i].Domain < domainCounts[j].Domain
-	})
-
-	// 返回前 limit 个
-	if len(domainCounts) > limit {
-		return domainCounts[:limit]
-	}
-	return domainCounts
+	return s.hotDomains.GetTopDomains(limit)
 }
 
 // Reset 重置统计
@@ -295,9 +263,15 @@ func (s *Stats) Reset() {
 	atomic.StoreInt64(&s.totalRTT, 0)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.failedNodes = make(map[string]int64)
 	s.upstreamSuccess = make(map[string]*int64)
 	s.upstreamFailure = make(map[string]*int64)
-	s.domainQueries = make(map[string]*int64)
+	s.mu.Unlock()
+
+	s.hotDomains.Reset()
+}
+
+// Stop 停止统计服务
+func (s *Stats) Stop() {
+	s.hotDomains.Stop()
 }

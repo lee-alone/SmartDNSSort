@@ -122,6 +122,7 @@ type Config struct {
 	WebUI    WebUIConfig    `yaml:"webui" json:"webui"`
 	AdBlock  AdBlockConfig  `yaml:"adblock" json:"adblock"`
 	System   SystemConfig   `yaml:"system" json:"system"`
+	Stats    StatsConfig    `yaml:"stats" json:"stats"`
 }
 
 type DNSConfig struct {
@@ -184,6 +185,13 @@ type SystemConfig struct {
 	MaxCPUCores      int `yaml:"max_cpu_cores" json:"max_cpu_cores"`
 	SortQueueWorkers int `yaml:"sort_queue_workers" json:"sort_queue_workers"`
 	RefreshWorkers   int `yaml:"refresh_workers" json:"refresh_workers"`
+}
+
+type StatsConfig struct {
+	HotDomainsWindowHours   int `yaml:"hot_domains_window_hours" json:"hot_domains_window_hours"`
+	HotDomainsBucketMinutes int `yaml:"hot_domains_bucket_minutes" json:"hot_domains_bucket_minutes"`
+	HotDomainsShardCount    int `yaml:"hot_domains_shard_count" json:"hot_domains_shard_count"`
+	HotDomainsMaxPerBucket  int `yaml:"hot_domains_max_per_bucket" json:"hot_domains_max_per_bucket"`
 }
 
 const (
@@ -368,6 +376,20 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.System.RefreshWorkers == 0 {
 		// Default to MaxCPUCores for better concurrency performance
 		cfg.System.RefreshWorkers = cfg.System.MaxCPUCores
+	}
+
+	// Stats defaults
+	if cfg.Stats.HotDomainsWindowHours == 0 {
+		cfg.Stats.HotDomainsWindowHours = 24
+	}
+	if cfg.Stats.HotDomainsBucketMinutes == 0 {
+		cfg.Stats.HotDomainsBucketMinutes = 60
+	}
+	if cfg.Stats.HotDomainsShardCount == 0 {
+		cfg.Stats.HotDomainsShardCount = 16
+	}
+	if cfg.Stats.HotDomainsMaxPerBucket == 0 {
+		cfg.Stats.HotDomainsMaxPerBucket = 5000
 	}
 
 	return &cfg, nil

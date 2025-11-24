@@ -1,13 +1,20 @@
 package stats
 
 import (
+	"smartdnssort/config"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetTopDomains(t *testing.T) {
-	s := NewStats()
+	cfg := &config.StatsConfig{
+		HotDomainsWindowHours:   24,
+		HotDomainsBucketMinutes: 60,
+		HotDomainsShardCount:    16,
+		HotDomainsMaxPerBucket:  5000,
+	}
+	s := NewStats(cfg)
 
 	// Record some domain queries
 	s.RecordDomainQuery("google.com")
