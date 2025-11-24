@@ -185,9 +185,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// ✅ 记录域名查询（在过滤后，只记录合法查询）
-	// 这样可以防止被拒绝的域名（如 .in-addr.arpa）被记录到统计和预取列表中
-	currentStats.RecordDomainQuery(domain)
+	// ✅ 记录域名查询逻辑已移动到解析成功后
+	// 这样只统计有效域名（能解析出IP的域名）
 	s.RecordRecentQuery(domain)
 
 	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
@@ -208,6 +207,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
 		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
+		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 
 		// 计算剩余 TTL
 		elapsed := time.Since(sorted.Timestamp).Seconds()
@@ -262,6 +262,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
 		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
+		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 		// 无论是否过期,都立即返回缓存数据
 		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)\n",
 			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAME, raw.IsExpired())
@@ -319,10 +320,14 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
-		currentStats.IncUpstreamFailures()
 		log.Printf("[handleQuery] 上游查询失败: %v\n", err)
 
 		originalRcode := parseRcodeFromError(err)
+
+		// Only increment failure if it's NOT NXDOMAIN
+		if originalRcode != dns.RcodeNameError {
+			currentStats.IncUpstreamFailures()
+		}
 
 		// ✅ 关键修改：区分对待不同错误类型
 		if originalRcode == dns.RcodeNameError {
@@ -353,6 +358,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// 如果有 IP（可能同时有 CNAME）
 	if len(ips) > 0 {
+		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 		log.Printf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
 			domain, dns.TypeToString[question.Qtype], len(ips), cname, upstreamTTL, ips)
 
@@ -401,6 +407,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
 		// 构造包含 CNAME 和最终 IP 的响应
+		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 		s.buildDNSResponseWithCNAME(msg, domain, cname, finalResult.IPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
@@ -411,8 +418,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// 如果既没有 IP 也没有 CNAME，或者之前的逻辑已经处理了返回
 	// 这里实际上 result != nil 且 len(ips) == 0 且 cname == "" 的情况应该在 upstream 报错了
-	// 但为了安全起见，如果走到这里，我们记录日志
-	log.Printf("[handleQuery] 上游查询返回空结果: %s\n", domain)
+	// 但为了安全起见，如果走到这里，我们记录日志并返回空响应
+	log.Printf("[handleQuery] 上游查询返回空结果 (NODATA): %s\n", domain)
+	msg.SetRcode(r, dns.RcodeSuccess)
+	msg.Answer = nil
+	w.WriteMsg(msg)
 }
 
 // handleLocalRules applies a set of hardcoded rules to block or redirect common bogus queries.

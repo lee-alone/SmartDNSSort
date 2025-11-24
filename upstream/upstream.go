@@ -19,6 +19,7 @@ type QueryResult struct {
 	TTL    uint32 // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
 	Error  error
 	Server string // 添加服务器字段
+	Rcode  int    // DNS 响应代码
 }
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
@@ -77,7 +78,11 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 	result := u.querySingleServer(ctx, server, domain, qtype)
 	if result.Error != nil {
 		if u.stats != nil {
-			u.stats.IncUpstreamFailure(server)
+			// 只有非 NXDOMAIN 的错误才计为上游失败
+			// NXDOMAIN 是正常的业务响应（域名不存在），不应计为服务器故障
+			if result.Rcode != dns.RcodeNameError {
+				u.stats.IncUpstreamFailure(server)
+			}
 		}
 		return nil, result.Error
 	}
@@ -105,14 +110,20 @@ func (u *Upstream) querySingleServer(ctx context.Context, server, domain string,
 	}
 
 	if reply == nil || reply.Rcode != dns.RcodeSuccess {
-		log.Printf("[querySingleServer] %s 返回错误代码: %d\n", server, reply.Rcode)
-		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", reply.Rcode), Server: server}
+		rcode := dns.RcodeServerFailure
+		if reply != nil {
+			rcode = reply.Rcode
+			log.Printf("[querySingleServer] %s 返回错误代码: %d\n", server, reply.Rcode)
+		} else {
+			log.Printf("[querySingleServer] %s 返回空响应\n", server)
+		}
+		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", rcode), Server: server, Rcode: rcode}
 	}
 
 	// 提取 IP 地址和 TTL
 	ips, cname, ttl := extractIPs(reply)
 	log.Printf("[querySingleServer] %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", server, len(ips), cname, ttl, ips)
-	return &QueryResult{IPs: ips, CNAME: cname, TTL: ttl, Server: server}
+	return &QueryResult{IPs: ips, CNAME: cname, TTL: ttl, Server: server, Rcode: reply.Rcode}
 }
 
 // doExchange 执行底层的 DNS 交换
