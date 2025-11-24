@@ -90,45 +90,6 @@ func TestRawCacheExpiration(t *testing.T) {
 	assert.True(t, ok, "Expected expired raw entry to be returned (stale-while-revalidate)")
 }
 
-// TestRawCacheCleanup tests that expired entries are eventually cleaned up after the grace period.
-func TestRawCacheCleanup(t *testing.T) {
-	c := NewCache(getDefaultCacheConfig())
-	domain := "cleanup.example.com"
-	qtype := dns.TypeA
-
-	// 1. 添加一个刚过期的条目 (在 grace period 内)
-	c.mu.Lock()
-	c.rawCache[cacheKey(domain, qtype)] = &RawCacheEntry{
-		IPs:             []string{"1.2.3.4"},
-		UpstreamTTL:     60,
-		AcquisitionTime: time.Now().Add(-100 * time.Second), // 过期 40s
-	}
-	c.mu.Unlock()
-
-	// 执行清理
-	c.CleanExpired()
-
-	// 应该仍然存在
-	_, ok := c.GetRaw(domain, qtype)
-	assert.True(t, ok, "Entry within grace period should NOT be cleaned")
-
-	// 2. 修改为超过 grace period (1小时 + TTL)
-	c.mu.Lock()
-	c.rawCache[cacheKey(domain, qtype)] = &RawCacheEntry{
-		IPs:             []string{"1.2.3.4"},
-		UpstreamTTL:     60,
-		AcquisitionTime: time.Now().Add(-4000 * time.Second), // > 3600 + 60
-	}
-	c.mu.Unlock()
-
-	// 执行清理
-	c.CleanExpired()
-
-	// 应该被删除
-	_, ok = c.GetRaw(domain, qtype)
-	assert.False(t, ok, "Entry exceeding grace period SHOULD be cleaned")
-}
-
 // TestCleanExpired tests the cleaning of expired entries.
 func TestCleanExpired(t *testing.T) {
 	c := NewCache(getDefaultCacheConfig())

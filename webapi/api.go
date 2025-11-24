@@ -148,7 +148,7 @@ func (s *Server) findWebDirectory() string {
 	possiblePaths := []string{}
 	if exePath, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(exePath)
-		possiblePaths = append(possiblePaths, 
+		possiblePaths = append(possiblePaths,
 			filepath.Join(execDir, "web"),
 			filepath.Join(execDir, "..", "web"),
 		)
@@ -418,9 +418,6 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	}
 	if cfg.Upstream.TimeoutMs <= 0 {
 		return fmt.Errorf("upstream timeout must be positive")
-	}
-	if cfg.Upstream.Concurrency <= 0 {
-		return fmt.Errorf("upstream concurrency must be positive")
 	}
 	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" {
 		return fmt.Errorf("invalid upstream strategy: %s (must be 'random' or 'parallel')", cfg.Upstream.Strategy)

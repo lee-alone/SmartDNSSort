@@ -271,7 +271,10 @@ func (s *Stats) GetTopDomains(limit int) []DomainCount {
 	// 对切片进行排序（降序）
 	// sort.Slice is stable, which is good
 	sort.Slice(domainCounts, func(i, j int) bool {
-		return domainCounts[i].Count > domainCounts[j].Count
+		if domainCounts[i].Count != domainCounts[j].Count {
+			return domainCounts[i].Count > domainCounts[j].Count
+		}
+		return domainCounts[i].Domain < domainCounts[j].Domain
 	})
 
 	// 返回前 limit 个

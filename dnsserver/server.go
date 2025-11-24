@@ -49,7 +49,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		cfg:          cfg,
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
-		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
+		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, s),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
@@ -294,6 +294,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	currentStats.IncCacheMisses()
 
+	// ========== IPv6 开关检查 ==========
+	if question.Qtype == dns.TypeAAAA && !currentCfg.DNS.EnableIPv6 {
+		log.Printf("[handleQuery] IPv6 已禁用，直接返回空响应: %s\n", domain)
+		msg.SetRcode(r, dns.RcodeSuccess)
+		msg.Answer = nil
+		w.WriteMsg(msg)
+		return
+	}
+
 	// ========== 阶段一：首次查询（无缓存）==========
 	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
@@ -301,40 +310,39 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
 
-	result, err := currentUpstream.QueryAll(ctx, domain)
+	// 优化：仅查询客户端请求的类型，而不是 QueryAll
+	// 这样可以减少上游压力，并且按需获取
+	result, err := currentUpstream.Query(ctx, domain, question.Qtype)
+
 	var ips []string
 	var cname string
 	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
-		// 回退到特定类型查询
-		result, err = currentUpstream.Query(ctx, domain, question.Qtype)
-		if err != nil {
-			currentStats.IncUpstreamFailures()
-			log.Printf("[handleQuery] 上游查询失败: %v\n", err)
+		currentStats.IncUpstreamFailures()
+		log.Printf("[handleQuery] 上游查询失败: %v\n", err)
 
-			originalRcode := parseRcodeFromError(err)
+		originalRcode := parseRcodeFromError(err)
 
-			// ✅ 关键修改：区分对待不同错误类型
-			if originalRcode == dns.RcodeNameError {
-				// NXDOMAIN：域名确实不存在，可以缓存并返回错误
-				s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
-				log.Printf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s\n", domain)
-				msg.SetRcode(r, dns.RcodeNameError)
-				w.WriteMsg(msg)
-			} else {
-				// SERVFAIL/超时：临时错误，不缓存
-				// ✅ 返回 NOERROR 但无 Answer（空响应），防止 Windows 缓存
-				log.Printf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d\n", domain, originalRcode)
+		// ✅ 关键修改：区分对待不同错误类型
+		if originalRcode == dns.RcodeNameError {
+			// NXDOMAIN：域名确实不存在，可以缓存并返回错误
+			s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
+			log.Printf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s\n", domain)
+			msg.SetRcode(r, dns.RcodeNameError)
+			w.WriteMsg(msg)
+		} else {
+			// SERVFAIL/超时：临时错误，不缓存
+			// ✅ 返回 NOERROR 但无 Answer（空响应），防止 Windows 缓存
+			log.Printf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d\n", domain, originalRcode)
 
-				// 返回成功但无数据，让客户端快速重试
-				// 这样 Windows 不会缓存错误响应
-				msg.SetRcode(r, dns.RcodeSuccess)
-				msg.Answer = nil // 确保没有 Answer
-				w.WriteMsg(msg)
-			}
-			return
+			// 返回成功但无数据，让客户端快速重试
+			// 这样 Windows 不会缓存错误响应
+			msg.SetRcode(r, dns.RcodeSuccess)
+			msg.Answer = nil // 确保没有 Answer
+			w.WriteMsg(msg)
 		}
+		return
 	}
 
 	if result != nil {
@@ -345,35 +353,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// 如果有 IP（可能同时有 CNAME）
 	if len(ips) > 0 {
-		log.Printf("[handleQuery] 上游查询完成: %s 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
-			domain, len(ips), cname, upstreamTTL, ips)
+		log.Printf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+			domain, dns.TypeToString[question.Qtype], len(ips), cname, upstreamTTL, ips)
 
-		// 分离 IPv4 和 IPv6 地址
-		var ipv4s, ipv6s []string
-		for _, ipStr := range ips {
-			ip := net.ParseIP(ipStr)
-			if ip == nil {
-				continue
-			}
-			if ip.To4() != nil {
-				ipv4s = append(ipv4s, ipStr)
-			} else {
-				ipv6s = append(ipv6s, ipStr)
-			}
-		}
-
-		// 为 A 和 AAAA 记录分别设置缓存和启动排序
-		if len(ipv4s) > 0 {
-			s.cache.SetRaw(domain, dns.TypeA, ipv4s, cname, upstreamTTL)
-			go s.sortIPsAsync(domain, dns.TypeA, ipv4s, upstreamTTL, time.Now())
-		}
-		if len(ipv6s) > 0 {
-			s.cache.SetRaw(domain, dns.TypeAAAA, ipv6s, cname, upstreamTTL)
-			go s.sortIPsAsync(domain, dns.TypeAAAA, ipv6s, upstreamTTL, time.Now())
-		}
+		// 缓存原始结果并启动排序
+		// 注意：现在 ips 只包含请求类型的 IP，无需再分离 IPv4/IPv6
+		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
+		go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
 
 		// 使用 fast_response_ttl 快速返回给用户
-		// 注意：这里的 build 函数会根据 question.Qtype 从所有 ips 中筛选出正确的类型
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
 		// 如果有 CNAME，同时返回 CNAME 记录和 A/AAAA 记录
@@ -384,8 +372,6 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
 		}
 		w.WriteMsg(msg)
-
-		// 注意：因为上面已经为特定的 qtype 启动了排序，这里不再需要重复启动
 		return
 	}
 
@@ -881,7 +867,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newUpstream *upstream.Upstream
 	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
 		log.Println("Reloading Upstream client due to configuration changes.")
-		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, s.stats)
 	}
 
 	var newPinger *ping.Pinger
