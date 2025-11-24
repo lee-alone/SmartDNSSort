@@ -283,15 +283,6 @@ func (c *Cache) FinishSort(domain string, qtype uint16, result *SortedCacheEntry
 	}
 }
 
-// ClearSort 清理排序状态（排序任务完成后调用）
-func (c *Cache) ClearSort(domain string, qtype uint16) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	key := cacheKey(domain, qtype)
-	delete(c.sortingState, key)
-}
-
 // GetError 获取错误缓存
 func (c *Cache) GetError(domain string, qtype uint16) (*ErrorCacheEntry, bool) {
 	c.mu.RLock()
@@ -363,17 +354,10 @@ func (c *Cache) CleanExpired() {
 	defer c.mu.Unlock()
 
 	if c.maxEntries == 0 || (float64(len(c.rawCache))/float64(c.maxEntries)) < c.config.EvictionThreshold {
-		if !c.config.KeepExpiredEntries {
-			for key, entry := range c.rawCache {
-				if entry.IsExpired() {
-					c.deleteByKey(key)
-				}
-			}
-		}
 		c.cleanAuxiliaryCaches()
 		return
 	}
-
+	// 内存压力大时才淘汰（LRU会优先淘汰过期条目）
 	c.evictLRU()
 	c.cleanAuxiliaryCaches()
 }
