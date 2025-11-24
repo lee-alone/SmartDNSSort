@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"fmt"
 	"log"
 	"sync"
 )
@@ -11,13 +12,22 @@ type RefreshTask struct {
 	Qtype  uint16
 }
 
+// taskKey 生成任务的唯一键
+func (t RefreshTask) key() string {
+	return fmt.Sprintf("%s#%d", t.Domain, t.Qtype)
+}
+
 // RefreshQueue 是一个用于处理缓存刷新任务的异步队列
 type RefreshQueue struct {
-	workers    int
-	taskQueue  chan RefreshTask
-	wg         sync.WaitGroup
-	quit       chan struct{}
-	workFunc   func(task RefreshTask)
+	workers   int
+	taskQueue chan RefreshTask
+	wg        sync.WaitGroup
+	quit      chan struct{}
+	workFunc  func(task RefreshTask)
+
+	// 去重机制:跟踪正在进行的刷新任务
+	mu         sync.Mutex
+	inProgress map[string]bool // key: domain#qtype
 }
 
 // NewRefreshQueue 创建一个新的刷新队列
@@ -30,9 +40,10 @@ func NewRefreshQueue(workers, queueSize int) *RefreshQueue {
 	}
 
 	rq := &RefreshQueue{
-		workers:   workers,
-		taskQueue: make(chan RefreshTask, queueSize),
-		quit:      make(chan struct{}),
+		workers:    workers,
+		taskQueue:  make(chan RefreshTask, queueSize),
+		quit:       make(chan struct{}),
+		inProgress: make(map[string]bool),
 	}
 
 	rq.start()
@@ -57,7 +68,10 @@ func (rq *RefreshQueue) start() {
 						return
 					}
 					if rq.workFunc != nil {
+						// 执行工作函数
 						rq.workFunc(task)
+						// 任务完成后,清理进行中标记
+						rq.markComplete(task)
 					}
 				case <-rq.quit:
 					return
@@ -68,22 +82,47 @@ func (rq *RefreshQueue) start() {
 }
 
 // Submit 提交一个新任务到队列
-// 如果队列已满，返回 false
+// 如果任务已在进行中或队列已满,返回 false
 func (rq *RefreshQueue) Submit(task RefreshTask) bool {
-	select {
-	case rq.taskQueue <- task:
-		return true
-	default:
-		log.Printf("[RefreshQueue] 队列已满，刷新任务 %s (type %d) 被丢弃\n", task.Domain, task.Qtype)
+	rq.mu.Lock()
+	defer rq.mu.Unlock()
+
+	key := task.key()
+
+	// 检查是否已有相同任务在进行中
+	if rq.inProgress[key] {
+		log.Printf("[RefreshQueue] 刷新任务已在进行中,跳过重复提交: %s (type=%d)\n", task.Domain, task.Qtype)
 		return false
 	}
+
+	// 尝试提交到队列
+	select {
+	case rq.taskQueue <- task:
+		// 标记为进行中
+		rq.inProgress[key] = true
+		log.Printf("[RefreshQueue] 提交刷新任务: %s (type=%d)\n", task.Domain, task.Qtype)
+		return true
+	default:
+		log.Printf("[RefreshQueue] 队列已满,刷新任务被丢弃: %s (type=%d)\n", task.Domain, task.Qtype)
+		return false
+	}
+}
+
+// markComplete 标记任务完成,清理进行中标记
+func (rq *RefreshQueue) markComplete(task RefreshTask) {
+	rq.mu.Lock()
+	defer rq.mu.Unlock()
+
+	key := task.key()
+	delete(rq.inProgress, key)
+	log.Printf("[RefreshQueue] 刷新任务完成: %s (type=%d)\n", task.Domain, task.Qtype)
 }
 
 // Stop 停止队列并等待所有任务完成
 func (rq *RefreshQueue) Stop() {
 	close(rq.quit)
 	// 等待所有 worker goroutine 退出
-	// 注意：这里没有关闭 taskQueue，因为可能还有 worker 在读取
+	// 注意:这里没有关闭 taskQueue,因为可能还有 worker 在读取
 	// worker 会在 quit 信号后退出循环
 	rq.wg.Wait()
 	log.Println("[RefreshQueue] 刷新队列已停止")
