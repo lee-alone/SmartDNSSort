@@ -79,6 +79,8 @@ type Cache struct {
 	sortedCache  map[string]*SortedCacheEntry
 	sortingState map[string]*SortingState
 	errorCache   map[string]*ErrorCacheEntry
+	blockedCache map[string]*BlockedCacheEntry // 拦截缓存
+	allowedCache map[string]*AllowedCacheEntry // 白名单缓存
 
 	// 内存管理
 	config     *config.CacheConfig // 缓存配置
@@ -99,6 +101,8 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		sortedCache:  make(map[string]*SortedCacheEntry),
 		sortingState: make(map[string]*SortingState),
 		errorCache:   make(map[string]*ErrorCacheEntry),
+		blockedCache: make(map[string]*BlockedCacheEntry),
+		allowedCache: make(map[string]*AllowedCacheEntry),
 	}
 }
 
@@ -346,6 +350,8 @@ func (c *Cache) Clear() {
 	c.sortedCache = make(map[string]*SortedCacheEntry)
 	c.sortingState = make(map[string]*SortingState)
 	c.errorCache = make(map[string]*ErrorCacheEntry)
+	c.blockedCache = make(map[string]*BlockedCacheEntry)
+	c.allowedCache = make(map[string]*AllowedCacheEntry)
 }
 
 // CleanExpired 智能清理缓存。
@@ -409,6 +415,10 @@ func (c *Cache) deleteByKey(key string) {
 	delete(c.sortedCache, key)
 	delete(c.sortingState, key)
 	delete(c.errorCache, key)
+	delete(c.blockedCache, key)
+	// allowedCache key is domain only, so we need to extract domain
+	domain := c.extractDomain(key)
+	delete(c.allowedCache, domain)
 }
 
 // cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
@@ -428,4 +438,7 @@ func (c *Cache) cleanAuxiliaryCaches() {
 			delete(c.errorCache, key)
 		}
 	}
+
+	// 调用 adblock_cache.go 中的清理方法
+	c.cleanAdBlockCaches()
 }

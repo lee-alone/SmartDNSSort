@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"reflect"
+	"smartdnssort/adblock"
 	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/ping"
@@ -35,6 +36,7 @@ type Server struct {
 	recentQueriesMu    sync.Mutex
 	udpServer          *dns.Server
 	tcpServer          *dns.Server
+	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 }
 
 // NewServer 创建新的 DNS 服务器
@@ -53,6 +55,22 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
+	}
+
+	// 初始化 AdBlock 管理器
+	if cfg.AdBlock.Enable {
+		log.Println("[AdBlock] Initializing AdBlock Manager...")
+		adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
+		if err != nil {
+			log.Printf("[AdBlock] Failed to initialize manager: %v", err)
+			// Decide if this is a fatal error. For now, we continue without adblocking.
+			cfg.AdBlock.Enable = false
+		} else {
+			server.adblockManager = adblockMgr
+			// Start the adblock manager (downloads rules, etc.)
+			go server.adblockManager.Start(context.Background())
+			log.Println("[AdBlock] Manager initialized and started.")
+		}
 	}
 
 	// 设置刷新队列的工作函数
@@ -137,40 +155,54 @@ func (s *Server) Start() error {
 	return s.udpServer.ListenAndServe()
 }
 
-// handleQuery DNS 查询处理函数（三阶段逻辑）
-// 阶段一：首次查询（无缓存）
-//   - 向上游 DNS 转发请求，获取原始响应
-//   - 将响应中的 TTL 修改为 fast_response_ttl，快速返回给用户
-//   - 异步启动 IP 排序任务
-//
-// 阶段二：排序完成后缓存命中
-//   - 返回排序后的 IP 列表
-//   - TTL 使用 config 中的 ttl 设定规则
-//
-// 阶段三：缓存过期后再次访问
-//   - 立即返回旧缓存内容，TTL 设置为 fast_response_ttl
-//   - 异步重新查询上游 DNS，更新缓存与排序结果
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	s.mu.RLock()
 	// Copy pointers and values needed for the query under the read lock
 	currentUpstream := s.upstream
 	currentCfg := s.cfg
 	currentStats := s.stats
+	adblockMgr := s.adblockManager
 	s.mu.RUnlock() // Release the lock early
 
 	currentStats.IncQueries()
 
-	msg := new(dns.Msg)
-	msg.SetReply(r)
-	msg.Compress = false
-
 	if len(r.Question) == 0 {
+		msg := new(dns.Msg)
+		msg.SetReply(r)
 		w.WriteMsg(msg)
 		return
 	}
 
 	question := r.Question[0]
 	domain := strings.TrimRight(question.Name, ".")
+	qtype := question.Qtype
+
+	// AdBlock 过滤检查
+	if adblockMgr != nil && currentCfg.AdBlock.Enable {
+		if blocked, rule := adblockMgr.CheckHost(domain); blocked {
+			log.Printf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
+
+			// 记录统计
+			adblockMgr.RecordBlock(domain, rule)
+
+			// 根据配置返回响应
+			switch currentCfg.AdBlock.BlockMode {
+			case "nxdomain":
+				buildNXDomainResponse(w, r)
+			case "zero_ip":
+				buildZeroIPResponse(w, r, currentCfg.AdBlock.BlockedResponseIP, currentCfg.AdBlock.BlockedTTL)
+			case "refuse":
+				buildRefuseResponse(w, r)
+			default:
+				buildNXDomainResponse(w, r)
+			}
+			return
+		}
+	}
+
+	msg := new(dns.Msg)
+	msg.SetReply(r)
+	msg.Compress = false
 
 	// ========== 规则过滤 ==========
 	// 在处理任何逻辑之前，首先应用本地规则
@@ -217,12 +249,6 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		// 计算返回给用户的 TTL
-		// 逻辑：
-		// 1. 基础是真实的剩余 TTL (remaining)
-		// 2. 如果配置了 UserReturnTTL，将其作为上限
-		// 3. 为了避免 "UserReturnTTL < remaining" 时出现 TTL 恒定不变的问题，
-		//    我们使用锯齿状 (Sawtooth) 逻辑：UserReturnTTL - (elapsed % UserReturnTTL)
-		//    这样可以保证 TTL 始终随时间递减，且不超过 UserReturnTTL
 		var userTTL uint32
 		if currentCfg.Cache.UserReturnTTL > 0 {
 			cycleOffset := int(elapsed) % currentCfg.Cache.UserReturnTTL
@@ -258,19 +284,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// ========== 阶段三:缓存过期后再次访问 ==========
 	// 检查原始缓存(上游 DNS 响应缓存)
-	// GetRaw会返回过期的缓存,我们需要检查并决定如何处理
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
 		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
-		// 无论是否过期,都立即返回缓存数据
 		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)\n",
 			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAME, raw.IsExpired())
 
-		// 立即返回缓存,使用 fast_response_ttl
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
-		// 构造响应
 		if raw.CNAME != "" {
 			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAME, raw.IPs, question.Qtype, fastTTL)
 		} else {
@@ -278,16 +300,12 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		w.WriteMsg(msg)
 
-		// 如果缓存已过期,异步重新查询和排序(更新缓存)
 		if raw.IsExpired() {
 			log.Printf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)\n",
 				domain, dns.TypeToString[question.Qtype])
 			task := RefreshTask{Domain: domain, Qtype: question.Qtype}
 			s.refreshQueue.Submit(task)
 		} else {
-			// 如果缓存未过期但我们走到了这里（说明没有命中有序缓存），
-			// 尝试启动异步排序以"升级"为有序缓存
-			// sortIPsAsync 内部会自动去重，不会重复启动任务
 			go s.sortIPsAsync(domain, question.Qtype, raw.IPs, raw.UpstreamTTL, raw.AcquisitionTime)
 		}
 		return
@@ -307,12 +325,9 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 阶段一：首次查询（无缓存）==========
 	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
 
-	// 查询上游 DNS
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
 
-	// 优化：仅查询客户端请求的类型，而不是 QueryAll
-	// 这样可以减少上游压力，并且按需获取
 	result, err := currentUpstream.Query(ctx, domain, question.Qtype)
 
 	var ips []string
@@ -321,30 +336,20 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	if err != nil {
 		log.Printf("[handleQuery] 上游查询失败: %v\n", err)
-
 		originalRcode := parseRcodeFromError(err)
-
-		// Only increment failure if it's NOT NXDOMAIN
 		if originalRcode != dns.RcodeNameError {
 			currentStats.IncUpstreamFailures()
 		}
 
-		// ✅ 关键修改：区分对待不同错误类型
 		if originalRcode == dns.RcodeNameError {
-			// NXDOMAIN：域名确实不存在，可以缓存并返回错误
 			s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
 			log.Printf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s\n", domain)
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(msg)
 		} else {
-			// SERVFAIL/超时：临时错误，不缓存
-			// ✅ 返回 NOERROR 但无 Answer（空响应），防止 Windows 缓存
 			log.Printf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d\n", domain, originalRcode)
-
-			// 返回成功但无数据，让客户端快速重试
-			// 这样 Windows 不会缓存错误响应
 			msg.SetRcode(r, dns.RcodeSuccess)
-			msg.Answer = nil // 确保没有 Answer
+			msg.Answer = nil
 			w.WriteMsg(msg)
 		}
 		return
@@ -356,21 +361,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		upstreamTTL = result.TTL
 	}
 
-	// 如果有 IP（可能同时有 CNAME）
 	if len(ips) > 0 {
-		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
+		currentStats.RecordDomainQuery(domain)
 		log.Printf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
 			domain, dns.TypeToString[question.Qtype], len(ips), cname, upstreamTTL, ips)
 
-		// 缓存原始结果并启动排序
-		// 注意：现在 ips 只包含请求类型的 IP，无需再分离 IPv4/IPv6
 		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
 		go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
 
-		// 使用 fast_response_ttl 快速返回给用户
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-
-		// 如果有 CNAME，同时返回 CNAME 记录和 A/AAAA 记录
 		if cname != "" {
 			log.Printf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs\n", domain, cname)
 			s.buildDNSResponseWithCNAME(msg, domain, cname, ips, question.Qtype, fastTTL)
@@ -381,11 +380,9 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// 如果没有 IP 但有 CNAME，进行递归解析
 	if cname != "" {
 		log.Printf("[handleQuery] 上游查询返回 CNAME，开始递归解析: %s -> %s\n", domain, cname)
 
-		// 递归解析 CNAME
 		finalResult, err := s.resolveCNAME(ctx, cname, question.Qtype)
 		if err != nil {
 			log.Printf("[handleQuery] CNAME 递归解析失败: %v\n", err)
@@ -394,31 +391,20 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
-		// 我们现在有了最终的 IP，需要将它们和原始的 CNAME 链一起返回
-		// 缓存原始查询的原始响应（CNAME）
-		s.cache.SetRaw(domain, question.Qtype, nil, cname, upstreamTTL)
+		s.cache.SetRaw(domain, qtype, nil, cname, upstreamTTL)
 
-		// 缓存 CNAME 目标的解析结果（IPs）
-		// 注意：这里我们使用 cname 作为 key
 		cnameTargetDomain := strings.TrimRight(dns.Fqdn(cname), ".")
 		s.cache.SetRaw(cnameTargetDomain, question.Qtype, finalResult.IPs, "", finalResult.TTL)
 
-		// 使用 fast_response_ttl 快速返回给用户
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-
-		// 构造包含 CNAME 和最终 IP 的响应
-		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
+		currentStats.RecordDomainQuery(domain)
 		s.buildDNSResponseWithCNAME(msg, domain, cname, finalResult.IPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
-		// 异步为 CNAME 目标启动排序 (注意：不是原始域名)
 		go s.sortIPsAsync(cnameTargetDomain, question.Qtype, finalResult.IPs, finalResult.TTL, time.Now())
 		return
 	}
 
-	// 如果既没有 IP 也没有 CNAME，或者之前的逻辑已经处理了返回
-	// 这里实际上 result != nil 且 len(ips) == 0 且 cname == "" 的情况应该在 upstream 报错了
-	// 但为了安全起见，如果走到这里，我们记录日志并返回空响应
 	log.Printf("[handleQuery] 上游查询返回空结果 (NODATA): %s\n", domain)
 	msg.SetRcode(r, dns.RcodeSuccess)
 	msg.Answer = nil
@@ -798,10 +784,7 @@ func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname st
 func (s *Server) cleanCacheRoutine() {
 	// 使用固定的60秒清理间隔
 	// 注意：这个间隔与 min_ttl_seconds 是独立的概念
-	// min_ttl_seconds 用于限制返回给用户的 TTL，而这里决定多久清理一次过期缓存
-	const cleanInterval = 60 * time.Second
-
-	ticker := time.NewTicker(cleanInterval)
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -965,4 +948,18 @@ func (s *Server) Shutdown() {
 	s.prefetcher.Stop()
 	s.refreshQueue.Stop()
 	log.Printf("[Server] 服务器已关闭\n")
+}
+
+// GetAdBlockManager returns the adblock manager instance.
+func (s *Server) GetAdBlockManager() *adblock.AdBlockManager {
+	return s.adblockManager
+}
+
+// SetAdBlockEnabled dynamically enables or disables AdBlock filtering
+func (s *Server) SetAdBlockEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.cfg.AdBlock.Enable = enabled
+	log.Printf("[AdBlock] Filtering status changed to: %v", enabled)
 }

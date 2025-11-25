@@ -98,10 +98,19 @@ webui:
 
 # 广告拦截配置
 adblock:
-  # 是否启用广告拦截功能，默认 false
-  enabled: false
-  # 广告拦截规则文件路径
-  rule_file: "rules.txt"
+  enable: true
+  engine: urlfilter
+  rule_urls:
+    - https://easylist.to/easylist/easylist.txt
+    - https://easylist-downloads.adblockplus.org/easylistchina.txt
+    - https://anti-ad.net/easylist.txt
+  custom_rules_file: ./custom_rules.txt
+  cache_dir: ./adblock_cache
+  update_interval_hours: 24
+  max_cache_age_hours: 168
+  max_cache_size_mb: 300
+  block_mode: nxdomain
+  blocked_ttl: 3600
 
 # 系统资源配置
 system:
@@ -177,8 +186,19 @@ type WebUIConfig struct {
 }
 
 type AdBlockConfig struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
-	RuleFile string `yaml:"rule_file" json:"rule_file"`
+	Enable              bool     `yaml:"enable" json:"enable"`
+	Engine              string   `yaml:"engine" json:"engine"`
+	RuleURLs            []string `yaml:"rule_urls" json:"rule_urls"`
+	CustomRulesFile     string   `yaml:"custom_rules_file" json:"custom_rules_file"`
+	CacheDir            string   `yaml:"cache_dir" json:"cache_dir"`
+	UpdateIntervalHours int      `yaml:"update_interval_hours" json:"update_interval_hours"`
+	MaxCacheAgeHours    int      `yaml:"max_cache_age_hours" json:"max_cache_age_hours"`
+	MaxCacheSizeMB      int      `yaml:"max_cache_size_mb" json:"max_cache_size_mb"`
+	BlockMode           string   `yaml:"block_mode" json:"block_mode"`
+	BlockedResponseIP   string   `yaml:"blocked_response_ip" json:"blocked_response_ip"`
+	BlockedTTL          int      `yaml:"blocked_ttl" json:"blocked_ttl"`
+	LastUpdate          int64    `yaml:"last_update" json:"last_update"`
+	FailedSources       []string `yaml:"failed_sources" json:"failed_sources"`
 }
 
 type SystemConfig struct {
@@ -363,6 +383,32 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
 		cfg.Prefetch.RefreshBeforeExpireSeconds = 10
+	}
+
+	// AdBlock defaults
+	if cfg.AdBlock.Engine == "" {
+		cfg.AdBlock.Engine = "urlfilter"
+	}
+	if cfg.AdBlock.CustomRulesFile == "" {
+		cfg.AdBlock.CustomRulesFile = "./custom_rules.txt"
+	}
+	if cfg.AdBlock.CacheDir == "" {
+		cfg.AdBlock.CacheDir = "./adblock_cache"
+	}
+	if cfg.AdBlock.UpdateIntervalHours == 0 {
+		cfg.AdBlock.UpdateIntervalHours = 24
+	}
+	if cfg.AdBlock.MaxCacheAgeHours == 0 {
+		cfg.AdBlock.MaxCacheAgeHours = 168
+	}
+	if cfg.AdBlock.MaxCacheSizeMB == 0 {
+		cfg.AdBlock.MaxCacheSizeMB = 300
+	}
+	if cfg.AdBlock.BlockMode == "" {
+		cfg.AdBlock.BlockMode = "nxdomain"
+	}
+	if cfg.AdBlock.BlockedTTL == 0 {
+		cfg.AdBlock.BlockedTTL = 3600
 	}
 
 	// System defaults

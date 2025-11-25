@@ -1,50 +1,86 @@
 package dnsserver
 
 import (
-	"strconv"
+	"fmt"
+	"net"
 	"strings"
 
 	"github.com/miekg/dns"
 )
 
-// parseRcodeFromError attempts to extract the DNS Rcode from an error message.
-// It looks for the pattern "rcode=N".
-// If not found, it returns dns.RcodeServerFailure.
+func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg) {
+	msg := new(dns.Msg)
+	msg.SetRcode(r, dns.RcodeNameError)
+	w.WriteMsg(msg)
+}
+
+func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blockedTTL int) {
+	msg := new(dns.Msg)
+	msg.SetReply(r)
+
+	ip := net.ParseIP(blockedIP)
+	if ip == nil {
+		ip = net.ParseIP("0.0.0.0") // Default to 0.0.0.0
+	}
+
+	qtype := r.Question[0].Qtype
+	domain := r.Question[0].Name
+
+	if qtype == dns.TypeA && ip.To4() != nil {
+		msg.Answer = append(msg.Answer, &dns.A{
+			Hdr: dns.RR_Header{
+				Name:   domain,
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(blockedTTL),
+			},
+			A: ip,
+		})
+	} else if qtype == dns.TypeAAAA && ip.To4() == nil {
+		msg.Answer = append(msg.Answer, &dns.AAAA{
+			Hdr: dns.RR_Header{
+				Name:   domain,
+				Rrtype: dns.TypeAAAA,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(blockedTTL),
+			},
+			AAAA: ip,
+		})
+	}
+
+	w.WriteMsg(msg)
+}
+
+func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg) {
+	msg := new(dns.Msg)
+	msg.SetRcode(r, dns.RcodeRefused)
+	w.WriteMsg(msg)
+}
+
+// parseRcodeFromError extracts the DNS response code from an upstream query error.
+// It parses error messages in the format "dns query failed: rcode=X" returned by the upstream package.
+// Returns dns.RcodeNameError for NXDOMAIN errors, dns.RcodeServerFailure for other failures.
 func parseRcodeFromError(err error) int {
 	if err == nil {
 		return dns.RcodeSuccess
 	}
 
-	errStr := err.Error()
-	if strings.Contains(errStr, "rcode=") {
-		parts := strings.Split(errStr, "rcode=")
-		if len(parts) > 1 {
-			// Try to parse the number immediately following "rcode="
-			// We might need to trim non-numeric characters if the error message continues
-			// But for now, Atoi might fail if there's trailing text, so let's be careful.
-			// The original code just did Atoi(parts[1]), assuming parts[1] is just the number or starts with it?
-			// strconv.Atoi("3") -> 3
-			// strconv.Atoi("3 some other text") -> error
-			// The original code:
-			// rcodeInt, convErr := strconv.Atoi(parts[1])
-			// So it assumes parts[1] is EXACTLY the number.
-			// Let's stick to the original logic for now to be safe, or improve it.
-			// Ideally we should extract the first sequence of digits.
+	errMsg := err.Error()
 
-			// Let's just replicate the original logic exactly to avoid regression,
-			// but maybe clean up whitespace.
-			token := strings.TrimSpace(parts[1])
-			// If there are other words, we might need to split by space
-			tokenParts := strings.Fields(token)
-			if len(tokenParts) > 0 {
-				token = tokenParts[0]
-			}
-
-			rcodeInt, convErr := strconv.Atoi(token)
-			if convErr == nil {
-				return rcodeInt
-			}
+	// Parse error message format: "dns query failed: rcode=X"
+	if strings.Contains(errMsg, "rcode=") {
+		var rcode int
+		_, scanErr := fmt.Sscanf(errMsg, "dns query failed: rcode=%d", &rcode)
+		if scanErr == nil {
+			return rcode
 		}
 	}
+
+	// Fallback: check for common error patterns
+	if strings.Contains(errMsg, "NXDOMAIN") || strings.Contains(errMsg, "no such host") {
+		return dns.RcodeNameError
+	}
+
+	// Default to server failure for other errors (timeouts, network errors, etc.)
 	return dns.RcodeServerFailure
 }

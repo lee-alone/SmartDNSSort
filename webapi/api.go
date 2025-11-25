@@ -87,6 +87,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/restart", s.handleRestart)
 	mux.HandleFunc("/health", s.handleHealth)
 
+	// AdBlock API routes
+	mux.HandleFunc("/api/adblock/status", s.handleAdBlockStatus)
+	mux.HandleFunc("/api/adblock/sources", s.handleAdBlockSources) // GET for list, POST for add, DELETE for remove
+	mux.HandleFunc("/api/adblock/update", s.handleAdBlockUpdate)
+	mux.HandleFunc("/api/adblock/toggle", s.handleAdBlockToggle)
+	mux.HandleFunc("/api/adblock/test", s.handleAdBlockTest)
+
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
 		log.Println("Using embedded web files")
@@ -485,4 +492,240 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Println("No restart function configured. Please restart manually.")
 	}
+}
+
+// handleAdBlockStatus handles requests for adblock status.
+func (s *Server) handleAdBlockStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adblockMgr := s.dnsServer.GetAdBlockManager()
+	if adblockMgr == nil {
+		s.writeJSONSuccess(w, "AdBlock is disabled", map[string]interface{}{
+			"enabled": false,
+		})
+		return
+	}
+
+	stats := adblockMgr.GetStats()
+	s.writeJSONSuccess(w, "AdBlock status retrieved successfully", stats)
+}
+
+// handleAdBlockSources handles requests for adblock sources.
+func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
+	adblockMgr := s.dnsServer.GetAdBlockManager()
+	if adblockMgr == nil {
+		s.writeJSONError(w, "AdBlock is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		sources := adblockMgr.GetSources()
+		s.writeJSONSuccess(w, "AdBlock sources retrieved successfully", sources)
+	case http.MethodPost: // Corresponds to /api/adblock/sources/add
+		var payload struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if payload.URL == "" {
+			s.writeJSONError(w, "URL cannot be empty", http.StatusBadRequest)
+			return
+		}
+		// Add to AdBlock manager
+		if err := adblockMgr.AddSource(payload.URL); err != nil {
+			s.writeJSONError(w, "Failed to add source: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Also add to config.yaml
+		if err := s.addSourceToConfig(payload.URL); err != nil {
+			log.Printf("[AdBlock] Warning: Failed to add source to config: %v", err)
+		}
+
+		s.writeJSONSuccess(w, "AdBlock source added successfully", nil)
+
+	case http.MethodDelete: // Corresponds to /api/adblock/sources/remove
+		var payload struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if payload.URL == "" {
+			s.writeJSONError(w, "URL cannot be empty", http.StatusBadRequest)
+			return
+		}
+		// Remove from AdBlock manager
+		if err := adblockMgr.RemoveSource(payload.URL); err != nil {
+			s.writeJSONError(w, "Failed to remove source: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Also remove from config.yaml
+		if err := s.removeSourceFromConfig(payload.URL); err != nil {
+			log.Printf("[AdBlock] Warning: Failed to remove source from config: %v", err)
+		}
+
+		s.writeJSONSuccess(w, "AdBlock source removed successfully", nil)
+
+	default:
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAdBlockUpdate handles requests to trigger a manual adblock rule update.
+func (s *Server) handleAdBlockUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adblockMgr := s.dnsServer.GetAdBlockManager()
+	if adblockMgr == nil {
+		s.writeJSONError(w, "AdBlock is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	go func() {
+		// Run in a goroutine to not block the API response
+		result, err := adblockMgr.UpdateRules(true) // force update
+		if err != nil {
+			log.Printf("[AdBlock] Manual update failed: %v", err)
+			return
+		}
+		log.Printf("[AdBlock] Manual update completed: %+v", result)
+	}()
+
+	s.writeJSONSuccess(w, "AdBlock rule update started", nil)
+}
+
+// handleAdBlockToggle handles toggling the adblock feature.
+func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Update in-memory config
+	s.dnsServer.SetAdBlockEnabled(payload.Enabled)
+
+	// Load current config from file
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update adblock enable field
+	cfg.AdBlock.Enable = payload.Enabled
+
+	// Save to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
+		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[AdBlock] Status toggled to: %v", payload.Enabled)
+	s.writeJSONSuccess(w, "AdBlock status updated successfully", nil)
+}
+
+// addSourceToConfig adds a rule source URL to config.yaml
+func (s *Server) addSourceToConfig(url string) error {
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		return err
+	}
+
+	// Check if already exists
+	for _, u := range cfg.AdBlock.RuleURLs {
+		if u == url {
+			return nil // Already exists
+		}
+	}
+
+	// Add to list
+	cfg.AdBlock.RuleURLs = append(cfg.AdBlock.RuleURLs, url)
+
+	// Save back to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(s.configPath, yamlData, 0644)
+}
+
+// removeSourceFromConfig removes a rule source URL from config.yaml
+func (s *Server) removeSourceFromConfig(url string) error {
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		return err
+	}
+
+	// Filter out the URL
+	var newURLs []string
+	for _, u := range cfg.AdBlock.RuleURLs {
+		if u != url {
+			newURLs = append(newURLs, u)
+		}
+	}
+	cfg.AdBlock.RuleURLs = newURLs
+
+	// Save back to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(s.configPath, yamlData, 0644)
+}
+
+// handleAdBlockTest handles testing a domain against the adblock filter.
+func (s *Server) handleAdBlockTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adblockMgr := s.dnsServer.GetAdBlockManager()
+	if adblockMgr == nil {
+		s.writeJSONError(w, "AdBlock is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var payload struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if payload.Domain == "" {
+		s.writeJSONError(w, "Domain cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	result := adblockMgr.TestDomain(payload.Domain)
+	s.writeJSONSuccess(w, "Domain test complete", result)
 }

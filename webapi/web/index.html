@@ -13,6 +13,7 @@
         <div class="tabs">
             <button class="tab-button active" onclick="showTab('dashboard')">Dashboard</button>
             <button class="tab-button" onclick="showTab('config')">Configuration</button>
+            <button class="tab-button" onclick="showTab('adblock')">AdBlock</button>
         </div>
 
         <div id="status" class="status">Connecting...</div>
@@ -331,6 +332,69 @@
             </div>
             <div class="save-button-container">
                 <button class="save-button" onclick="saveConfig()">Save & Apply</button>
+            </div>
+        </div>
+
+        <!-- AdBlock Tab -->
+        <div id="adblock" class="tab-content">
+            <div class="container">
+                <div class="card">
+                    <h2>AdBlock Status</h2>
+                     <div class="management-actions">
+                        <button id="adblockUpdateRulesButton" class="btn btn-primary">Update All Rules Now</button>
+                    </div>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <td class="label">Enable AdBlock</td>
+                                <td class="value">
+                                    <label class="switch">
+                                        <input type="checkbox" id="adblock_enable_toggle">
+                                        <span class="slider"></span>
+                                    </label>
+                                    <span id="adblock_status" style="margin-left: 10px;">N/A</span>
+                                </td>
+                            </tr>
+                            <tr><td class="label">Engine</td><td id="adblock_engine" class="value">N/A</td></tr>
+                            <tr><td class="label">Total Rules</td><td id="adblock_total_rules" class="value">0</td></tr>
+                            <tr><td class="label">Blocked Today</td><td id="adblock_blocked_today" class="value">0</td></tr>
+                            <tr><td class="label">Blocked Total</td><td id="adblock_blocked_total" class="value">0</td></tr>
+                            <tr><td class="label">Last Update</td><td id="adblock_last_update" class="value">N/A</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h2>Rule Sources</h2>
+                    <table id="adblock_sources_table">
+                        <thead>
+                            <tr>
+                                <th>URL</th>
+                                <th>Status</th>
+                                <th class="value">Rules</th>
+                                <th>Last Update</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows will be added dynamically -->
+                        </tbody>
+                    </table>
+                    <div class="card-footer">
+                        <h3>Add New Source</h3>
+                        <div class="form-group-inline">
+                            <input type="text" id="adblock_new_source_url" placeholder="https://example.com/rules.txt" class="form-control">
+                            <button id="adblockAddSourceButton" class="btn btn-success">Add</button>
+                        </div>
+                    </div>
+                </div>
+                 <div class="card">
+                    <h2>Test Domain</h2>
+                    <div class="form-group-inline">
+                        <input type="text" id="adblock_test_domain" placeholder="example.com" class="form-control">
+                        <button id="adblockTestDomainButton" class="btn btn-secondary">Test</button>
+                    </div>
+                    <div id="adblock_test_result" class="test-result"></div>
+                </div>
             </div>
         </div>
     </div>
