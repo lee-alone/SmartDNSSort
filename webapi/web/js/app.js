@@ -125,7 +125,10 @@ document.getElementById('clearStatsButton').addEventListener('click', () => {
         .catch(error => alert('An error occurred while trying to clear statistics.'));
 });
 
-document.getElementById('refreshButton').addEventListener('click', updateDashboard);
+document.getElementById('refreshButton').addEventListener('click', () => {
+    updateDashboard();
+    updateAdBlockTab();
+});
 
 document.getElementById('restartButton').addEventListener('click', () => {
     if (!confirm('Are you sure you want to restart the service? The connection will be temporarily interrupted.')) return;

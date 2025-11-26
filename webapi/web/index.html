@@ -14,6 +14,14 @@
             <button class="tab-button active" onclick="showTab('dashboard')">Dashboard</button>
             <button class="tab-button" onclick="showTab('config')">Configuration</button>
             <button class="tab-button" onclick="showTab('adblock')">AdBlock</button>
+
+            <div class="header-actions"
+                style="margin-left: auto; display: flex; align-items: center; gap: 10px; padding-right: 10px;">
+                <button id="clearCacheButton" class="btn btn-warning btn-sm">Clear DNS Cache</button>
+                <button id="clearStatsButton" class="btn btn-danger btn-sm">Clear All Stats</button>
+                <button id="refreshButton" class="btn btn-success btn-sm">Refresh</button>
+                <button id="restartButton" class="btn btn-secondary btn-sm">Restart Service</button>
+            </div>
         </div>
 
         <div id="status" class="status">Connecting...</div>
@@ -21,16 +29,6 @@
         <!-- Dashboard Tab -->
         <div id="dashboard" class="tab-content active">
             <div class="container">
-                <div class="card">
-                    <h2>Management</h2>
-                    <div class="management-actions">
-                        <button id="clearCacheButton" class="btn btn-warning">Clear DNS Cache</button>
-                        <button id="clearStatsButton" class="btn btn-danger">Clear All
-                            Stats</button>
-                        <button id="refreshButton" class="btn btn-success">Refresh</button>
-                        <button id="restartButton" class="btn btn-secondary">Restart Service</button>
-                    </div>
-                </div>
                 <div class="card">
                     <h2>General Stats</h2>
                     <table>
@@ -73,6 +71,46 @@
                             <tr>
                                 <td class="label">Goroutines</td>
                                 <td id="goroutines" class="value">0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h2>AdBlock Status</h2>
+                    <div class="management-actions">
+                        <button id="adblockUpdateRulesButton" class="btn btn-primary">Update All Rules Now</button>
+                    </div>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <td class="label">Enable AdBlock</td>
+                                <td class="value">
+                                    <label class="switch">
+                                        <input type="checkbox" id="adblock_enable_toggle">
+                                        <span class="slider"></span>
+                                    </label>
+                                    <span id="adblock_status" style="margin-left: 10px;">N/A</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label">Engine</td>
+                                <td id="adblock_engine" class="value">N/A</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Total Rules</td>
+                                <td id="adblock_total_rules" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Blocked Today</td>
+                                <td id="adblock_blocked_today" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Blocked Total</td>
+                                <td id="adblock_blocked_total" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Last Update</td>
+                                <td id="adblock_last_update" class="value">N/A</td>
                             </tr>
                         </tbody>
                     </table>
@@ -346,47 +384,7 @@
         <!-- AdBlock Tab -->
         <div id="adblock" class="tab-content">
             <div class="container">
-                <div class="card">
-                    <h2>AdBlock Status</h2>
-                    <div class="management-actions">
-                        <button id="adblockUpdateRulesButton" class="btn btn-primary">Update All Rules Now</button>
-                    </div>
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="label">Enable AdBlock</td>
-                                <td class="value">
-                                    <label class="switch">
-                                        <input type="checkbox" id="adblock_enable_toggle">
-                                        <span class="slider"></span>
-                                    </label>
-                                    <span id="adblock_status" style="margin-left: 10px;">N/A</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="label">Engine</td>
-                                <td id="adblock_engine" class="value">N/A</td>
-                            </tr>
-                            <tr>
-                                <td class="label">Total Rules</td>
-                                <td id="adblock_total_rules" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label">Blocked Today</td>
-                                <td id="adblock_blocked_today" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label">Blocked Total</td>
-                                <td id="adblock_blocked_total" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label">Last Update</td>
-                                <td id="adblock_last_update" class="value">N/A</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="card card-span-2">
+                <div class="card card-full-width">
                     <h2>Rule Sources</h2>
                     <table id="adblock_sources_table">
                         <thead>

@@ -13,35 +13,32 @@ type URLFilterEngine struct {
 }
 
 func NewURLFilterEngine() (*URLFilterEngine, error) {
-	return &URLFilterEngine{},
-		nil
+	return &URLFilterEngine{}, nil
 }
 
 func (e *URLFilterEngine) LoadRules(rules []string) error {
-	// Create a string rule list from the rules
 	rulesStr := strings.Join(rules, "\n")
 	ruleScanner := filterlist.NewRuleScanner(strings.NewReader(rulesStr), 1, false)
 
-	// Create a simple in-memory rule list
-	var rulesList []filterlist.RuleList
-	stringList := &filterlist.StringRuleList{}
-	stringList.ID = 1
-	stringList.RulesText = rulesStr
-	stringList.IgnoreCosmetic = false
+	config := &filterlist.StringConfig{
+		RulesText:      rulesStr,
+		ID:             1,
+		IgnoreCosmetic: false,
+	}
+	stringList := filterlist.NewString(config)
 
+	var rulesList []filterlist.Interface
 	rulesList = append(rulesList, stringList)
 
-	// Create rule storage
 	storage, err := filterlist.NewRuleStorage(rulesList)
 	if err != nil {
 		return err
 	}
 
-	// Create DNS engine
 	e.engine = urlfilter.NewDNSEngine(storage)
 	e.ruleCount = len(rules)
 
-	// Count from scanner for accuracy
+	// 你原来的精确计数逻辑，一字未动
 	actualCount := 0
 	for ruleScanner.Scan() {
 		actualCount++
@@ -58,17 +55,14 @@ func (e *URLFilterEngine) CheckHost(domain string) (bool, string) {
 		return false, ""
 	}
 
-	// Match against the hostname
 	result, matched := e.engine.Match(domain)
-
 	if !matched || result == nil {
 		return false, ""
 	}
 
-	// Check if it's a blocking rule (not a whitelist/exception)
 	if result.NetworkRule != nil {
-		ruleText := result.NetworkRule.RuleText
-		// If it's a whitelist rule (starts with @@), don't block
+		// 新版统一用 .Text() 方法获取原始规则文本
+		ruleText := result.NetworkRule.Text()
 		if strings.HasPrefix(ruleText, "@@") {
 			return false, ""
 		}
@@ -82,7 +76,6 @@ func (e *URLFilterEngine) Count() int {
 	if e.engine == nil {
 		return 0
 	}
-	// Use the stored count from RulesCount or our own counter
 	if e.engine.RulesCount > 0 {
 		return e.engine.RulesCount
 	}
