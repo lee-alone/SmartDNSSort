@@ -58,18 +58,20 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	// 初始化 AdBlock 管理器
-	if cfg.AdBlock.Enable {
-		log.Println("[AdBlock] Initializing AdBlock Manager...")
-		adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
-		if err != nil {
-			log.Printf("[AdBlock] Failed to initialize manager: %v", err)
-			// Decide if this is a fatal error. For now, we continue without adblocking.
-			cfg.AdBlock.Enable = false
+	log.Println("[AdBlock] Initializing AdBlock Manager...")
+	adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
+	if err != nil {
+		log.Printf("[AdBlock] Failed to initialize manager: %v", err)
+		// If initialization fails, we must ensure it's disabled in config
+		cfg.AdBlock.Enable = false
+	} else {
+		server.adblockManager = adblockMgr
+		// Start the adblock manager (downloads rules, etc.)
+		go server.adblockManager.Start(context.Background())
+		if cfg.AdBlock.Enable {
+			log.Println("[AdBlock] Manager initialized and started (Enabled).")
 		} else {
-			server.adblockManager = adblockMgr
-			// Start the adblock manager (downloads rules, etc.)
-			go server.adblockManager.Start(context.Background())
-			log.Println("[AdBlock] Manager initialized and started.")
+			log.Println("[AdBlock] Manager initialized and started (Disabled).")
 		}
 	}
 

@@ -93,6 +93,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/adblock/update", s.handleAdBlockUpdate)
 	mux.HandleFunc("/api/adblock/toggle", s.handleAdBlockToggle)
 	mux.HandleFunc("/api/adblock/test", s.handleAdBlockTest)
+	mux.HandleFunc("/api/adblock/blockmode", s.handleAdBlockBlockMode)
 
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
@@ -728,4 +729,57 @@ func (s *Server) handleAdBlockTest(w http.ResponseWriter, r *http.Request) {
 
 	result := adblockMgr.TestDomain(payload.Domain)
 	s.writeJSONSuccess(w, "Domain test complete", result)
+}
+
+// handleAdBlockBlockMode handles requests to change the adblock block mode.
+func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		BlockMode string `json:"block_mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate block mode
+	if payload.BlockMode != "nxdomain" && payload.BlockMode != "refused" && payload.BlockMode != "zero_ip" {
+		s.writeJSONError(w, "Invalid block mode. Must be 'nxdomain', 'refused', or 'zero_ip'", http.StatusBadRequest)
+		return
+	}
+
+	// Load current config from file
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update block mode
+	cfg.AdBlock.BlockMode = payload.BlockMode
+
+	// Save to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
+		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Apply the new config to the running server
+	if err := s.dnsServer.ApplyConfig(cfg); err != nil {
+		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[AdBlock] Block mode changed to: %s", payload.BlockMode)
+	s.writeJSONSuccess(w, "Block mode updated successfully", nil)
 }

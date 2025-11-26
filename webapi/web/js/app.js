@@ -338,6 +338,20 @@ function updateAdBlockTab() {
             document.getElementById('adblock_status').className = 'value status-error';
         });
 
+    // Load BlockMode from config
+    fetch('/api/config')
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load config'))
+        .then(config => {
+            const blockMode = config.adblock.block_mode || 'nxdomain';
+            const blockModeSelect = document.getElementById('adblock_block_mode');
+            if (blockModeSelect) {
+                blockModeSelect.value = blockMode;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading BlockMode:', error);
+        });
+
     // Fetch AdBlock sources
     fetch('/api/adblock/sources')
         .then(response => response.ok ? response.json() : Promise.reject('Failed to load AdBlock sources'))
@@ -494,6 +508,35 @@ document.getElementById('adblockTestDomainButton').addEventListener('click', () 
             resultDiv.textContent = 'An error occurred during the test.';
             resultDiv.className = 'test-result status-error';
             console.error('Test domain error:', error);
+        });
+});
+
+
+// AdBlock BlockMode Save Button Event Handler
+document.getElementById('adblockSaveBlockModeButton').addEventListener('click', () => {
+    const blockModeSelect = document.getElementById('adblock_block_mode');
+    const blockMode = blockModeSelect.value;
+
+    if (!blockMode) {
+        alert('Please select a block mode.');
+        return;
+    }
+
+    fetch('/api/adblock/blockmode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ block_mode: blockMode })
+    })
+        .then(response => {
+            if (response.ok) {
+                alert('Block mode saved successfully!');
+            } else {
+                response.text().then(text => alert('Failed to save block mode: ' + text));
+            }
+        })
+        .catch(error => {
+            alert('An error occurred: ' + error);
+            console.error('Save block mode error:', error);
         });
 });
 

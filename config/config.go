@@ -85,9 +85,9 @@ prefetch:
   # 是否启用预取功能
   enabled: true
   # 记录访问频率最高的 N 个域名
-  top_domains_limit: 1000
+  top_domains_limit: 100
   # 在缓存即将过期前指定的时间进行后台异步刷新
-  refresh_before_expire_seconds: 30
+  refresh_before_expire_seconds: 10
 
 # Web UI 管理界面配置
 webui:
@@ -102,9 +102,7 @@ adblock:
   engine: urlfilter
   rule_urls:
     - https://easylist.to/easylist/easylist.txt
-    - https://easylist-downloads.adblockplus.org/easylistchina.txt
-    - https://anti-ad.net/easylist.txt
-  custom_rules_file: ./custom_rules.txt
+  custom_rules_file: ./adblock_cache/custom_rules.txt
   cache_dir: ./adblock_cache
   update_interval_hours: 24
   max_cache_age_hours: 168

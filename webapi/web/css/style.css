@@ -220,6 +220,8 @@ legend {
 .form-group-inline {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .form-group-inline input[type="checkbox"] {
@@ -315,6 +317,7 @@ legend {
     flex: 0 0 calc(50% - 5px);
     width: calc(50% - 5px);
 }
+
 /* Small button variant */
 .btn-sm {
     padding: 0.25rem 0.5rem;
@@ -361,11 +364,11 @@ legend {
     border-radius: 50%;
 }
 
-input:checked + .slider {
+input:checked+.slider {
     background-color: #4CAF50;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
     transform: translateX(26px);
 }
 
@@ -373,7 +376,256 @@ input:checked + .slider:before {
     opacity: 0.8;
 }
 
-input:disabled + .slider {
+input:disabled+.slider {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Card grid span classes */
+.card-span-2 {
+    grid-column: span 2;
+}
+
+/* 修复单列时的span-2问题 */
+@media (max-width: 1100px) {
+    .card-span-2 {
+        grid-column: span 1;
+    }
+}
+
+.card-full-width {
+    grid-column: 1 / -1;
+}
+
+/* Table wrapper for horizontal scrolling */
+.table-wrapper {
+    overflow-x: auto;
+    margin: 0 -1.5rem;
+    padding: 0 1.5rem;
+}
+
+/* AdBlock Sources Table Container - 添加滚动支持 */
+.card:has(#adblock_sources_table) {
+    overflow-x: auto;
+    /* 允许横向滚动 */
+}
+
+/* AdBlock Sources Table Styles */
+#adblock_sources_table {
+    table-layout: fixed;
+    /* 改为fixed以便更好地控制列宽 */
+    width: 100%;
+    min-width: 900px;
+    /* 确保表格有足够宽度 */
+}
+
+#adblock_sources_table th,
+#adblock_sources_table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* URL列 - 占据更多空间 */
+#adblock_sources_table th:nth-child(1),
+#adblock_sources_table td:nth-child(1) {
+    width: 45%;
+    /* URL列占45% */
+    min-width: 300px;
+}
+
+/* Status列 */
+#adblock_sources_table th:nth-child(2),
+#adblock_sources_table td:nth-child(2) {
+    width: 15%;
+    min-width: 100px;
+}
+
+/* Rules列 */
+#adblock_sources_table th:nth-child(3),
+#adblock_sources_table td:nth-child(3) {
+    width: 12%;
+    min-width: 80px;
+}
+
+/* Last Update列 */
+#adblock_sources_table th:nth-child(4),
+#adblock_sources_table td:nth-child(4) {
+    width: 18%;
+    min-width: 130px;
+}
+
+/* Actions列 - 确保始终可见 */
+#adblock_sources_table th:nth-child(5),
+#adblock_sources_table td:nth-child(5) {
+    width: 10%;
+    min-width: 100px;
+    text-align: center;
+}
+
+/* URL单元格特殊处理 */
+#adblock_sources_table td.adblock-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+    /* 提示可以查看完整URL */
+}
+
+/* 鼠标悬停时显示完整URL */
+#adblock_sources_table td.adblock-url:hover {
+    overflow: visible;
+    white-space: normal;
+    word-break: break-all;
+    position: relative;
+    z-index: 10;
+    background-color: var(--card-bg-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Status indicators */
+.status-indicator {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.status-active {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-warning {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.status-success {
+    color: #28a745;
+}
+
+/* Test result styles */
+.test-result {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+}
+
+.test-result.status-error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.test-result.status-success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+/* Card footer styles */
+.card-footer {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.card-footer h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    color: #2c3e50;
+}
+
+/* Form control styles */
+.form-control {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 1rem;
+    box-sizing: border-box;
+    min-width: 0;
+    /* 防止flex item溢出 */
+}
+
+.form-group-inline .form-control {
+    margin-right: 0.5rem;
+}
+
+/* Memory bar styles */
+.memory-bar-container {
+    width: 100%;
+    background-color: var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    height: 24px;
+    margin-bottom: 0.5rem;
+}
+
+.memory-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745 0%, #ffc107 70%, #dc3545 100%);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+.memory-text {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .container {
+        grid-template-columns: 1fr;
+    }
+
+    .card-span-2,
+    .card-full-width {
+        grid-column: 1;
+    }
+
+    .config-container {
+        flex-direction: column;
+    }
+
+    .config-nav {
+        flex: 1;
+        margin-bottom: 1rem;
+    }
+
+    .config-nav ul {
+        position: static;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .management-actions .btn {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+
+    #adblock_sources_table td.adblock-url {
+        max-width: 150px;
+    }
+
+    .form-group-inline {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .form-group-inline .form-control {
+        margin-right: 0;
+        margin-bottom: 0.5rem;
+        width: 100%;
+    }
 }

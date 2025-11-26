@@ -53,9 +53,6 @@ func NewManager(cfg *config.AdBlockConfig) (*AdBlockManager, error) {
 }
 
 func (m *AdBlockManager) Start(ctx context.Context) {
-	if !m.cfg.Enable {
-		return
-	}
 
 	// Initial rule load
 	go func() {

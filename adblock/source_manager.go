@@ -58,6 +58,10 @@ func NewSourceManager(cfg *config.AdBlockConfig) (*SourceManager, error) {
 		sm.AddSource(url)
 	}
 	if cfg.CustomRulesFile != "" {
+		// Create custom rules file if it doesn't exist
+		if err := sm.ensureCustomRulesFile(cfg.CustomRulesFile); err != nil {
+			return nil, err
+		}
 		sm.AddSource(cfg.CustomRulesFile)
 	}
 
@@ -181,4 +185,48 @@ func (sm *SourceManager) GetStatuses() []SourceStatus {
 		})
 	}
 	return statuses
+}
+
+// ensureCustomRulesFile creates the custom rules file if it doesn't exist
+func (sm *SourceManager) ensureCustomRulesFile(filePath string) error {
+	// Check if file already exists
+	if _, err := os.Stat(filePath); err == nil {
+		return nil // File exists, nothing to do
+	} else if !os.IsNotExist(err) {
+		return err // Some other error occurred
+	}
+
+	// Ensure parent directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Create file with helpful comments
+	defaultContent := `# SmartDNSSort 自定义广告屏蔽规则文件
+# 
+# 在此文件中添加您自己的广告屏蔽规则
+# 每行一条规则，支持以下格式：
+#
+# 1. 域名匹配（推荐）：
+#    ||example.com^         - 屏蔽 example.com 及其所有子域名
+#    ||ads.example.com^     - 仅屏蔽 ads.example.com
+#
+# 2. 通配符匹配：
+#    *ads.*                 - 屏蔽包含 'ads.' 的所有域名
+#
+# 3. 正则表达式（高级）：
+#    /^ad[s]?\./            - 使用正则表达式匹配
+#
+# 以 # 开头的行为注释，将被忽略
+# 空行也会被忽略
+#
+# 示例规则（取消注释以启用）：
+# ||doubleclick.net^
+# ||googleadservices.com^
+# ||googlesyndication.com^
+# ||advertising.com^
+
+`
+	return os.WriteFile(filePath, []byte(defaultContent), 0644)
 }

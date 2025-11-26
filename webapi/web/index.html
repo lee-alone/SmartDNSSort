@@ -246,7 +246,8 @@
                             </div>
                             <div class="form-group">
                                 <label for="cache.error_cache_ttl_seconds">Error Cache TTL (s)</label>
-                                <input type="number" id="cache.error_cache_ttl_seconds" name="cache.error_cache_ttl_seconds">
+                                <input type="number" id="cache.error_cache_ttl_seconds"
+                                    name="cache.error_cache_ttl_seconds">
                                 <small>TTL for SERVFAIL/REFUSED responses.</small>
                             </div>
 
@@ -256,27 +257,34 @@
                             <div class="form-group">
                                 <label for="cache.max_memory_mb">Max Memory (MB)</label>
                                 <input type="number" id="cache.max_memory_mb" name="cache.max_memory_mb">
-                                <small>Max memory usage for the cache. Eviction is triggered beyond this limit. 0 for unlimited.</small>
+                                <small>Max memory usage for the cache. Eviction is triggered beyond this limit. 0 for
+                                    unlimited.</small>
                             </div>
                             <div class="form-group">
                                 <label for="cache.eviction_threshold">Eviction Threshold</label>
-                                <input type="number" id="cache.eviction_threshold" name="cache.eviction_threshold" step="0.01">
+                                <input type="number" id="cache.eviction_threshold" name="cache.eviction_threshold"
+                                    step="0.01">
                                 <small>Memory usage percentage (0.7-0.95) that triggers eviction.</small>
                             </div>
-                             <div class="form-group">
+                            <div class="form-group">
                                 <label for="cache.eviction_batch_percent">Eviction Batch Percent</label>
-                                <input type="number" id="cache.eviction_batch_percent" name="cache.eviction_batch_percent" step="0.01">
+                                <input type="number" id="cache.eviction_batch_percent"
+                                    name="cache.eviction_batch_percent" step="0.01">
                                 <small>Percentage of total cache to evict in a single batch (0.05-0.2).</small>
                             </div>
                             <div class="form-group form-group-inline">
-                                <input type="checkbox" id="cache.keep_expired_entries" name="cache.keep_expired_entries">
+                                <input type="checkbox" id="cache.keep_expired_entries"
+                                    name="cache.keep_expired_entries">
                                 <label for="cache.keep_expired_entries">Keep Expired Entries</label>
-                                <small>Keep expired entries in memory if space is available to speed up subsequent queries.</small>
+                                <small>Keep expired entries in memory if space is available to speed up subsequent
+                                    queries.</small>
                             </div>
                             <div class="form-group form-group-inline">
-                                <input type="checkbox" id="cache.protect_prefetch_domains" name="cache.protect_prefetch_domains">
+                                <input type="checkbox" id="cache.protect_prefetch_domains"
+                                    name="cache.protect_prefetch_domains">
                                 <label for="cache.protect_prefetch_domains">Protect Prefetched Domains</label>
-                                <small>Prevent domains in the prefetch list from being evicted during LRU cleanup.</small>
+                                <small>Prevent domains in the prefetch list from being evicted during LRU
+                                    cleanup.</small>
                             </div>
                         </fieldset>
 
@@ -340,7 +348,7 @@
             <div class="container">
                 <div class="card">
                     <h2>AdBlock Status</h2>
-                     <div class="management-actions">
+                    <div class="management-actions">
                         <button id="adblockUpdateRulesButton" class="btn btn-primary">Update All Rules Now</button>
                     </div>
                     <table>
@@ -355,15 +363,30 @@
                                     <span id="adblock_status" style="margin-left: 10px;">N/A</span>
                                 </td>
                             </tr>
-                            <tr><td class="label">Engine</td><td id="adblock_engine" class="value">N/A</td></tr>
-                            <tr><td class="label">Total Rules</td><td id="adblock_total_rules" class="value">0</td></tr>
-                            <tr><td class="label">Blocked Today</td><td id="adblock_blocked_today" class="value">0</td></tr>
-                            <tr><td class="label">Blocked Total</td><td id="adblock_blocked_total" class="value">0</td></tr>
-                            <tr><td class="label">Last Update</td><td id="adblock_last_update" class="value">N/A</td></tr>
+                            <tr>
+                                <td class="label">Engine</td>
+                                <td id="adblock_engine" class="value">N/A</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Total Rules</td>
+                                <td id="adblock_total_rules" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Blocked Today</td>
+                                <td id="adblock_blocked_today" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Blocked Total</td>
+                                <td id="adblock_blocked_total" class="value">0</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Last Update</td>
+                                <td id="adblock_last_update" class="value">N/A</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
-                <div class="card">
+                <div class="card card-span-2">
                     <h2>Rule Sources</h2>
                     <table id="adblock_sources_table">
                         <thead>
@@ -382,12 +405,27 @@
                     <div class="card-footer">
                         <h3>Add New Source</h3>
                         <div class="form-group-inline">
-                            <input type="text" id="adblock_new_source_url" placeholder="https://example.com/rules.txt" class="form-control">
+                            <input type="text" id="adblock_new_source_url" placeholder="https://example.com/rules.txt"
+                                class="form-control">
                             <button id="adblockAddSourceButton" class="btn btn-success">Add</button>
                         </div>
                     </div>
                 </div>
-                 <div class="card">
+                <div class="card">
+                    <h2>Block Mode</h2>
+                    <div class="form-group-inline">
+                        <select id="adblock_block_mode" class="form-control">
+                            <option value="nxdomain">NXDOMAIN</option>
+                            <option value="refused">REFUSED</option>
+                            <option value="zero_ip">Zero IP (0.0.0.0)</option>
+                        </select>
+                        <button id="adblockSaveBlockModeButton" class="btn btn-primary">Save</button>
+                    </div>
+                    <small style="display: block; margin-top: 0.5rem; color: #6c757d;">
+                        Select how blocked domains should be handled
+                    </small>
+                </div>
+                <div class="card">
                     <h2>Test Domain</h2>
                     <div class="form-group-inline">
                         <input type="text" id="adblock_test_domain" placeholder="example.com" class="form-control">
@@ -403,4 +441,3 @@
 </body>
 
 </html>
-
