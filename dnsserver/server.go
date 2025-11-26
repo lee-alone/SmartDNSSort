@@ -181,13 +181,13 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// AdBlock 过滤检查
 	if adblockMgr != nil && currentCfg.AdBlock.Enable {
-		if blocked, rule := adblockMgr.CheckHost(domain); blocked {
-			log.Printf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
+		// 1. 检查拦截缓存 (快速路径)
+		if entry, hit := s.cache.GetBlocked(domain); hit {
+			log.Printf("[AdBlock] Cache Hit (Blocked): %s (rule: %s)", domain, entry.Rule)
+			adblockMgr.RecordBlock(domain, entry.Rule)
 
-			// 记录统计
-			adblockMgr.RecordBlock(domain, rule)
-
-			// 根据配置返回响应
+			// 使用缓存中的 BlockType 或当前配置
+			// 这里我们使用当前配置以保持一致性，但缓存的存在意味着它被拦截了
 			switch currentCfg.AdBlock.BlockMode {
 			case "nxdomain":
 				buildNXDomainResponse(w, r)
@@ -199,6 +199,47 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 				buildNXDomainResponse(w, r)
 			}
 			return
+		}
+
+		// 2. 检查白名单缓存 (快速路径)
+		// 如果在白名单缓存中，直接跳过 AdBlock 检查
+		if s.cache.GetAllowed(domain) {
+			// log.Printf("[AdBlock] Cache Hit (Allowed): %s", domain)
+			// 继续执行后续 DNS 逻辑
+		} else {
+			// 3. 执行完整的规则匹配
+			if blocked, rule := adblockMgr.CheckHost(domain); blocked {
+				log.Printf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
+
+				// 记录统计
+				adblockMgr.RecordBlock(domain, rule)
+
+				// 写入拦截缓存
+				s.cache.SetBlocked(domain, &cache.BlockedCacheEntry{
+					BlockType: currentCfg.AdBlock.BlockMode,
+					Rule:      rule,
+					ExpiredAt: time.Now().Add(time.Duration(currentCfg.AdBlock.BlockedTTL) * time.Second),
+				})
+
+				// 根据配置返回响应
+				switch currentCfg.AdBlock.BlockMode {
+				case "nxdomain":
+					buildNXDomainResponse(w, r)
+				case "zero_ip":
+					buildZeroIPResponse(w, r, currentCfg.AdBlock.BlockedResponseIP, currentCfg.AdBlock.BlockedTTL)
+				case "refuse":
+					buildRefuseResponse(w, r)
+				default:
+					buildNXDomainResponse(w, r)
+				}
+				return
+			} else {
+				// 写入白名单缓存
+				// 缓存 10 分钟 (600秒)，避免频繁检查热门白名单域名
+				s.cache.SetAllowed(domain, &cache.AllowedCacheEntry{
+					ExpiredAt: time.Now().Add(600 * time.Second),
+				})
+			}
 		}
 	}
 

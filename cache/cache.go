@@ -415,9 +415,9 @@ func (c *Cache) deleteByKey(key string) {
 	delete(c.sortedCache, key)
 	delete(c.sortingState, key)
 	delete(c.errorCache, key)
-	delete(c.blockedCache, key)
-	// allowedCache key is domain only, so we need to extract domain
+	// allowedCache and blockedCache key is domain only, so we need to extract domain
 	domain := c.extractDomain(key)
+	delete(c.blockedCache, domain)
 	delete(c.allowedCache, domain)
 }
 

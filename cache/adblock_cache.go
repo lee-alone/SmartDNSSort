@@ -25,12 +25,11 @@ func (e *AllowedCacheEntry) IsExpired() bool {
 }
 
 // GetBlocked 获取拦截缓存
-func (c *Cache) GetBlocked(domain string, qtype uint16) (*BlockedCacheEntry, bool) {
+func (c *Cache) GetBlocked(domain string) (*BlockedCacheEntry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	key := cacheKey(domain, qtype)
-	entry, exists := c.blockedCache[key]
+	entry, exists := c.blockedCache[domain]
 	if !exists {
 		return nil, false
 	}
@@ -43,12 +42,11 @@ func (c *Cache) GetBlocked(domain string, qtype uint16) (*BlockedCacheEntry, boo
 }
 
 // SetBlocked 设置拦截缓存
-func (c *Cache) SetBlocked(domain string, qtype uint16, entry *BlockedCacheEntry) {
+func (c *Cache) SetBlocked(domain string, entry *BlockedCacheEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key := cacheKey(domain, qtype)
-	c.blockedCache[key] = entry
+	c.blockedCache[domain] = entry
 }
 
 // GetAllowed 获取白名单缓存
