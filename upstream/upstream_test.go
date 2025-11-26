@@ -126,3 +126,50 @@ func TestParallelQueryFailover(t *testing.T) {
 	statsData := s.GetStats()
 	t.Logf("Stats: %+v", statsData)
 }
+
+func TestParallelQueryIPMerging(t *testing.T) {
+	// 测试并行查询的IP汇总功能
+	// 使用多个公共DNS服务器,它们可能返回不同的IP地址
+	servers := []string{
+		"8.8.8.8:53",         // Google DNS
+		"1.1.1.1:53",         // Cloudflare DNS
+		"223.5.5.5:53",       // 阿里 DNS
+		"114.114.114.114:53", // 114 DNS
+	}
+
+	cfg := &config.StatsConfig{
+		HotDomainsWindowHours:   24,
+		HotDomainsBucketMinutes: 60,
+		HotDomainsShardCount:    16,
+		HotDomainsMaxPerBucket:  5000,
+	}
+	s := stats.NewStats(cfg)
+	u := NewUpstream(servers, "parallel", 3000, 4, s)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 查询一个有多个IP的域名
+	result, err := u.Query(ctx, "www.baidu.com", dns.TypeA)
+	if err != nil {
+		t.Fatalf("Parallel query for IP merging failed: %v", err)
+	}
+
+	if len(result.IPs) == 0 {
+		t.Fatal("Expected IPs but got none")
+	}
+
+	t.Logf("IP Merging test returned %d unique IPs: %v", len(result.IPs), result.IPs)
+	t.Logf("TTL: %d seconds", result.TTL)
+
+	// 验证IP去重功能
+	ipSet := make(map[string]bool)
+	for _, ip := range result.IPs {
+		if ipSet[ip] {
+			t.Errorf("Found duplicate IP: %s", ip)
+		}
+		ipSet[ip] = true
+	}
+
+	t.Logf("All %d IPs are unique (no duplicates)", len(result.IPs))
+}

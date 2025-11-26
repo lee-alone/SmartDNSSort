@@ -71,19 +71,22 @@ func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) (*Que
 	return u.queryRandom(ctx, domain, qtype)
 }
 
-// queryParallel 并行查询多个上游 DNS 服务器，返回最快的成功响应
+// queryParallel 并行查询多个上游 DNS 服务器
+// 工作机制:
+// 1. 同时向所有上游发出请求
+// 2. 等待所有服务器响应完成
+// 3. 汇总去重所有IP地址,形成完整的IP池
+// 4. 返回的IP池将用于后续的延迟测试和缓存
 func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
 
-	log.Printf("[queryParallel] 并行查询 %d 个服务器，查询 %s (type=%s)，并发数=%d\n",
+	log.Printf("[queryParallel] 并行查询 %d 个服务器,查询 %s (type=%s),并发数=%d\n",
 		len(u.servers), domain, dns.TypeToString[qtype], u.concurrency)
 
 	// 创建结果通道
 	resultChan := make(chan *QueryResult, len(u.servers))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// 使用 semaphore 控制并发数
 	sem := make(chan struct{}, u.concurrency)
@@ -99,7 +102,7 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// 如果已经取消，直接返回
+			// 检查上下文是否已取消
 			select {
 			case <-ctx.Done():
 				return
@@ -108,7 +111,7 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 
 			result := u.querySingleServer(ctx, srv, domain, qtype)
 
-			// 只发送结果，不管成功还是失败
+			// 发送结果到通道
 			select {
 			case resultChan <- result:
 			case <-ctx.Done():
@@ -122,8 +125,10 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 		close(resultChan)
 	}()
 
-	// 收集结果
+	// 收集所有结果
+	var firstSuccessResult *QueryResult
 	var firstError error
+	allSuccessResults := make([]*QueryResult, 0, len(u.servers))
 	successCount := 0
 	failureCount := 0
 
@@ -143,26 +148,70 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 			continue
 		}
 
-		// 找到第一个成功的响应
+		// 记录成功的响应
 		successCount++
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(result.Server)
 		}
-		log.Printf("[queryParallel] 服务器 %s 查询成功（第%d个成功），返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+		log.Printf("[queryParallel] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
 			result.Server, successCount, len(result.IPs), result.CNAME, result.TTL, result.IPs)
 
-		// 取消其他正在进行的查询
-		cancel()
+		// 保存第一个成功的结果(用于快速响应用户)
+		if firstSuccessResult == nil {
+			firstSuccessResult = result
+		}
 
-		return &QueryResultWithTTL{IPs: result.IPs, CNAME: result.CNAME, TTL: result.TTL}, nil
+		// 收集所有成功的结果(用于IP汇总)
+		allSuccessResults = append(allSuccessResults, result)
 	}
 
-	// 所有服务器都失败了
-	log.Printf("[queryParallel] 所有 %d 个服务器查询均失败\n", failureCount)
-	if firstError != nil {
-		return nil, firstError
+	// 如果没有任何成功的响应,返回错误
+	if firstSuccessResult == nil {
+		log.Printf("[queryParallel] 所有 %d 个服务器查询均失败\n", failureCount)
+		if firstError != nil {
+			return nil, firstError
+		}
+		return nil, fmt.Errorf("all upstream servers failed")
 	}
-	return nil, fmt.Errorf("all upstream servers failed")
+
+	// 汇总所有IP地址并去重
+	mergedIPs := u.mergeAndDeduplicateIPs(allSuccessResults)
+
+	// 选择最小的TTL(最保守的策略)
+	minTTL := firstSuccessResult.TTL
+	for _, result := range allSuccessResults {
+		if result.TTL < minTTL {
+			minTTL = result.TTL
+		}
+	}
+
+	log.Printf("[queryParallel] 汇总完成: 从 %d 个服务器收集到 %d 个唯一IP (原始第一响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒\n",
+		successCount, len(mergedIPs), len(firstSuccessResult.IPs), len(mergedIPs), firstSuccessResult.CNAME, minTTL)
+	log.Printf("[queryParallel] 完整IP池: %v\n", mergedIPs)
+
+	// 返回汇总后的完整IP池
+	return &QueryResultWithTTL{
+		IPs:   mergedIPs,
+		CNAME: firstSuccessResult.CNAME,
+		TTL:   minTTL,
+	}, nil
+}
+
+// mergeAndDeduplicateIPs 汇总并去重多个查询结果中的IP地址
+func (u *Upstream) mergeAndDeduplicateIPs(results []*QueryResult) []string {
+	ipSet := make(map[string]bool)
+	var mergedIPs []string
+
+	for _, result := range results {
+		for _, ip := range result.IPs {
+			if !ipSet[ip] {
+				ipSet[ip] = true
+				mergedIPs = append(mergedIPs, ip)
+			}
+		}
+	}
+
+	return mergedIPs
 }
 
 // queryRandom 随机选择一个上游 DNS 服务器进行查询
