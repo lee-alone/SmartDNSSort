@@ -421,6 +421,16 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.DNS.ListenPort <= 0 || cfg.DNS.ListenPort > 65535 {
 		return fmt.Errorf("invalid DNS listen port: %d", cfg.DNS.ListenPort)
 	}
+
+	// Sanitize Upstream Servers (remove quotes and spaces)
+	for i, server := range cfg.Upstream.Servers {
+		cfg.Upstream.Servers[i] = strings.Trim(server, "\"' ")
+	}
+	// Sanitize Bootstrap DNS
+	for i, server := range cfg.Upstream.BootstrapDNS {
+		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "\"' ")
+	}
+
 	if len(cfg.Upstream.Servers) == 0 {
 		return fmt.Errorf("at least one upstream server is required")
 	}
