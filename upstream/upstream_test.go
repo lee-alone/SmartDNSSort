@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"smartdnssort/upstream/bootstrap"
+
 	"github.com/miekg/dns"
 )
 
@@ -28,7 +30,13 @@ func TestParallelQuery(t *testing.T) {
 
 	// 测试 parallel 策略
 	t.Run("Parallel Strategy", func(t *testing.T) {
-		u := NewUpstream(servers, "parallel", 3000, 2, s)
+		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
+		var upstreams []Upstream
+		for _, srv := range servers {
+			u, _ := NewUpstream(srv, boot)
+			upstreams = append(upstreams, u)
+		}
+		u := NewManager(upstreams, "parallel", 3000, 2, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -48,7 +56,13 @@ func TestParallelQuery(t *testing.T) {
 
 	// 测试 random 策略
 	t.Run("Random Strategy", func(t *testing.T) {
-		u := NewUpstream(servers, "random", 3000, 2, s)
+		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
+		var upstreams []Upstream
+		for _, srv := range servers {
+			u, _ := NewUpstream(srv, boot)
+			upstreams = append(upstreams, u)
+		}
+		u := NewManager(upstreams, "random", 3000, 2, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -69,7 +83,13 @@ func TestParallelQuery(t *testing.T) {
 	// 测试并发控制
 	t.Run("Concurrency Control", func(t *testing.T) {
 		// 使用较小的并发数
-		u := NewUpstream(servers, "parallel", 3000, 1, s)
+		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
+		var upstreams []Upstream
+		for _, srv := range servers {
+			u, _ := NewUpstream(srv, boot)
+			upstreams = append(upstreams, u)
+		}
+		u := NewManager(upstreams, "parallel", 3000, 1, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -106,7 +126,14 @@ func TestParallelQueryFailover(t *testing.T) {
 		HotDomainsMaxPerBucket:  5000,
 	}
 	s := stats.NewStats(cfg)
-	u := NewUpstream(servers, "parallel", 1000, 3, s)
+
+	boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
+	var upstreams []Upstream
+	for _, srv := range servers {
+		u, _ := NewUpstream(srv, boot)
+		upstreams = append(upstreams, u)
+	}
+	u := NewManager(upstreams, "parallel", 1000, 3, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -144,7 +171,14 @@ func TestParallelQueryIPMerging(t *testing.T) {
 		HotDomainsMaxPerBucket:  5000,
 	}
 	s := stats.NewStats(cfg)
-	u := NewUpstream(servers, "parallel", 3000, 4, s)
+
+	boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
+	var upstreams []Upstream
+	for _, srv := range servers {
+		u, _ := NewUpstream(srv, boot)
+		upstreams = append(upstreams, u)
+	}
+	u := NewManager(upstreams, "parallel", 3000, 4, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -24,6 +24,12 @@ upstream:
   # 上游 DNS 服务器地址列表
   servers:
     - "192.168.1.25"
+  
+  # [新增] 引导 DNS
+  # 必须是纯 IP。用于解析 DoH/DoT URL 中的域名 (如 dns.google)
+  bootstrap_dns:
+    - "223.5.5.5:53"
+    - "8.8.8.8:53"
 
   # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器）
   strategy: "random"
@@ -139,10 +145,14 @@ type DNSConfig struct {
 }
 
 type UpstreamConfig struct {
-	Servers     []string `yaml:"servers" json:"servers"`
-	Strategy    string   `yaml:"strategy" json:"strategy"`
-	TimeoutMs   int      `yaml:"timeout_ms" json:"timeout_ms"`
-	Concurrency int      `yaml:"concurrency" json:"concurrency"` // 并行查询时的并发数
+	Servers []string `yaml:"servers" json:"servers"`
+	// [新增] 引导 DNS，用于解析 DoH/DoT 的域名
+	// 必须是纯 IP，如 "223.5.5.5:53"
+	BootstrapDNS []string `yaml:"bootstrap_dns" json:"bootstrap_dns"`
+
+	Strategy    string `yaml:"strategy" json:"strategy"`
+	TimeoutMs   int    `yaml:"timeout_ms" json:"timeout_ms"`
+	Concurrency int    `yaml:"concurrency" json:"concurrency"` // 并行查询时的并发数
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
 }

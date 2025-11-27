@@ -1,0 +1,162 @@
+# SmartDNSSort DoT/DoH 改造实施计划 (修订版)
+
+## 1. 核心架构设计
+
+### 1.1 接口定义
+**文件位置**: `upstream/interface.go`
+
+> **重要提示**: 原 `upstream/upstream.go` 中的 `type Upstream struct` 将重命名为 `type Manager struct`，负责调度策略（并行/随机），而新的 `Upstream` 接口负责具体的协议传输。
+
+```go
+package upstream
+
+import (
+    "context"
+    "github.com/miekg/dns"
+)
+
+// Upstream 定义了上游服务器的统一行为 (Transport Layer)
+type Upstream interface {
+    // Exchange 执行核心查询
+    // context 用于控制超时和取消
+    Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error)
+
+    // Address 返回服务器的显示地址 (用于日志和调试)
+    Address() string
+
+    // Protocol 返回协议类型 (udp/tcp/dot/doh)
+    Protocol() string
+}
+```
+
+### 1.2 配置结构调整
+**文件位置**: `config/config.go`
+
+需要在 `UpstreamConfig` 中新增 `BootstrapDNS` 字段。
+
+```go
+type UpstreamConfig struct {
+    // ... 原有字段
+    Servers     []string `yaml:"servers" json:"servers"`
+    
+    // [新增] 引导 DNS，用于解析 DoH/DoT 的域名
+    // 必须是纯 IP，如 "223.5.5.5:53"
+    BootstrapDNS []string `yaml:"bootstrap_dns" json:"bootstrap_dns"` 
+    
+    // ... 原有字段
+}
+```
+
+**YAML 示例 (`config.yaml`)**:
+```yaml
+upstream:
+  # [关键新增] 引导 DNS
+  # 必须是纯 IP。用于解析 DoH/DoT URL 中的域名 (如 dns.google)
+  bootstrap_dns:
+    - "223.5.5.5:53"
+    - "8.8.8.8:53"
+
+  # 上游服务器列表 (支持 URL Scheme)
+  servers:
+    - "udp://114.114.114.114:53"        # 传统 UDP
+    - "tcp://8.8.8.8:53"                # TCP
+    - "tls://dns.google:853"            # DoT (需要 Bootstrap 解析 dns.google)
+    - "https://1.1.1.1/dns-query"       # DoH (IP 直连模式)
+    - "https://doh.pub/dns-query"       # DoH (域名模式，需要 Bootstrap)
+```
+
+---
+
+## 2. 目录结构重构
+
+```text
+.
+├── config/
+│   └── config.go          # [修改] 添加 BootstrapDNS 字段
+├── upstream/
+│   ├── interface.go       # [新增] Upstream 接口定义
+│   ├── manager.go         # [重构] 原 upstream.go，重命名为 Manager，负责策略调度
+│   ├── factory.go         # [新增] 工厂模式 (NewUpstream)
+│   ├── bootstrap/         # [新增] 引导 DNS 解析器
+│   │   └── resolver.go
+│   └── transport/         # [新增] 具体协议实现
+│       ├── udp.go
+│       ├── tcp.go
+│       ├── dot.go
+│       └── doh.go
+└── dnsserver/
+    └── server.go          # [修改] 调用 Manager
+```
+
+---
+
+## 3. 详细实施步骤 (推荐执行顺序)
+
+### 步骤一：配置与接口准备
+1.  修改 `config/config.go`，添加 `BootstrapDNS`。
+2.  创建 `upstream/interface.go` 定义接口。
+
+### 步骤二：实现 Bootstrap 基础解析器
+**文件**: `upstream/bootstrap/resolver.go`
+这是实现 DoH/DoT 的前置条件。
+*   **功能**：一个极简的 UDP DNS 客户端，仅用于解析 DoH/DoT URL 中的域名。
+*   **逻辑**：简单轮询 `config.bootstrap_dns` 中的 IP。
+*   **缓存**：建议加一个简单的内存 Map 缓存 IP 结果 (TTL 10-60分钟)，减少对引导 DNS 的请求。
+
+### 步骤三：重构核心管理器 (Manager)
+**文件**: `upstream/manager.go` (原 `upstream.go`)
+*   **重命名**：将 `type Upstream struct` 重命名为 `type Manager struct`。
+*   **字段变更**：将内部字段 `servers []string` 改为 `servers []Upstream` (接口列表)。
+*   **策略逻辑保持不变**：
+    *   `queryParallel`: 遍历 `[]Upstream` 接口列表，并发调用 `Exchange`。
+    *   `queryRandom`: 随机选择一个 `Upstream` 接口调用 `Exchange`。
+*   **优势**：调度层不再关心底层是 UDP 还是 DoH，逻辑完全解耦。
+
+### 步骤四：实现 Transport (传输层)
+**文件**: `upstream/transport/*.go`
+
+1.  **UDP & TCP (`transport/udp.go`, `transport/tcp.go`)**:
+    *   将原 `upstream.go` 中的 `doExchange` 逻辑封装进来。
+    *   实现 `Upstream` 接口。
+
+2.  **DoH (`transport/doh.go`) - 重点**:
+    *   **连接复用**：在结构体内部维护一个全局单例的 `*http.Client`。**严禁**每次查询创建新 Client。
+    *   **自定义 Dial**：
+        *   不要让 `http.Client` 自己去解析域名（它会用系统 DNS，不可控）。
+        *   自定义 `Transport.DialContext`：先调用 **Bootstrap 解析器** 获取 IP，然后建立 TCP 连接。
+    *   **请求构造**：Method: `POST`, Header: `Content-Type: application/dns-message`, Body: DNS Wire format。
+
+3.  **DoT (`transport/dot.go`)**:
+    *   使用 `miekg/dns` 的 `Client`，设置 `Net: "tcp-tls"`。
+    *   **关键点**：配置 `tls.Config`。必须将 `ServerName` 设置为 URL 中的域名，否则握手会失败。
+
+### 步骤五：工厂模式与整合
+**文件**: `upstream/factory.go`
+*   实现 `NewUpstream(url string, boot *bootstrap.Resolver) (Upstream, error)`。
+*   根据 URL Scheme (`udp://`, `https://`, `tls://`) 返回对应的 Transport 实例。
+
+**文件**: `dnsserver/server.go`
+*   初始化 `bootstrap.Resolver`。
+*   使用 `upstream.NewManager` (原 `NewUpstream`)。
+*   在 `NewManager` 初始化时，遍历配置的 URL，调用 `factory.NewUpstream` 生成接口列表。
+
+---
+
+## 4. 避坑指南与策略说明
+
+1.  **策略兼容性说明**：
+    *   **并行策略 (Parallel)**：依然有效。UDP 通常响应更快，可能会在竞争中胜出。DoH/DoT 适合作为防劫持的保底或主力（如果 UDP 不通）。
+    *   **随机策略 (Random)**：依然有效。完全透明，抽到 DoH 就走 HTTPS，抽到 UDP 就走 UDP。
+
+2.  **死循环陷阱**：
+    *   DoH/DoT 实现中**绝对不能**调用主程序的解析逻辑，只能依赖 Bootstrap 解析器或系统 IP。
+
+3.  **SNI (Server Name Indication) 问题**：
+    *   在 DoH 中，如果你解析出 IP 是 `1.1.1.1`，直接向 `https://1.1.1.1/dns-query` 发请求可能会失败，或者证书验证不过。
+    *   **正确做法**：请求 URL 保持 `https://cloudflare-dns.com/dns-query`，但在底层的 TCP Dial 阶段连接到 `1.0.0.1:443`。这需要自定义 `http.Transport`。
+
+4.  **HTTP/2 性能**：
+    *   DoH 强烈建议开启 HTTP/2。Go 的 `net/http` 默认支持，但如果你自定义了 `Transport`，要确保没有不小心把 HTTP/2 支持给覆盖掉（通常需要显式调用 `http2.ConfigureTransport`）。
+
+5.  **Context 传递**：
+    *   务必确保超时设置从最外层传入。如果用户查询 2 秒超时，你的 DoH 请求如果在建立连接就花了 1.5 秒，剩下的读写时间就不应超过 0.5 秒。

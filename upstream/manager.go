@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"smartdnssort/stats"
 	"sync"
-	"time"
 
 	"github.com/miekg/dns"
 )
@@ -30,20 +28,17 @@ type QueryResultWithTTL struct {
 	TTL   uint32 // 上游 DNS 返回的 TTL
 }
 
-// Upstream 上游 DNS 查询模块
-type Upstream struct {
-	servers     []string
-	strategy    string // parallel, random
+// Manager 上游 DNS 查询管理器
+type Manager struct {
+	servers     []Upstream // 接口列表
+	strategy    string     // parallel, random
 	timeoutMs   int
 	concurrency int // 并行查询时的并发数
 	stats       *stats.Stats
 }
 
-// NewUpstream 创建上游 DNS 查询器
-func NewUpstream(servers []string, strategy string, timeoutMs int, concurrency int, s *stats.Stats) *Upstream {
-	if len(servers) == 0 {
-		servers = []string{"8.8.8.8:53", "1.1.1.1:53"}
-	}
+// NewManager 创建上游 DNS 管理器
+func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats) *Manager {
 	if strategy == "" {
 		strategy = "random"
 	}
@@ -54,7 +49,7 @@ func NewUpstream(servers []string, strategy string, timeoutMs int, concurrency i
 		concurrency = 3
 	}
 
-	return &Upstream{
+	return &Manager{
 		servers:     servers,
 		strategy:    strategy,
 		timeoutMs:   timeoutMs,
@@ -64,7 +59,7 @@ func NewUpstream(servers []string, strategy string, timeoutMs int, concurrency i
 }
 
 // Query 查询域名，返回 IP 列表和 TTL
-func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if u.strategy == "parallel" {
 		return u.queryParallel(ctx, domain, qtype)
 	}
@@ -72,12 +67,7 @@ func (u *Upstream) Query(ctx context.Context, domain string, qtype uint16) (*Que
 }
 
 // queryParallel 并行查询多个上游 DNS 服务器
-// 工作机制:
-// 1. 同时向所有上游发出请求
-// 2. 等待所有服务器响应完成
-// 3. 汇总去重所有IP地址,形成完整的IP池
-// 4. 返回的IP池将用于后续的延迟测试和缓存
-func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -95,7 +85,7 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 	// 并发查询所有服务器
 	for _, server := range u.servers {
 		wg.Add(1)
-		go func(srv string) {
+		go func(srv Upstream) {
 			defer wg.Done()
 
 			// 获取信号量
@@ -109,7 +99,33 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 			default:
 			}
 
-			result := u.querySingleServer(ctx, srv, domain, qtype)
+			// Execute query using interface
+			msg := new(dns.Msg)
+			msg.SetQuestion(dns.Fqdn(domain), qtype)
+
+			reply, err := srv.Exchange(ctx, msg)
+
+			var result *QueryResult
+			if err != nil {
+				result = &QueryResult{Error: err, Server: srv.Address()}
+			} else {
+				if reply.Rcode != dns.RcodeSuccess {
+					result = &QueryResult{
+						Error:  fmt.Errorf("dns query failed: rcode=%d", reply.Rcode),
+						Server: srv.Address(),
+						Rcode:  reply.Rcode,
+					}
+				} else {
+					ips, cname, ttl := extractIPs(reply)
+					result = &QueryResult{
+						IPs:    ips,
+						CNAME:  cname,
+						TTL:    ttl,
+						Server: srv.Address(),
+						Rcode:  reply.Rcode,
+					}
+				}
+			}
 
 			// 发送结果到通道
 			select {
@@ -198,7 +214,7 @@ func (u *Upstream) queryParallel(ctx context.Context, domain string, qtype uint1
 }
 
 // mergeAndDeduplicateIPs 汇总并去重多个查询结果中的IP地址
-func (u *Upstream) mergeAndDeduplicateIPs(results []*QueryResult) []string {
+func (u *Manager) mergeAndDeduplicateIPs(results []*QueryResult) []string {
 	ipSet := make(map[string]bool)
 	var mergedIPs []string
 
@@ -215,7 +231,7 @@ func (u *Upstream) mergeAndDeduplicateIPs(results []*QueryResult) []string {
 }
 
 // queryRandom 随机选择一个上游 DNS 服务器进行查询
-func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -223,72 +239,35 @@ func (u *Upstream) queryRandom(ctx context.Context, domain string, qtype uint16)
 	// 随机选择一个服务器
 	server := u.servers[rand.Intn(len(u.servers))]
 
-	log.Printf("[queryRandom] 随机选择服务器 %s 查询 %s (type=%s)\n", server, domain, dns.TypeToString[qtype])
+	log.Printf("[queryRandom] 随机选择服务器 %s 查询 %s (type=%s)\n", server.Address(), domain, dns.TypeToString[qtype])
 
-	result := u.querySingleServer(ctx, server, domain, qtype)
-	if result.Error != nil {
-		if u.stats != nil {
-			// 只有非 NXDOMAIN 的错误才计为上游失败
-			// NXDOMAIN 是正常的业务响应（域名不存在），不应计为服务器故障
-			if result.Rcode != dns.RcodeNameError {
-				u.stats.IncUpstreamFailure(server)
-			}
-		}
-		return nil, result.Error
-	}
-
-	if u.stats != nil {
-		u.stats.IncUpstreamSuccess(server)
-	}
-	log.Printf("[queryRandom] 查询成功，返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", len(result.IPs), result.CNAME, result.TTL, result.IPs)
-	return &QueryResultWithTTL{IPs: result.IPs, CNAME: result.CNAME, TTL: result.TTL}, nil
-}
-
-// querySingleServer 查询单个上游 DNS 服务器
-func (u *Upstream) querySingleServer(ctx context.Context, server, domain string, qtype uint16) *QueryResult {
-	// 构造 DNS 请求
 	msg := new(dns.Msg)
 	msg.SetQuestion(dns.Fqdn(domain), qtype)
 
-	log.Printf("[querySingleServer] 向 %s 查询 %s (type=%s)\n", server, domain, dns.TypeToString[qtype])
-
-	// 执行查询
-	reply, _, err := u.doExchange(ctx, server, msg)
+	reply, err := server.Exchange(ctx, msg)
 	if err != nil {
-		log.Printf("[querySingleServer] 查询 %s 失败: %v\n", server, err)
-		return &QueryResult{Error: err, Server: server}
-	}
-
-	if reply == nil || reply.Rcode != dns.RcodeSuccess {
-		rcode := dns.RcodeServerFailure
-		if reply != nil {
-			rcode = reply.Rcode
-			log.Printf("[querySingleServer] %s 返回错误代码: %d\n", server, reply.Rcode)
-		} else {
-			log.Printf("[querySingleServer] %s 返回空响应\n", server)
+		if u.stats != nil {
+			u.stats.IncUpstreamFailure(server.Address())
 		}
-		return &QueryResult{Error: fmt.Errorf("dns query failed: rcode=%d", rcode), Server: server, Rcode: rcode}
+		return nil, err
 	}
 
-	// 提取 IP 地址和 TTL
+	if reply.Rcode != dns.RcodeSuccess {
+		if reply.Rcode != dns.RcodeNameError {
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
+			}
+		}
+		return nil, fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+	}
+
+	if u.stats != nil {
+		u.stats.IncUpstreamSuccess(server.Address())
+	}
+
 	ips, cname, ttl := extractIPs(reply)
-	log.Printf("[querySingleServer] %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", server, len(ips), cname, ttl, ips)
-	return &QueryResult{IPs: ips, CNAME: cname, TTL: ttl, Server: server, Rcode: reply.Rcode}
-}
-
-// doExchange 执行底层的 DNS 交换
-func (u *Upstream) doExchange(ctx context.Context, server string, m *dns.Msg) (*dns.Msg, time.Duration, error) {
-	// 确保有端口
-	if _, _, err := net.SplitHostPort(server); err != nil {
-		server = net.JoinHostPort(server, "53")
-	}
-
-	client := &dns.Client{
-		Net:     "udp",
-		Timeout: time.Duration(u.timeoutMs) * time.Millisecond,
-	}
-
-	return client.ExchangeContext(ctx, m, server)
+	log.Printf("[queryRandom] 查询成功，返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", len(ips), cname, ttl, ips)
+	return &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}, nil
 }
 
 // extractIPs 从 DNS 响应中提取 IP 地址、CNAME 和最小 TTL

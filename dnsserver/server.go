@@ -13,6 +13,7 @@ import (
 	"smartdnssort/prefetch"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
+	"smartdnssort/upstream/bootstrap"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +27,7 @@ type Server struct {
 	cfg                *config.Config
 	stats              *stats.Stats
 	cache              *cache.Cache
-	upstream           *upstream.Upstream
+	upstream           *upstream.Manager
 	pinger             *ping.Pinger
 	sortQueue          *cache.SortQueue
 	prefetcher         *prefetch.Prefetcher
@@ -47,11 +48,25 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 创建异步刷新队列
 	refreshQueue := NewRefreshQueue(cfg.System.RefreshWorkers, 100)
 
+	// Initialize Bootstrap Resolver
+	boot := bootstrap.NewResolver(cfg.Upstream.BootstrapDNS)
+
+	// Initialize Upstream Interfaces
+	var upstreams []upstream.Upstream
+	for _, serverUrl := range cfg.Upstream.Servers {
+		u, err := upstream.NewUpstream(serverUrl, boot)
+		if err != nil {
+			log.Printf("Failed to create upstream for %s: %v", serverUrl, err)
+			continue
+		}
+		upstreams = append(upstreams, u)
+	}
+
 	server := &Server{
 		cfg:          cfg,
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
-		upstream:     upstream.NewUpstream(cfg.Upstream.Servers, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
+		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
@@ -900,10 +915,25 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	log.Println("Applying new configuration...")
 
 	// Create new components outside the lock to avoid blocking.
-	var newUpstream *upstream.Upstream
+	// Create new components outside the lock to avoid blocking.
+	var newUpstream *upstream.Manager
 	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
 		log.Println("Reloading Upstream client due to configuration changes.")
-		newUpstream = upstream.NewUpstream(newCfg.Upstream.Servers, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+
+		// Re-initialize bootstrap resolver
+		boot := bootstrap.NewResolver(newCfg.Upstream.BootstrapDNS)
+
+		var upstreams []upstream.Upstream
+		for _, serverUrl := range newCfg.Upstream.Servers {
+			u, err := upstream.NewUpstream(serverUrl, boot)
+			if err != nil {
+				log.Printf("Failed to create upstream for %s: %v", serverUrl, err)
+				continue
+			}
+			upstreams = append(upstreams, u)
+		}
+
+		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
 	}
 
 	var newPinger *ping.Pinger
