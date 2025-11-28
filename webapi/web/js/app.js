@@ -311,6 +311,47 @@ updateAdBlockTab();
 
 // --- AdBlock Tab Logic ---
 
+function loadAdBlockSettings() {
+    fetch('/api/adblock/settings')
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load AdBlock settings'))
+        .then(response => {
+            const settings = response.data;
+            document.getElementById('adblock_update_interval_hours').value = settings.update_interval_hours;
+            document.getElementById('adblock_max_cache_age_hours').value = settings.max_cache_age_hours;
+            document.getElementById('adblock_max_cache_size_mb').value = settings.max_cache_size_mb;
+            document.getElementById('adblock_blocked_ttl').value = settings.blocked_ttl;
+        })
+        .catch(error => console.error('Error fetching AdBlock settings:', error));
+}
+
+document.getElementById('adblockSettingsForm').addEventListener('submit', function (e) {
+    e.preventDefault(); // Prevent form from submitting the traditional way
+
+    const payload = {
+        update_interval_hours: parseInt(document.getElementById('adblock_update_interval_hours').value, 10),
+        max_cache_age_hours: parseInt(document.getElementById('adblock_max_cache_age_hours').value, 10),
+        max_cache_size_mb: parseInt(document.getElementById('adblock_max_cache_size_mb').value, 10),
+        blocked_ttl: parseInt(document.getElementById('adblock_blocked_ttl').value, 10),
+    };
+
+    fetch('/api/adblock/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (response.ok) {
+            alert('AdBlock settings saved successfully!');
+        } else {
+            response.json().then(data => alert('Failed to save settings: ' + data.message));
+        }
+    })
+    .catch(error => {
+        console.error('Error saving AdBlock settings:', error);
+        alert('An error occurred while saving AdBlock settings.');
+    });
+});
+
 function updateAdBlockTab() {
     // Fetch AdBlock status
     fetch('/api/adblock/status')
@@ -408,6 +449,8 @@ function updateAdBlockTab() {
             const sourcesTable = document.getElementById('adblock_sources_table').getElementsByTagName('tbody')[0];
             sourcesTable.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red;">Error loading sources.</td></tr>';
         });
+
+    loadAdBlockSettings();
 }
 
 // AdBlock Enable/Disable Toggle Event Handler

@@ -94,6 +94,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/adblock/toggle", s.handleAdBlockToggle)
 	mux.HandleFunc("/api/adblock/test", s.handleAdBlockTest)
 	mux.HandleFunc("/api/adblock/blockmode", s.handleAdBlockBlockMode)
+	mux.HandleFunc("/api/adblock/settings", s.handleAdBlockSettings)
 
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
@@ -424,11 +425,11 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 
 	// Sanitize Upstream Servers (remove quotes and spaces)
 	for i, server := range cfg.Upstream.Servers {
-		cfg.Upstream.Servers[i] = strings.Trim(server, "\"' ")
+		cfg.Upstream.Servers[i] = strings.Trim(server, "' " ) // Corrected: removed extra backslash before space
 	}
 	// Sanitize Bootstrap DNS
 	for i, server := range cfg.Upstream.BootstrapDNS {
-		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "\"' ")
+		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "' " ) // Corrected: removed extra backslash before space
 	}
 
 	if len(cfg.Upstream.Servers) == 0 {
@@ -845,4 +846,80 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("[AdBlock] Block mode changed to: %s", payload.BlockMode)
 	s.writeJSONSuccess(w, "Block mode updated successfully", nil)
+}
+
+// handleAdBlockSettings handles getting and setting adblock configuration.
+func (s *Server) handleAdBlockSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetAdBlockSettings(w, r)
+	case http.MethodPost:
+		s.handlePostAdBlockSettings(w, r)
+	default:
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleGetAdBlockSettings(w http.ResponseWriter, r *http.Request) {
+	currentConfig := s.dnsServer.GetConfig()
+	settings := map[string]interface{}{
+		"update_interval_hours": currentConfig.AdBlock.UpdateIntervalHours,
+		"max_cache_age_hours":   currentConfig.AdBlock.MaxCacheAgeHours,
+		"max_cache_size_mb":     currentConfig.AdBlock.MaxCacheSizeMB,
+		"blocked_ttl":           currentConfig.AdBlock.BlockedTTL,
+	}
+	s.writeJSONSuccess(w, "AdBlock settings retrieved successfully", settings)
+}
+
+func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		UpdateIntervalHours int `json:"update_interval_hours"`
+		MaxCacheAgeHours    int `json:"max_cache_age_hours"`
+		MaxCacheSizeMB      int `json:"max_cache_size_mb"`
+		BlockedTTL          int `json:"blocked_ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Basic validation
+	if payload.UpdateIntervalHours < 0 || payload.MaxCacheAgeHours < 0 || payload.MaxCacheSizeMB < 0 || payload.BlockedTTL < 0 {
+		s.writeJSONError(w, "Values cannot be negative", http.StatusBadRequest)
+		return
+	}
+
+	// Load current config from file
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update adblock settings
+	cfg.AdBlock.UpdateIntervalHours = payload.UpdateIntervalHours
+	cfg.AdBlock.MaxCacheAgeHours = payload.MaxCacheAgeHours
+	cfg.AdBlock.MaxCacheSizeMB = payload.MaxCacheSizeMB
+	cfg.AdBlock.BlockedTTL = payload.BlockedTTL
+
+	// Save to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
+		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Apply the new config to the running server
+	if err := s.dnsServer.ApplyConfig(cfg); err != nil {
+		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("[AdBlock] Settings updated via API")
+	s.writeJSONSuccess(w, "AdBlock settings updated successfully", nil)
 }

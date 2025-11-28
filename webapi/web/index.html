@@ -440,6 +440,34 @@
                     </div>
                     <div id="adblock_test_result" class="test-result"></div>
                 </div>
+                <div class="card">
+                    <h2>AdBlock Settings</h2>
+                    <form id="adblockSettingsForm">
+                        <div class="form-group">
+                            <label for="adblock_update_interval_hours">Update Interval (Hours)</label>
+                            <input type="number" id="adblock_update_interval_hours" name="update_interval_hours" class="form-control">
+                            <small>How often to automatically update rule lists. 0 to disable.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="adblock_max_cache_age_hours">Max Cache Age (Hours)</label>
+                            <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours" class="form-control">
+                            <small>Maximum age of cached rule files before forcing a re-download. 0 to disable.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="adblock_max_cache_size_mb">Max Cache Size (MB)</label>
+                            <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb" class="form-control">
+                            <small>Total size limit for all cached rule files.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="adblock_blocked_ttl">Blocked Response TTL (Seconds)</label>
+                            <input type="number" id="adblock_blocked_ttl" name="blocked_ttl" class="form-control">
+                            <small>TTL for the response to a blocked domain query.</small>
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" id="adblockSaveSettingsButton" class="btn btn-primary">Save Settings</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

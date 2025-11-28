@@ -216,12 +216,13 @@ func (p *Pinger) pingIP(ctx context.Context, ip string) *Result {
 	}
 
 	var finalRTT int
+	// 在 pingIP 中强制使用平均值 + 惩罚
 	if successCount == 0 {
-		finalRTT = 999999 // 失败则 RTT 设为极大值
-	} else if p.strategy == "avg" {
-		finalRTT = int(totalRTT / int64(successCount))
+		finalRTT = 999999
 	} else {
-		finalRTT = minRTT // 默认使用 min 策略
+		avg := int(totalRTT / int64(successCount))
+		penalty := (p.count - successCount) * 150 // 每丢一个包 +150ms
+		finalRTT = avg + penalty
 	}
 
 	lossRate := float64(p.count-successCount) / float64(p.count) * 100
@@ -258,7 +259,10 @@ func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
 // 2. 然后按 RTT 排序（RTT 低的优先）
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
-		// Ping 失败的（Loss 100%）排在后面
+		// 完全不通的永远排最后
+		if results[i].Loss == 100 != (results[j].Loss == 100) {
+			return results[j].Loss == 100
+		}
 		if results[i].Loss != results[j].Loss {
 			return results[i].Loss < results[j].Loss
 		}

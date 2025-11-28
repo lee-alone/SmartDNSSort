@@ -28,28 +28,23 @@ upstream:
   # - DoH: "https://dns.google/dns-query" 或 "https://1.1.1.1/dns-query"
   # - DoT: "tls://dns.google:853" 或 "tls://1.1.1.1:853"
   servers:
-    - "192.168.1.25"
+    - "192.168.1.10"
     # UDP 示例
-    - "223.5.5.5:53"
-    - "8.8.8.8:53"
+#    - "8.8.8.8:53"
     # TCP 示例
-    - "tcp://223.5.5.5:53"
-    - "tcp://8.8.8.8:53"
+#    - "tcp://8.8.8.8:53"
     # DoH 示例
-    - "https://dns.alidns.com/dns-query"
     - "https://doh.pub/dns-query"
     - "https://dns.google/dns-query"
     - "https://cloudflare-dns.com/dns-query"
     # DoT 示例
-    - "tls://dns.alidns.com:853"
-    - "tls://dot.pub:853"
-    - "tls://dns.google:853"
-    - "tls://1.1.1.1:853"
+#    - "tls://dot.pub:853"
+#    - "tls://dns.google:853"
   
   # [新增] 引导 DNS
   # 必须是纯 IP。用于解析 DoH/DoT URL 中的域名 (如 dns.google)
   bootstrap_dns:
-    - "223.5.5.5:53"
+    - "192.168.1.11"
     - "8.8.8.8:53"
 
   # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器）
@@ -133,7 +128,7 @@ adblock:
   cache_dir: ./adblock_cache
   update_interval_hours: 168
   max_cache_age_hours: 168
-  max_cache_size_mb: 300
+  max_cache_size_mb: 30
   block_mode: nxdomain
   blocked_ttl: 3600
 
@@ -431,7 +426,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.AdBlock.MaxCacheAgeHours = 168
 	}
 	if cfg.AdBlock.MaxCacheSizeMB == 0 {
-		cfg.AdBlock.MaxCacheSizeMB = 300
+		cfg.AdBlock.MaxCacheSizeMB = 30
 	}
 	if cfg.AdBlock.BlockMode == "" {
 		cfg.AdBlock.BlockMode = "nxdomain"
