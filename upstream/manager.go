@@ -35,6 +35,8 @@ type Manager struct {
 	timeoutMs   int
 	concurrency int // 并行查询时的并发数
 	stats       *stats.Stats
+	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
+	cacheUpdateCallback func(domain string, qtype uint16, ips []string, cname string, ttl uint32)
 }
 
 // NewManager 创建上游 DNS 管理器
@@ -58,6 +60,12 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 	}
 }
 
+// SetCacheUpdateCallback 设置缓存更新回调函数
+// 用于在 parallel 模式下后台收集完所有响应后更新缓存
+func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, ips []string, cname string, ttl uint32)) {
+	u.cacheUpdateCallback = callback
+}
+
 // Query 查询域名，返回 IP 列表和 TTL
 func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if u.strategy == "parallel" {
@@ -67,6 +75,7 @@ func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*Quer
 }
 
 // queryParallel 并行查询多个上游 DNS 服务器
+// 实现快速响应机制：第一个成功的响应立即返回，后台继续收集其他响应并更新缓存
 func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
@@ -78,9 +87,15 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	// 创建结果通道
 	resultChan := make(chan *QueryResult, len(u.servers))
 
+	// 创建一个用于快速响应的通道
+	fastResponseChan := make(chan *QueryResult, 1)
+
 	// 使用 semaphore 控制并发数
 	sem := make(chan struct{}, u.concurrency)
 	var wg sync.WaitGroup
+
+	// 用于标记是否已经发送了快速响应
+	var fastResponseSent sync.Once
 
 	// 并发查询所有服务器
 	for _, server := range u.servers {
@@ -131,6 +146,18 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			select {
 			case resultChan <- result:
 			case <-ctx.Done():
+				return
+			}
+
+			// 如果是第一个成功的响应，立即发送到快速响应通道
+			if result.Error == nil && len(result.IPs) > 0 {
+				fastResponseSent.Do(func() {
+					select {
+					case fastResponseChan <- result:
+						log.Printf("[queryParallel] 🚀 快速响应: 服务器 %s 第一个返回成功结果，立即响应用户\n", srv.Address())
+					default:
+					}
+				})
 			}
 		}(server)
 	}
@@ -139,16 +166,67 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	go func() {
 		wg.Wait()
 		close(resultChan)
+		close(fastResponseChan)
 	}()
 
-	// 收集所有结果
-	var firstSuccessResult *QueryResult
-	var firstError error
-	allSuccessResults := make([]*QueryResult, 0, len(u.servers))
-	successCount := 0
+	// 等待第一个成功的响应（快速响应）
+	var fastResponse *QueryResult
+	select {
+	case fastResponse = <-fastResponseChan:
+		if fastResponse != nil {
+			log.Printf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+				fastResponse.Server, len(fastResponse.IPs), fastResponse.CNAME, fastResponse.TTL, fastResponse.IPs)
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// 如果没有收到快速响应，说明所有服务器都失败了
+	if fastResponse == nil {
+		// 等待所有结果收集完成，看是否有错误信息
+		var firstError error
+		for result := range resultChan {
+			if result.Error != nil && firstError == nil {
+				firstError = result.Error
+			}
+		}
+		if firstError != nil {
+			return nil, firstError
+		}
+		return nil, fmt.Errorf("all upstream servers failed")
+	}
+
+	// 记录快速响应的统计
+	if u.stats != nil {
+		u.stats.IncUpstreamSuccess(fastResponse.Server)
+	}
+
+	// 在后台继续收集其他服务器的响应并更新缓存
+	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan)
+
+	// 立即返回第一个成功的响应
+	return &QueryResultWithTTL{
+		IPs:   fastResponse.IPs,
+		CNAME: fastResponse.CNAME,
+		TTL:   fastResponse.TTL,
+	}, nil
+}
+
+// collectRemainingResponses 在后台收集剩余的响应并更新缓存
+func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastResponse *QueryResult, resultChan chan *QueryResult) {
+	log.Printf("[collectRemainingResponses] 🔄 开始后台收集剩余响应: %s (type=%s)\n", domain, dns.TypeToString[qtype])
+
+	allSuccessResults := []*QueryResult{fastResponse}
+	successCount := 1
 	failureCount := 0
 
+	// 收集剩余的结果
 	for result := range resultChan {
+		// 跳过已经作为快速响应返回的结果
+		if result == fastResponse {
+			continue
+		}
+
 		if result.Error != nil {
 			failureCount++
 			if u.stats != nil {
@@ -157,10 +235,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 					u.stats.IncUpstreamFailure(result.Server)
 				}
 			}
-			if firstError == nil {
-				firstError = result.Error
-			}
-			log.Printf("[queryParallel] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
+			log.Printf("[collectRemainingResponses] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
 			continue
 		}
 
@@ -169,48 +244,35 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(result.Server)
 		}
-		log.Printf("[queryParallel] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+		log.Printf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
 			result.Server, successCount, len(result.IPs), result.CNAME, result.TTL, result.IPs)
 
-		// 保存第一个成功的结果(用于快速响应用户)
-		if firstSuccessResult == nil {
-			firstSuccessResult = result
-		}
-
-		// 收集所有成功的结果(用于IP汇总)
+		// 收集所有成功的结果
 		allSuccessResults = append(allSuccessResults, result)
-	}
-
-	// 如果没有任何成功的响应,返回错误
-	if firstSuccessResult == nil {
-		log.Printf("[queryParallel] 所有 %d 个服务器查询均失败\n", failureCount)
-		if firstError != nil {
-			return nil, firstError
-		}
-		return nil, fmt.Errorf("all upstream servers failed")
 	}
 
 	// 汇总所有IP地址并去重
 	mergedIPs := u.mergeAndDeduplicateIPs(allSuccessResults)
 
 	// 选择最小的TTL(最保守的策略)
-	minTTL := firstSuccessResult.TTL
+	minTTL := fastResponse.TTL
 	for _, result := range allSuccessResults {
 		if result.TTL < minTTL {
 			minTTL = result.TTL
 		}
 	}
 
-	log.Printf("[queryParallel] 汇总完成: 从 %d 个服务器收集到 %d 个唯一IP (原始第一响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒\n",
-		successCount, len(mergedIPs), len(firstSuccessResult.IPs), len(mergedIPs), firstSuccessResult.CNAME, minTTL)
-	log.Printf("[queryParallel] 完整IP池: %v\n", mergedIPs)
+	log.Printf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒\n",
+		successCount, len(mergedIPs), len(fastResponse.IPs), len(mergedIPs), fastResponse.CNAME, minTTL)
+	log.Printf("[collectRemainingResponses] 完整IP池: %v\n", mergedIPs)
 
-	// 返回汇总后的完整IP池
-	return &QueryResultWithTTL{
-		IPs:   mergedIPs,
-		CNAME: firstSuccessResult.CNAME,
-		TTL:   minTTL,
-	}, nil
+	// 如果设置了缓存更新回调，则调用它来更新缓存
+	if u.cacheUpdateCallback != nil {
+		log.Printf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整IP池到缓存\n")
+		u.cacheUpdateCallback(domain, qtype, mergedIPs, fastResponse.CNAME, minTTL)
+	} else {
+		log.Printf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存\n")
+	}
 }
 
 // mergeAndDeduplicateIPs 汇总并去重多个查询结果中的IP地址

@@ -102,6 +102,20 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		return server.performPingSort(ctx, ips)
 	})
 
+	// 设置上游管理器的缓存更新回调
+	// 用于在 parallel 模式下后台收集完所有响应后更新缓存
+	server.upstream.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cname string, ttl uint32) {
+		log.Printf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAME=%s, TTL=%d秒\n",
+			domain, dns.TypeToString[qtype], len(ips), cname, ttl)
+
+		// 更新原始缓存中的IP列表
+		// 注意：这里使用 time.Now() 作为获取时间，因为这是后台收集完成的时间
+		server.cache.SetRaw(domain, qtype, ips, cname, ttl)
+
+		// 触发异步排序，更新排序缓存
+		go server.sortIPsAsync(domain, qtype, ips, ttl, time.Now())
+	})
+
 	return server
 }
 
