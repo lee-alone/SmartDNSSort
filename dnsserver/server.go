@@ -103,20 +103,41 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	})
 
 	// 设置上游管理器的缓存更新回调
-	// 用于在 parallel 模式下后台收集完所有响应后更新缓存
-	server.upstream.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cname string, ttl uint32) {
+	server.setupUpstreamCallback(server.upstream)
+
+	return server
+}
+
+// setupUpstreamCallback 设置上游管理器的缓存更新回调
+func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
+	u.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cname string, ttl uint32) {
 		log.Printf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAME=%s, TTL=%d秒\n",
 			domain, dns.TypeToString[qtype], len(ips), cname, ttl)
 
+		// 获取当前原始缓存中的 IP 数量
+		var oldIPCount int
+		if oldEntry, exists := s.cache.GetRaw(domain, qtype); exists {
+			oldIPCount = len(oldEntry.IPs)
+		}
+
 		// 更新原始缓存中的IP列表
 		// 注意：这里使用 time.Now() 作为获取时间，因为这是后台收集完成的时间
-		server.cache.SetRaw(domain, qtype, ips, cname, ttl)
+		s.cache.SetRaw(domain, qtype, ips, cname, ttl)
 
-		// 触发异步排序，更新排序缓存
-		go server.sortIPsAsync(domain, qtype, ips, ttl, time.Now())
+		// 如果后台收集的 IP 数量比之前多，需要重新排序
+		if len(ips) > oldIPCount {
+			log.Printf("[CacheUpdateCallback] 后台收集到更多IP (%d -> %d)，清除旧排序状态并重新排序\n",
+				oldIPCount, len(ips))
+
+			// 清除旧的排序状态，允许重新排序
+			s.cache.CancelSort(domain, qtype)
+
+			// 触发异步排序，更新排序缓存
+			go s.sortIPsAsync(domain, qtype, ips, ttl, time.Now())
+		} else {
+			log.Printf("[CacheUpdateCallback] IP数量未增加 (%d)，保持现有排序\n", len(ips))
+		}
 	})
-
-	return server
 }
 
 // performPingSort 执行 ping 排序操作
@@ -578,7 +599,7 @@ func (s *Server) calculateRemainingTTL(upstreamTTL uint32, acquisitionTime time.
 // 排序完成后会更新排序缓存
 func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstreamTTL uint32, acquisitionTime time.Time) {
 	// 检查是否已有排序任务在进行
-	_, isNew := s.cache.GetOrStartSort(domain, qtype)
+	state, isNew := s.cache.GetOrStartSort(domain, qtype)
 	if !isNew {
 		log.Printf("[sortIPsAsync] 排序任务已在进行: %s (type=%s)，跳过重复排序\n",
 			domain, dns.TypeToString[qtype])
@@ -600,7 +621,7 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		}
 
 		// 直接调用回调函数处理排序完成的逻辑
-		s.handleSortComplete(domain, qtype, result, nil)
+		s.handleSortComplete(domain, qtype, result, nil, state)
 		return
 	}
 
@@ -614,7 +635,7 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		IPs:    ips,
 		TTL:    uint32(s.calculateRemainingTTL(upstreamTTL, acquisitionTime)),
 		Callback: func(result *cache.SortedCacheEntry, err error) {
-			s.handleSortComplete(domain, qtype, result, err)
+			s.handleSortComplete(domain, qtype, result, err, state)
 		},
 	}
 
@@ -628,18 +649,18 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 }
 
 // handleSortComplete 处理排序完成事件
-func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.SortedCacheEntry, err error) {
+func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.SortedCacheEntry, err error, state *cache.SortingState) {
 	if err != nil {
 		log.Printf("[handleSortComplete] 排序失败: %s (type=%s), 错误: %v\n",
 			domain, dns.TypeToString[qtype], err)
-		s.cache.FinishSort(domain, qtype, nil, err)
+		s.cache.FinishSort(domain, qtype, nil, err, state)
 		return
 	}
 
 	if result == nil {
 		log.Printf("[handleSortComplete] 排序结果为空: %s (type=%s)\n",
 			domain, dns.TypeToString[qtype])
-		s.cache.FinishSort(domain, qtype, nil, fmt.Errorf("sort result is nil"))
+		s.cache.FinishSort(domain, qtype, nil, fmt.Errorf("sort result is nil"), state)
 		return
 	}
 
@@ -659,7 +680,7 @@ func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.S
 	s.cache.SetSorted(domain, qtype, result)
 
 	// 完成排序任务
-	s.cache.FinishSort(domain, qtype, result, nil)
+	s.cache.FinishSort(domain, qtype, result, nil, state)
 }
 
 // refreshCacheAsync 异步刷新缓存（用于缓存过期后）
@@ -948,6 +969,8 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		}
 
 		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+		// 设置缓存更新回调
+		s.setupUpstreamCallback(newUpstream)
 	}
 
 	var newPinger *ping.Pinger

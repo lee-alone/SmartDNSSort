@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"smartdnssort/stats"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -90,6 +91,10 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	// 创建一个用于快速响应的通道
 	fastResponseChan := make(chan *QueryResult, 1)
 
+	// 创建一个独立于请求上下文的 context，用于控制上游查询的超时
+	// 这样即使主请求返回（ctx 被取消），后台查询也能继续进行
+	queryCtx, cancel := context.WithTimeout(context.Background(), time.Duration(u.timeoutMs)*time.Millisecond)
+
 	// 使用 semaphore 控制并发数
 	sem := make(chan struct{}, u.concurrency)
 	var wg sync.WaitGroup
@@ -109,7 +114,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 			// 检查上下文是否已取消
 			select {
-			case <-ctx.Done():
+			case <-queryCtx.Done():
 				return
 			default:
 			}
@@ -118,7 +123,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			msg := new(dns.Msg)
 			msg.SetQuestion(dns.Fqdn(domain), qtype)
 
-			reply, err := srv.Exchange(ctx, msg)
+			reply, err := srv.Exchange(queryCtx, msg)
 
 			var result *QueryResult
 			if err != nil {
@@ -145,7 +150,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			// 发送结果到通道
 			select {
 			case resultChan <- result:
-			case <-ctx.Done():
+			case <-queryCtx.Done():
 				return
 			}
 
@@ -167,6 +172,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		wg.Wait()
 		close(resultChan)
 		close(fastResponseChan)
+		cancel() // 释放 context 资源
 	}()
 
 	// 等待第一个成功的响应（快速响应）

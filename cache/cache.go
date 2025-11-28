@@ -274,17 +274,46 @@ func (c *Cache) GetOrStartSort(domain string, qtype uint16) (*SortingState, bool
 }
 
 // FinishSort 标记排序任务完成
-func (c *Cache) FinishSort(domain string, qtype uint16, result *SortedCacheEntry, err error) {
+// FinishSort 标记排序任务完成
+// state 参数必须是 GetOrStartSort 返回的那个对象，确保操作的是正确的任务状态
+func (c *Cache) FinishSort(domain string, qtype uint16, result *SortedCacheEntry, err error, state *SortingState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 无论该状态是否仍在 map 中（可能已被 CancelSort 移除），我们都更新这个状态
+	// 这样持有该状态引用的等待者（如果有）能正确收到通知
+
+	state.InProgress = false
+	state.Result = result
+	state.Error = err
+
+	// 安全地关闭 channel，防止重复关闭
+	select {
+	case <-state.Done:
+		// 已经关闭，不做任何事
+	default:
+		close(state.Done)
+	}
+}
+
+// CancelSort 取消排序任务，允许重新排序
+// 用于在后台收集到更多 IP 时，取消旧的排序任务并启动新的
+func (c *Cache) CancelSort(domain string, qtype uint16) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	key := cacheKey(domain, qtype)
 	if state, exists := c.sortingState[key]; exists {
-		state.InProgress = false
-		state.Result = result
-		state.Error = err
-		close(state.Done) // 发送完成信号
+		// 如果排序任务还在进行中，标记为不再进行
+		if state.InProgress {
+			state.InProgress = false
+			// 不关闭 Done channel，因为可能有其他 goroutine 在等待
+		}
+		// 删除排序状态，允许创建新的排序任务
+		delete(c.sortingState, key)
 	}
+	// 同时清除旧的排序缓存
+	delete(c.sortedCache, key)
 }
 
 // GetError 获取错误缓存
