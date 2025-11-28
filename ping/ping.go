@@ -216,13 +216,18 @@ func (p *Pinger) pingIP(ctx context.Context, ip string) *Result {
 	}
 
 	var finalRTT int
-	// 在 pingIP 中强制使用平均值 + 惩罚
+	// 在 pingIP 中计算综合 RTT（关键！）
 	if successCount == 0 {
 		finalRTT = 999999
 	} else {
-		avg := int(totalRTT / int64(successCount))
-		penalty := (p.count - successCount) * 150 // 每丢一个包 +150ms
-		finalRTT = avg + penalty
+		avgRTT := int(totalRTT / int64(successCount))
+		// 每丢一个包惩罚 150~200ms（推荐 180，效果最佳）
+		penalty := (p.count - successCount) * 180
+		finalRTT = avgRTT + penalty
+		// 可选：设置上限，防止惩罚过大
+		if finalRTT > 5000 {
+			finalRTT = 5000
+		}
 	}
 
 	lossRate := float64(p.count-successCount) / float64(p.count) * 100
@@ -257,15 +262,22 @@ func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
 // 排序规则：
 // 1. 首先按丢包率排序（丢包率低的优先）
 // 2. 然后按 RTT 排序（RTT 低的优先）
+// 排序函数：极简 + 最优
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
-		// 完全不通的永远排最后
-		if results[i].Loss == 100 != (results[j].Loss == 100) {
-			return results[j].Loss == 100
+		a, b := results[i], results[j]
+
+		// 1. 完全不通的永远靠后（核心修复点）
+		if (a.Loss == 100.0) != (b.Loss == 100.0) {
+			return b.Loss == 100.0 // 只有 b 是 100% 时返回 true → b 排后面
 		}
-		if results[i].Loss != results[j].Loss {
-			return results[i].Loss < results[j].Loss
+
+		// 2. 同类节点比综合 RTT
+		if a.RTT != b.RTT {
+			return a.RTT < b.RTT
 		}
-		return results[i].RTT < results[j].RTT
+
+		// 3. 完全相同时按 IP 排序（保证稳定）
+		return a.IP < b.IP
 	})
 }
