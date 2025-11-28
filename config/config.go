@@ -22,8 +22,29 @@ dns:
 # 上游 DNS 服务器配置
 upstream:
   # 上游 DNS 服务器地址列表
+  # 支持多种协议格式:
+  # - UDP: "8.8.8.8:53" 或 "8.8.8.8" (默认端口53)
+  # - TCP: "tcp://8.8.8.8:53"
+  # - DoH: "https://dns.google/dns-query" 或 "https://1.1.1.1/dns-query"
+  # - DoT: "tls://dns.google:853" 或 "tls://1.1.1.1:853"
   servers:
     - "192.168.1.25"
+    # UDP 示例
+    - "223.5.5.5:53"
+    - "8.8.8.8:53"
+    # TCP 示例
+    - "tcp://223.5.5.5:53"
+    - "tcp://8.8.8.8:53"
+    # DoH 示例
+    - "https://dns.alidns.com/dns-query"
+    - "https://doh.pub/dns-query"
+    - "https://dns.google/dns-query"
+    - "https://cloudflare-dns.com/dns-query"
+    # DoT 示例
+    - "tls://dns.alidns.com:853"
+    - "tls://dot.pub:853"
+    - "tls://dns.google:853"
+    - "tls://1.1.1.1:853"
   
   # [新增] 引导 DNS
   # 必须是纯 IP。用于解析 DoH/DoT URL 中的域名 (如 dns.google)

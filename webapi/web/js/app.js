@@ -207,6 +207,7 @@ function populateForm(config) {
 
         // Array values
         setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
+        setValue('upstream.bootstrap_dns', (config.upstream.bootstrap_dns || []).join('\n'));
     } catch (e) {
         console.error("Error inside populateForm:", e);
         alert("An error occurred while displaying the configuration. Check developer console (F12).");
@@ -242,6 +243,7 @@ function saveConfig() {
     };
     data.upstream = {
         servers: form.elements['upstream.servers'].value.split('\n').filter(s => s.trim() !== ''),
+        bootstrap_dns: form.elements['upstream.bootstrap_dns'].value.split('\n').filter(s => s.trim() !== ''),
         strategy: form.elements['upstream.strategy'].value,
         timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value),
         concurrency: parseInt(form.elements['upstream.concurrency'].value),

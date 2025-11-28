@@ -212,6 +212,12 @@
                                 <small>One server per line.</small>
                             </div>
                             <div class="form-group">
+                                <label for="upstream.bootstrap_dns">Bootstrap DNS</label>
+                                <textarea id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"></textarea>
+                                <small>Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names.
+                                    One server per line.</small>
+                            </div>
+                            <div class="form-group">
                                 <label for="upstream.strategy">Strategy</label>
                                 <select id="upstream.strategy" name="upstream.strategy">
                                     <option value="random">Random</option>
