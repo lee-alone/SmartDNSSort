@@ -359,6 +359,11 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.Upstream.Concurrency == 0 {
 		cfg.Upstream.Concurrency = 3
 	}
+	// Bootstrap DNS 默认值：如果未配置，使用公共 DNS 服务器
+	// 用于解析 DoH/DoT 服务器的域名
+	if len(cfg.Upstream.BootstrapDNS) == 0 {
+		cfg.Upstream.BootstrapDNS = []string{"8.8.8.8", "1.1.1.1", "8.8.4.4", "1.0.0.1"}
+	}
 
 	if cfg.Ping.Count == 0 {
 		cfg.Ping.Count = 3
