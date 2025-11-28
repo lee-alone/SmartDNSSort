@@ -1,4 +1,4 @@
-﻿let originalConfig = {}; // Store the original config to preserve uneditable fields
+let originalConfig = {}; // Store the original config to preserve uneditable fields
 
 // --- Tab Management ---
 function showTab(tabName) {
@@ -376,11 +376,31 @@ function updateAdBlockTab() {
                         <td><span class="status-indicator ${statusClass}">${source.status}</span></td>
                         <td class="value">${source.rule_count || 0}</td>
                         <td>${source.last_update ? new Date(source.last_update).toLocaleString() : 'Never'}</td>
+                        <td><input type="checkbox" class="source-enable-toggle" data-url="${source.url}" ${source.enabled ? 'checked' : ''}></td>
                         <td><button class="btn btn-danger btn-sm" data-url="${source.url}">Delete</button></td>
                     `;
                 });
+                document.querySelectorAll('.source-enable-toggle').forEach(cb => {
+                    cb.addEventListener('change', (e) => {
+                        const url = e.target.dataset.url;
+                        const enabled = e.target.checked;
+                        fetch('/api/adblock/sources', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url: url, enabled: enabled })
+                        }).then(response => {
+                            if (!response.ok) {
+                                e.target.checked = !enabled;
+                                response.text().then(text => alert('Failed to update source: ' + text));
+                            }
+                        }).catch(err => {
+                            e.target.checked = !enabled;
+                            alert('An error occurred: ' + err);
+                        });
+                    });
+                });
             } else {
-                sourcesTable.innerHTML = '<tr><td colspan="5" style="text-align:center;">No rule sources configured.</td></tr>';
+                sourcesTable.innerHTML = '<tr><td colspan="6" style="text-align:center;">No rule sources configured.</td></tr>';
             }
         })
         .catch(error => {

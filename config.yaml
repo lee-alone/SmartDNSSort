@@ -1,15 +1,15 @@
 adblock:
-    enable: true
-    engine: urlfilter
-    rule_urls: []
-    custom_rules_file: ./adblock_cache/custom_rules.txt
-    cache_dir: ./adblock_cache
-    update_interval_hours: 24
-    max_cache_age_hours: 168
-    max_cache_size_mb: 300
     block_mode: nxdomain
     blocked_response_ip: 0.0.0.0
     blocked_ttl: 3600
+    cache_dir: ./adblock_cache
+    custom_rules_file: ./adblock_cache/custom_rules.txt
+    enable: true
+    engine: urlfilter
+    max_cache_age_hours: 168
+    max_cache_size_mb: 300
+    rule_urls: []
+    update_interval_hours: 24
 cache:
     error_cache_ttl_seconds: 30
     eviction_batch_percent: 0.1
@@ -42,6 +42,9 @@ system:
     refresh_workers: 0
     sort_queue_workers: 0
 upstream:
+    bootstrap_dns:
+        - 223.5.5.5:53
+        - 8.8.8.8:53
     concurrency: 100
     nxdomain_for_errors: true
     servers:

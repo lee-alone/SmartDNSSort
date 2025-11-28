@@ -153,6 +153,9 @@ func (rl *RuleLoader) LoadAllRules(sources []*SourceInfo) ([]string, error) {
 		wg.Add(1)
 		go func(s *SourceInfo) {
 			defer wg.Done()
+			if !s.Enabled {
+				return
+			}
 			// Check if cache file exists
 			cachePath := filepath.Join(rl.cacheDir, s.CacheFile)
 			if _, err := os.Stat(cachePath); os.IsNotExist(err) {

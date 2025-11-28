@@ -98,6 +98,10 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 		go func(s *SourceInfo) {
 			defer wg.Done()
 
+			if !s.Enabled {
+				return
+			}
+
 			// In force mode, we don't care about the age of the cache.
 			if !force {
 				// if cache is not too old, skip
@@ -210,8 +214,23 @@ func (m *AdBlockManager) AddSource(url string) error {
 }
 
 func (m *AdBlockManager) RemoveSource(url string) error {
-	m.sourcesMgr.RemoveSource(url)
-	return m.sourcesMgr.saveMeta()
+    m.sourcesMgr.RemoveSource(url)
+    return m.sourcesMgr.saveMeta()
+}
+
+func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.sourcesMgr.SetEnabled(url, enabled)
+    if err := m.sourcesMgr.saveMeta(); err != nil {
+        return err
+    }
+    sources := m.sourcesMgr.GetAllSources()
+    allRules, err := m.loader.LoadAllRules(sources)
+    if err != nil {
+        return err
+    }
+    return m.engine.LoadRules(allRules)
 }
 
 type TestResult struct {

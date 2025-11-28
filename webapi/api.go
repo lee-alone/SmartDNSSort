@@ -559,7 +559,34 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[AdBlock] Warning: Failed to add source to config: %v", err)
 		}
 
-		s.writeJSONSuccess(w, "AdBlock source added successfully", nil)
+		// Trigger an update in the background
+		go func() {
+			log.Printf("[AdBlock] Auto-updating rules after adding new source: %s", payload.URL)
+			if _, err := adblockMgr.UpdateRules(true); err != nil {
+				log.Printf("[AdBlock] Auto-update failed after adding source: %v", err)
+			}
+		}()
+
+		s.writeJSONSuccess(w, "AdBlock source added successfully, update started.", nil)
+
+	case http.MethodPut: // Enable/disable a source
+		var payload struct {
+			URL     string `json:"url"`
+			Enabled bool   `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if payload.URL == "" {
+			s.writeJSONError(w, "URL cannot be empty", http.StatusBadRequest)
+			return
+		}
+		if err := adblockMgr.SetSourceEnabled(payload.URL, payload.Enabled); err != nil {
+			s.writeJSONError(w, "Failed to update source: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.writeJSONSuccess(w, "AdBlock source status updated successfully", nil)
 
 	case http.MethodDelete: // Corresponds to /api/adblock/sources/remove
 		var payload struct {
@@ -582,6 +609,13 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 		// Also remove from config.yaml
 		if err := s.removeSourceFromConfig(payload.URL); err != nil {
 			log.Printf("[AdBlock] Warning: Failed to remove source from config: %v", err)
+		}
+
+		// If the removed source is the custom rules file, also clear it from config
+		if payload.URL == s.cfg.AdBlock.CustomRulesFile {
+			if err := s.removeCustomRulesFromConfig(); err != nil {
+				log.Printf("[AdBlock] Warning: Failed to remove custom rules file from config: %v", err)
+			}
 		}
 
 		s.writeJSONSuccess(w, "AdBlock source removed successfully", nil)
@@ -702,6 +736,25 @@ func (s *Server) removeSourceFromConfig(url string) error {
 		}
 	}
 	cfg.AdBlock.RuleURLs = newURLs
+
+	// Save back to file
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(s.configPath, yamlData, 0644)
+}
+
+// removeCustomRulesFromConfig removes the custom rules file path from config.yaml
+func (s *Server) removeCustomRulesFromConfig() error {
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		return err
+	}
+
+	// Set CustomRulesFile to empty
+	cfg.AdBlock.CustomRulesFile = ""
 
 	// Save back to file
 	yamlData, err := yaml.Marshal(cfg)

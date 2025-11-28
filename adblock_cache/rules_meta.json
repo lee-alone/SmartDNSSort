@@ -1,0 +1,14 @@
+[
+  {
+    "url": "./adblock_cache/custom_rules.txt",
+    "etag": "",
+    "last_modified": "",
+    "cache_file": "rules_e8e37e23934827d059dfd8fbb118f1e2.txt",
+    "rule_count": 24,
+    "last_update": "2025-11-28T10:39:44.9970327+08:00",
+    "last_error": "",
+    "fail_count": 0,
+    "status": "active",
+    "enabled": true
+  }
+]

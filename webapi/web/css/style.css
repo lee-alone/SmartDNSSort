@@ -429,37 +429,45 @@ input:disabled+.slider {
 /* URL列 - 占据更多空间 */
 #adblock_sources_table th:nth-child(1),
 #adblock_sources_table td:nth-child(1) {
-    width: 45%;
-    /* URL列占45% */
+    width: 40%;
+    /* URL列占40% */
     min-width: 300px;
 }
 
 /* Status列 */
 #adblock_sources_table th:nth-child(2),
 #adblock_sources_table td:nth-child(2) {
-    width: 15%;
+    width: 10%;
     min-width: 100px;
 }
 
 /* Rules列 */
 #adblock_sources_table th:nth-child(3),
 #adblock_sources_table td:nth-child(3) {
-    width: 12%;
+    width: 10%;
     min-width: 80px;
 }
 
 /* Last Update列 */
 #adblock_sources_table th:nth-child(4),
 #adblock_sources_table td:nth-child(4) {
-    width: 18%;
+    width: 15%;
     min-width: 130px;
 }
 
-/* Actions列 - 确保始终可见 */
+/* Enabled列 */
 #adblock_sources_table th:nth-child(5),
 #adblock_sources_table td:nth-child(5) {
     width: 10%;
     min-width: 100px;
+    text-align: center;
+}
+
+/* Actions列 - 确保始终可见 */
+#adblock_sources_table th:nth-child(6),
+#adblock_sources_table td:nth-child(6) {
+    width: 15%;
+    min-width: 120px;
     text-align: center;
 }
 
@@ -624,37 +632,45 @@ input:disabled+.slider {
 /* URL列 - 占据更多空间 */
 #adblock_sources_table th:nth-child(1),
 #adblock_sources_table td:nth-child(1) {
-    width: 45%;
-    /* URL列占45% */
+    width: 40%;
+    /* URL列占40% */
     min-width: 300px;
 }
 
 /* Status列 */
 #adblock_sources_table th:nth-child(2),
 #adblock_sources_table td:nth-child(2) {
-    width: 15%;
+    width: 10%;
     min-width: 100px;
 }
 
 /* Rules列 */
 #adblock_sources_table th:nth-child(3),
 #adblock_sources_table td:nth-child(3) {
-    width: 12%;
+    width: 10%;
     min-width: 80px;
 }
 
 /* Last Update列 */
 #adblock_sources_table th:nth-child(4),
 #adblock_sources_table td:nth-child(4) {
-    width: 18%;
+    width: 15%;
     min-width: 130px;
 }
 
-/* Actions列 - 确保始终可见 */
+/* Enabled列 */
 #adblock_sources_table th:nth-child(5),
 #adblock_sources_table td:nth-child(5) {
     width: 10%;
     min-width: 100px;
+    text-align: center;
+}
+
+/* Actions列 - 确保始终可见 */
+#adblock_sources_table th:nth-child(6),
+#adblock_sources_table td:nth-child(6) {
+    width: 15%;
+    min-width: 120px;
     text-align: center;
 }
 

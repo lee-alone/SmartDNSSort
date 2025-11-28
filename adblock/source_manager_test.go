@@ -26,14 +26,14 @@ func TestEnsureCustomRulesFile(t *testing.T) {
 	}
 
 	// Check if custom rules file was created
-	if _, err := os.Stat(customRulesPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(customRulesPath); os.IsNotExist(statErr) {
 		t.Errorf("Custom rules file was not created at %s", customRulesPath)
 	}
 
 	// Check if file has content
-	content, err := os.ReadFile(customRulesPath)
-	if err != nil {
-		t.Fatalf("Failed to read custom rules file: %v", err)
+	content, readErr := os.ReadFile(customRulesPath)
+	if readErr != nil {
+		t.Fatalf("Failed to read custom rules file: %v", readErr)
 	}
 
 	if len(content) == 0 {
@@ -78,9 +78,9 @@ func TestEnsureCustomRulesFileAlreadyExists(t *testing.T) {
 	}
 
 	// Check that existing content was preserved
-	content, err := os.ReadFile(customRulesPath)
-	if err != nil {
-		t.Fatalf("Failed to read custom rules file: %v", err)
+	content, readErr := os.ReadFile(customRulesPath)
+	if readErr != nil {
+		t.Fatalf("Failed to read custom rules file: %v", readErr)
 	}
 
 	if string(content) != existingContent {
