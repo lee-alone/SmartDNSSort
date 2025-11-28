@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.org/x/sync/singleflight"
 )
 
 // Server DNS 服务器
@@ -38,6 +39,7 @@ type Server struct {
 	udpServer          *dns.Server
 	tcpServer          *dns.Server
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
+	requestGroup       singleflight.Group      // 用于合并并发请求
 }
 
 // NewServer 创建新的 DNS 服务器
@@ -421,7 +423,22 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
 
-	result, err := currentUpstream.Query(ctx, domain, question.Qtype)
+	// 使用 singleflight 合并相同的并发请求
+	// 这可以防止在高并发下对同一域名发起大量重复的上游查询，避免资源竞争和缓存覆盖问题
+	sfKey := fmt.Sprintf("query:%s:%d", domain, question.Qtype)
+
+	v, err, shared := s.requestGroup.Do(sfKey, func() (interface{}, error) {
+		return currentUpstream.Query(ctx, domain, question.Qtype)
+	})
+
+	if shared {
+		log.Printf("[handleQuery] 合并并发请求: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
+	}
+
+	var result *upstream.QueryResultWithTTL
+	if err == nil {
+		result = v.(*upstream.QueryResultWithTTL)
+	}
 
 	var ips []string
 	var cname string
