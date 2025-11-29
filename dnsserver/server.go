@@ -68,7 +68,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		cfg:          cfg,
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
-		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s),
+		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s, convertHealthCheckConfig(&cfg.Upstream.HealthCheck)),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
@@ -985,7 +985,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 			upstreams = append(upstreams, u)
 		}
 
-		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats)
+		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats, convertHealthCheckConfig(&newCfg.Upstream.HealthCheck))
 		// 设置缓存更新回调
 		s.setupUpstreamCallback(newUpstream)
 	}
@@ -1089,4 +1089,19 @@ func (s *Server) SetAdBlockEnabled(enabled bool) {
 
 	s.cfg.AdBlock.Enable = enabled
 	log.Printf("[AdBlock] Filtering status changed to: %v", enabled)
+}
+
+// convertHealthCheckConfig 将 config.HealthCheckConfig 转换为 upstream.HealthCheckConfig
+func convertHealthCheckConfig(cfg *config.HealthCheckConfig) *upstream.HealthCheckConfig {
+	if cfg == nil || !cfg.Enabled {
+		// 如果未启用健康检查，返回 nil（将使用默认配置）
+		return nil
+	}
+
+	return &upstream.HealthCheckConfig{
+		FailureThreshold:        cfg.FailureThreshold,
+		CircuitBreakerThreshold: cfg.CircuitBreakerThreshold,
+		CircuitBreakerTimeout:   cfg.CircuitBreakerTimeout,
+		SuccessThreshold:        cfg.SuccessThreshold,
+	}
 }

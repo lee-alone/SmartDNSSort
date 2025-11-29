@@ -58,6 +58,20 @@ upstream:
   # 这可以减少客户端的失败重试行为，但可能会隐藏上游服务器的真实错误
   nxdomain_for_errors: true
 
+  # 健康检查和熔断器配置
+  health_check:
+    # 是否启用健康检查，默认 true
+    enabled: true
+    # 连续失败多少次后进入降级状态，默认 3
+    failure_threshold: 3
+    # 连续失败多少次后进入熔断状态（停止使用该服务器），默认 5
+    circuit_breaker_threshold: 5
+    # 熔断后多久尝试恢复（秒），默认 30
+    circuit_breaker_timeout: 30
+    # 连续成功多少次后从降级/熔断状态恢复，默认 2
+    success_threshold: 2
+
+
 # Ping 检测配置，用于选择最优的 DNS 服务器
 ping:
   # 每次 Ping 的数据包数量
@@ -171,6 +185,18 @@ type UpstreamConfig struct {
 	Concurrency int    `yaml:"concurrency" json:"concurrency"` // 并行查询时的并发数
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
+
+	// 健康检查配置
+	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
+}
+
+// HealthCheckConfig 健康检查配置
+type HealthCheckConfig struct {
+	Enabled                 bool `yaml:"enabled" json:"enabled"`
+	FailureThreshold        int  `yaml:"failure_threshold" json:"failure_threshold"`
+	CircuitBreakerThreshold int  `yaml:"circuit_breaker_threshold" json:"circuit_breaker_threshold"`
+	CircuitBreakerTimeout   int  `yaml:"circuit_breaker_timeout" json:"circuit_breaker_timeout"`
+	SuccessThreshold        int  `yaml:"success_threshold" json:"success_threshold"`
 }
 
 type PingConfig struct {
@@ -363,6 +389,20 @@ func LoadConfig(filePath string) (*Config, error) {
 	// 用于解析 DoH/DoT 服务器的域名
 	if len(cfg.Upstream.BootstrapDNS) == 0 {
 		cfg.Upstream.BootstrapDNS = []string{"8.8.8.8", "1.1.1.1", "8.8.4.4", "1.0.0.1"}
+	}
+
+	// 健康检查默认值
+	if cfg.Upstream.HealthCheck.FailureThreshold == 0 {
+		cfg.Upstream.HealthCheck.FailureThreshold = 3
+	}
+	if cfg.Upstream.HealthCheck.CircuitBreakerThreshold == 0 {
+		cfg.Upstream.HealthCheck.CircuitBreakerThreshold = 5
+	}
+	if cfg.Upstream.HealthCheck.CircuitBreakerTimeout == 0 {
+		cfg.Upstream.HealthCheck.CircuitBreakerTimeout = 30
+	}
+	if cfg.Upstream.HealthCheck.SuccessThreshold == 0 {
+		cfg.Upstream.HealthCheck.SuccessThreshold = 2
 	}
 
 	if cfg.Ping.Count == 0 {

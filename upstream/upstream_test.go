@@ -36,7 +36,7 @@ func TestParallelQuery(t *testing.T) {
 			u, _ := NewUpstream(srv, boot)
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "parallel", 3000, 2, s)
+		u := NewManager(upstreams, "parallel", 3000, 2, s, nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -62,7 +62,7 @@ func TestParallelQuery(t *testing.T) {
 			u, _ := NewUpstream(srv, boot)
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "random", 3000, 2, s)
+		u := NewManager(upstreams, "random", 3000, 2, s, nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -89,7 +89,7 @@ func TestParallelQuery(t *testing.T) {
 			u, _ := NewUpstream(srv, boot)
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "parallel", 3000, 1, s)
+		u := NewManager(upstreams, "parallel", 3000, 1, s, nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -133,7 +133,7 @@ func TestParallelQueryFailover(t *testing.T) {
 		u, _ := NewUpstream(srv, boot)
 		upstreams = append(upstreams, u)
 	}
-	u := NewManager(upstreams, "parallel", 1000, 3, s)
+	u := NewManager(upstreams, "parallel", 1000, 3, s, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -178,7 +178,7 @@ func TestParallelQueryIPMerging(t *testing.T) {
 		u, _ := NewUpstream(srv, boot)
 		upstreams = append(upstreams, u)
 	}
-	u := NewManager(upstreams, "parallel", 3000, 4, s)
+	u := NewManager(upstreams, "parallel", 3000, 4, s, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

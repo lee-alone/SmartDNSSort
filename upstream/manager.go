@@ -31,8 +31,8 @@ type QueryResultWithTTL struct {
 
 // Manager 上游 DNS 查询管理器
 type Manager struct {
-	servers     []Upstream // 接口列表
-	strategy    string     // parallel, random
+	servers     []*HealthAwareUpstream // 带健康检查的上游服务器列表
+	strategy    string                 // parallel, random
 	timeoutMs   int
 	concurrency int // 并行查询时的并发数
 	stats       *stats.Stats
@@ -41,7 +41,7 @@ type Manager struct {
 }
 
 // NewManager 创建上游 DNS 管理器
-func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats) *Manager {
+func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats, healthConfig *HealthCheckConfig) *Manager {
 	if strategy == "" {
 		strategy = "random"
 	}
@@ -52,8 +52,14 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 		concurrency = 3
 	}
 
+	// 将普通 Upstream 包装为 HealthAwareUpstream
+	healthAwareServers := make([]*HealthAwareUpstream, len(servers))
+	for i, server := range servers {
+		healthAwareServers[i] = NewHealthAwareUpstream(server, healthConfig)
+	}
+
 	return &Manager{
-		servers:     servers,
+		servers:     healthAwareServers,
 		strategy:    strategy,
 		timeoutMs:   timeoutMs,
 		concurrency: concurrency,
@@ -326,6 +332,13 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 	for attemptNum, idx := range indices {
 		server := u.servers[idx]
 
+		// 健康检查：跳过临时不可用的服务器（熔断状态）
+		if server.ShouldSkipTemporarily() {
+			log.Printf("[queryRandom] ⚠️  跳过临时不可用的服务器: %s (熔断状态)\n",
+				server.Address())
+			continue
+		}
+
 		// 检查上下文是否已超时或取消
 		select {
 		case <-ctx.Done():
@@ -341,11 +354,15 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		log.Printf("[queryRandom] 第 %d/%d 次尝试: 服务器 %s\n",
 			attemptNum+1, len(u.servers), server.Address())
 
+		// 为单个服务器查询创建独立的超时上下文
+		queryCtx, cancel := context.WithTimeout(ctx, time.Duration(u.timeoutMs)*time.Millisecond)
+
 		// 执行查询
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(domain), qtype)
 
-		reply, err := server.Exchange(ctx, msg)
+		reply, err := server.Exchange(queryCtx, msg)
+		cancel() // 立即释放资源
 
 		// 处理查询错误
 		if err != nil {
@@ -359,22 +376,27 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			continue
 		}
 
-		// 处理 DNS 响应码
+		// 处理 NXDOMAIN - 域名不存在，直接返回
+		if reply.Rcode == dns.RcodeNameError {
+			// 从 SOA 记录中提取 TTL，或使用默认值
+			ttl := extractNegativeTTL(reply)
+			if u.stats != nil {
+				u.stats.IncUpstreamSuccess(server.Address())
+			}
+			log.Printf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒\n",
+				attemptNum+1, server.Address(), ttl)
+			return &QueryResultWithTTL{IPs: nil, CNAME: "", TTL: ttl}, nil
+		}
+
+		// 处理其他 DNS 错误响应码
 		if reply.Rcode != dns.RcodeSuccess {
 			failureCount++
 			lastErr = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
-
-			// NXDOMAIN 不计入失败统计(这是正常的"域名不存在"响应)
-			if reply.Rcode != dns.RcodeNameError {
-				if u.stats != nil {
-					u.stats.IncUpstreamFailure(server.Address())
-				}
-				log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)\n",
-					attemptNum+1, server.Address(), reply.Rcode, dns.RcodeToString[reply.Rcode])
-			} else {
-				log.Printf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在)\n",
-					attemptNum+1, server.Address())
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
 			}
+			log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)\n",
+				attemptNum+1, server.Address(), reply.Rcode, dns.RcodeToString[reply.Rcode])
 			continue
 		}
 
@@ -454,4 +476,24 @@ func extractIPs(msg *dns.Msg) ([]string, string, uint32) {
 	}
 
 	return ips, cname, minTTL
+}
+
+// extractNegativeTTL 从 NXDOMAIN 响应的 SOA 记录中提取否定缓存 TTL
+// 返回值：TTL（秒）
+func extractNegativeTTL(msg *dns.Msg) uint32 {
+	// 尝试从 Ns (Authority) 部分提取 SOA 记录的 TTL
+	for _, ns := range msg.Ns {
+		if soa, ok := ns.(*dns.SOA); ok {
+			// SOA 记录的 Minimum 字段表示否定缓存的 TTL
+			// 同时也要考虑 SOA 记录本身的 TTL
+			ttl := soa.Hdr.Ttl
+			if soa.Minttl < ttl {
+				ttl = soa.Minttl
+			}
+			return ttl
+		}
+	}
+
+	// 如果没有找到 SOA 记录，使用默认的否定缓存 TTL（300 秒 = 5 分钟）
+	return 300
 }
