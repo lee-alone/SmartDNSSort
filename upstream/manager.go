@@ -298,44 +298,123 @@ func (u *Manager) mergeAndDeduplicateIPs(results []*QueryResult) []string {
 	return mergedIPs
 }
 
-// queryRandom 随机选择一个上游 DNS 服务器进行查询
+// queryRandom 随机选择上游 DNS 服务器进行查询,带完整容错机制
+// 会按随机顺序尝试所有服务器,直到找到一个成功的响应
 func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
 
-	// 随机选择一个服务器
-	server := u.servers[rand.Intn(len(u.servers))]
-
-	log.Printf("[queryRandom] 随机选择服务器 %s 查询 %s (type=%s)\n", server.Address(), domain, dns.TypeToString[qtype])
-
-	msg := new(dns.Msg)
-	msg.SetQuestion(dns.Fqdn(domain), qtype)
-
-	reply, err := server.Exchange(ctx, msg)
-	if err != nil {
-		if u.stats != nil {
-			u.stats.IncUpstreamFailure(server.Address())
-		}
-		return nil, err
+	// 创建服务器索引列表并随机打乱
+	indices := make([]int, len(u.servers))
+	for i := range indices {
+		indices[i] = i
 	}
+	rand.Shuffle(len(indices), func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
+	})
 
-	if reply.Rcode != dns.RcodeSuccess {
-		if reply.Rcode != dns.RcodeNameError {
+	log.Printf("[queryRandom] 开始随机容错查询 %s (type=%s), 共 %d 个候选服务器\n",
+		domain, dns.TypeToString[qtype], len(u.servers))
+
+	var lastResult *QueryResultWithTTL
+	var lastErr error
+	successCount := 0
+	failureCount := 0
+
+	// 按随机顺序尝试所有服务器
+	for attemptNum, idx := range indices {
+		server := u.servers[idx]
+
+		// 检查上下文是否已超时或取消
+		select {
+		case <-ctx.Done():
+			log.Printf("[queryRandom] ⏱️  上下文已取消/超时,停止尝试 (已尝试 %d/%d 个服务器)\n",
+				attemptNum, len(u.servers))
+			if lastErr == nil {
+				lastErr = ctx.Err()
+			}
+			return lastResult, lastErr
+		default:
+		}
+
+		log.Printf("[queryRandom] 第 %d/%d 次尝试: 服务器 %s\n",
+			attemptNum+1, len(u.servers), server.Address())
+
+		// 执行查询
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(domain), qtype)
+
+		reply, err := server.Exchange(ctx, msg)
+
+		// 处理查询错误
+		if err != nil {
+			failureCount++
+			lastErr = err
 			if u.stats != nil {
 				u.stats.IncUpstreamFailure(server.Address())
 			}
+			log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, 错误: %v\n",
+				attemptNum+1, server.Address(), err)
+			continue
 		}
-		return nil, fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+
+		// 处理 DNS 响应码
+		if reply.Rcode != dns.RcodeSuccess {
+			failureCount++
+			lastErr = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+
+			// NXDOMAIN 不计入失败统计(这是正常的"域名不存在"响应)
+			if reply.Rcode != dns.RcodeNameError {
+				if u.stats != nil {
+					u.stats.IncUpstreamFailure(server.Address())
+				}
+				log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)\n",
+					attemptNum+1, server.Address(), reply.Rcode, dns.RcodeToString[reply.Rcode])
+			} else {
+				log.Printf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在)\n",
+					attemptNum+1, server.Address())
+			}
+			continue
+		}
+
+		// 提取结果
+		ips, cname, ttl := extractIPs(reply)
+
+		// 验证结果是否有效
+		if len(ips) == 0 && cname == "" {
+			failureCount++
+			lastErr = fmt.Errorf("empty response: no IPs or CNAME found")
+			log.Printf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果\n",
+				attemptNum+1, server.Address())
+			// 保存这个空结果,但继续尝试其他服务器
+			lastResult = &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}
+			continue
+		}
+
+		// 成功!
+		successCount++
+		if u.stats != nil {
+			u.stats.IncUpstreamSuccess(server.Address())
+		}
+
+		log.Printf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+			attemptNum+1, server.Address(), len(ips), cname, ttl, ips)
+
+		return &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}, nil
 	}
 
-	if u.stats != nil {
-		u.stats.IncUpstreamSuccess(server.Address())
+	// 所有服务器都失败了
+	log.Printf("[queryRandom] ❌ 所有服务器都失败: 成功=%d, 失败=%d, 最后错误: %v\n",
+		successCount, failureCount, lastErr)
+
+	// 返回最后一次的结果(即使是空的),这比返回 nil 更友好
+	if lastResult != nil {
+		log.Printf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAME=%s\n",
+			len(lastResult.IPs), lastResult.CNAME)
 	}
 
-	ips, cname, ttl := extractIPs(reply)
-	log.Printf("[queryRandom] 查询成功，返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n", len(ips), cname, ttl, ips)
-	return &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}, nil
+	return lastResult, lastErr
 }
 
 // extractIPs 从 DNS 响应中提取 IP 地址、CNAME 和最小 TTL
