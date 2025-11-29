@@ -62,15 +62,15 @@ function updateDashboard() {
                     row.innerHTML = `<td>${item.Domain}</td><td class="value">${item.Count}</td>`;
                 });
             } else {
-                hotDomainsTable.innerHTML = '<tr><td colspan="2" style="text-align:center;">No domain data yet.</td></tr>';
+                hotDomainsTable.innerHTML = `<tr><td colspan="2" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
             }
-            document.getElementById('status').textContent = 'Connected';
+            document.getElementById('status').textContent = i18n.t('status.connected');
             document.getElementById('status').className = 'status connected';
         })
         .catch(error => {
             console.error('Error fetching stats:', error);
             const statusEl = document.getElementById('status');
-            statusEl.textContent = 'Error: Could not fetch stats.';
+            statusEl.textContent = i18n.t('status.error');
             statusEl.className = 'status error';
         });
 
@@ -87,42 +87,42 @@ function updateDashboard() {
                     recentQueriesList.appendChild(div);
                 });
             } else {
-                recentQueriesList.innerHTML = '<div style="text-align:center;">No recent queries.</div>';
+                recentQueriesList.innerHTML = `<div style="text-align:center;">${i18n.t('dashboard.noRecentQueries')}</div>`;
             }
         })
         .catch(error => {
             console.error('Error fetching recent queries:', error);
             const recentQueriesList = document.getElementById('recent_queries_list');
-            recentQueriesList.innerHTML = '<div style="text-align:center; color: red;">Error loading data.</div>';
+            recentQueriesList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
         });
 }
 
 document.getElementById('clearCacheButton').addEventListener('click', () => {
-    if (!confirm('Are you sure you want to clear the entire DNS cache?')) return;
+    if (!confirm(i18n.t('messages.confirmClearCache'))) return;
     fetch('/api/cache/clear', { method: 'POST' })
         .then(response => {
             if (response.ok) {
-                alert('DNS cache cleared successfully!');
+                alert(i18n.t('messages.cacheCleared'));
                 updateDashboard();
             } else {
-                alert('Failed to clear DNS cache.');
+                alert(i18n.t('messages.cacheClearFailed'));
             }
         })
-        .catch(error => alert('An error occurred while trying to clear the DNS cache.'));
+        .catch(error => alert(i18n.t('messages.cacheClearError')));
 });
 
 document.getElementById('clearStatsButton').addEventListener('click', () => {
-    if (!confirm('Are you sure you want to clear all general and upstream statistics? This action cannot be undone.')) return;
+    if (!confirm(i18n.t('messages.confirmClearStats'))) return;
     fetch('/api/stats/clear', { method: 'POST' })
         .then(response => {
             if (response.ok) {
-                alert('All statistics cleared successfully!');
+                alert(i18n.t('messages.statsCleared'));
                 updateDashboard(); // Refresh stats to show zeros
             } else {
-                alert('Failed to clear statistics.');
+                alert(i18n.t('messages.statsClearFailed'));
             }
         })
-        .catch(error => alert('An error occurred while trying to clear statistics.'));
+        .catch(error => alert(i18n.t('messages.statsClearError')));
 });
 
 document.getElementById('refreshButton').addEventListener('click', () => {
@@ -131,21 +131,21 @@ document.getElementById('refreshButton').addEventListener('click', () => {
 });
 
 document.getElementById('restartButton').addEventListener('click', () => {
-    if (!confirm('Are you sure you want to restart the service? The connection will be temporarily interrupted.')) return;
+    if (!confirm(i18n.t('messages.restartConfirm'))) return;
     fetch('/api/restart', { method: 'POST' })
         .then(response => {
             if (response.ok) {
-                alert('Service restart initiated. The page will reload automatically in 5 seconds.');
+                alert(i18n.t('messages.restarting'));
                 // 等待5秒后自动刷新页面
                 setTimeout(() => {
                     location.reload();
                 }, 5000);
             } else {
-                alert('Failed to restart service.');
+                alert(i18n.t('messages.restartFailed'));
             }
         })
         .catch(error => {
-            alert('An error occurred while trying to restart the service.');
+            alert(i18n.t('messages.restartError', { error: error }));
             console.error('Restart error:', error);
         });
 });
@@ -292,22 +292,90 @@ function saveConfig() {
     })
         .then(response => {
             if (response.ok) {
-                alert('Configuration saved and applied successfully!');
+                alert(i18n.t('messages.configSaved'));
             } else {
-                response.text().then(text => alert('Failed to save configuration: ' + text));
+                response.text().then(text => alert(i18n.t('messages.configSaveError', { error: text })));
             }
         })
         .catch(error => {
             console.error('Error saving config:', error);
-            alert('An error occurred while saving the configuration.');
+            alert(i18n.t('messages.configSaveErrorGeneric'));
         });
 }
 
 // Initial Load
-updateDashboard();
-loadConfig();
-updateAdBlockTab();
+// updateDashboard(); // Called by i18n.init() or manually after i18n load?
+// loadConfig(); // This can be called immediately as it doesn't depend on i18n for values, only labels which are static HTML
+// updateAdBlockTab();
 
+// We should wait for i18n to be ready before rendering dynamic content that needs translation.
+// i18n.js dispatches 'languageChanged' event, but also we can just init everything after DOMContentLoaded which i18n also hooks into.
+// To be safe, let's wrap initial calls or let i18n trigger them?
+// Actually, i18n.js runs init() on DOMContentLoaded.
+// We can listen to a custom event or just run these.
+// Since i18n.init() is async, we might have a race condition if we run updateDashboard immediately.
+// Let's modify i18n.js to dispatch an event when ready, or just use a simple timeout/callback.
+// Or better, just call these functions. updateDashboard uses i18n.t, so i18n must be loaded.
+// i18n.init() awaits loadTranslations.
+// Let's add a listener for 'languageChanged' which is fired after setLanguage (and we can fire it after init too).
+
+document.addEventListener('DOMContentLoaded', () => {
+    // i18n.init() is called in i18n.js on DOMContentLoaded as well.
+    // We can't guarantee order.
+    // Let's rely on i18n.js exposing a promise or callback?
+    // Or just wait for a bit?
+    // The cleanest way is to have i18n.js call a callback or dispatch an event "i18nReady".
+
+    // For now, let's assume i18n.js is loaded before app.js (it is in HTML).
+    // But i18n.init() is async.
+
+    // Let's modify app.js to wait for i18n.
+    // But i18n.js as written above auto-inits on DOMContentLoaded.
+
+    // I'll add a check.
+});
+
+// Actually, let's just hook into the window event if we can, or just poll.
+// But wait, I can modify i18n.js to dispatch "i18nReady".
+// Let's assume I'll modify i18n.js slightly to dispatch "i18nReady" after init.
+// But I can't modify i18n.js easily now without another tool call.
+// Let's look at i18n.js again.
+// It dispatches 'languageChanged' in setLanguage.
+// It DOES NOT dispatch anything in init().
+// I should probably modify i18n.js to dispatch 'i18nReady' or 'languageChanged' in init().
+
+// However, for now, I will just wrap the init calls in a function and export it, 
+// and maybe call it from the bottom of i18n.js? No, that's circular.
+
+// Let's just use a simple polling or event listener if I modify i18n.js.
+// Since I have to modify app.js anyway, I can just put the init calls inside a function `initializeApp()`
+// and assign it to `window.initializeApp`. Then in `i18n.js`, after init, call `window.initializeApp()` if it exists.
+// That seems coupled.
+
+// Better: Listen for `languageChanged`.
+// In i18n.js:
+// async init() { ... await this.loadTranslations(...); this.applyTranslations(); ... window.dispatchEvent(new CustomEvent('languageChanged', ...)); }
+// I should update i18n.js to dispatch the event in init() too.
+
+// Let's update app.js first.
+
+window.addEventListener('languageChanged', (e) => {
+    updateDashboard();
+    updateAdBlockTab();
+    // loadConfig doesn't need i18n for the form values themselves, but if we had dynamic labels it would.
+    // The labels are static HTML handled by applyTranslations().
+    // So loadConfig is fine to run whenever.
+});
+
+// Also run once on start?
+// If i18n emits languageChanged on init, then yes.
+// If not, we need to know when it's ready.
+
+// I will modify i18n.js to dispatch 'languageChanged' at the end of init().
+// And I will remove the auto-execution of updateDashboard() etc from global scope in app.js
+// and instead put them in the event listener.
+
+loadConfig(); // This is safe to run immediately as it just fetches values.
 
 // --- AdBlock Tab Logic ---
 
@@ -339,17 +407,17 @@ document.getElementById('adblockSettingsForm').addEventListener('submit', functi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     })
-    .then(response => {
-        if (response.ok) {
-            alert('AdBlock settings saved successfully!');
-        } else {
-            response.json().then(data => alert('Failed to save settings: ' + data.message));
-        }
-    })
-    .catch(error => {
-        console.error('Error saving AdBlock settings:', error);
-        alert('An error occurred while saving AdBlock settings.');
-    });
+        .then(response => {
+            if (response.ok) {
+                alert(i18n.t('messages.adblockSettingsSaved'));
+            } else {
+                response.json().then(data => alert(i18n.t('messages.adblockSettingsSaveError', { error: data.message })));
+            }
+        })
+        .catch(error => {
+            console.error('Error saving AdBlock settings:', error);
+            alert(i18n.t('messages.adblockSettingsSaveErrorGeneric'));
+        });
 });
 
 function updateAdBlockTab() {
@@ -359,11 +427,11 @@ function updateAdBlockTab() {
         .then(response => {
             const data = response.data;
             if (!data.enabled) {
-                document.getElementById('adblock_status').textContent = 'Disabled';
+                document.getElementById('adblock_status').textContent = i18n.t('adblock.statusDisabled');
                 document.getElementById('adblock_status').className = 'value status-error';
                 return; // Stop if not enabled
             }
-            document.getElementById('adblock_status').textContent = 'Enabled';
+            document.getElementById('adblock_status').textContent = i18n.t('adblock.statusEnabled');
             document.getElementById('adblock_status').className = 'value status-success';
 
             // Set toggle switch state
@@ -380,7 +448,7 @@ function updateAdBlockTab() {
         })
         .catch(error => {
             console.error('Error fetching AdBlock status:', error);
-            document.getElementById('adblock_status').textContent = 'Error';
+            document.getElementById('adblock_status').textContent = i18n.t('adblock.statusError');
             document.getElementById('adblock_status').className = 'value status-error';
         });
 
@@ -432,22 +500,22 @@ function updateAdBlockTab() {
                         }).then(response => {
                             if (!response.ok) {
                                 e.target.checked = !enabled;
-                                response.text().then(text => alert('Failed to update source: ' + text));
+                                response.text().then(text => alert(i18n.t('messages.adblockSourceAddError', { error: text }))); // Reusing error msg
                             }
                         }).catch(err => {
                             e.target.checked = !enabled;
-                            alert('An error occurred: ' + err);
+                            alert(i18n.t('messages.adblockSourceAddError', { error: err }));
                         });
                     });
                 });
             } else {
-                sourcesTable.innerHTML = '<tr><td colspan="6" style="text-align:center;">No rule sources configured.</td></tr>';
+                sourcesTable.innerHTML = `<tr><td colspan="6" style="text-align:center;">${i18n.t('adblock.noSources')}</td></tr>`;
             }
         })
         .catch(error => {
             console.error('Error fetching AdBlock sources:', error);
             const sourcesTable = document.getElementById('adblock_sources_table').getElementsByTagName('tbody')[0];
-            sourcesTable.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red;">Error loading sources.</td></tr>';
+            sourcesTable.innerHTML = `<tr><td colspan="5" style="text-align:center; color: red;">${i18n.t('adblock.errorLoadingSources')}</td></tr>`;
         });
 
     loadAdBlockSettings();
@@ -466,40 +534,40 @@ document.getElementById('adblock_enable_toggle').addEventListener('change', func
             if (response.ok) {
                 // Update status text
                 const statusEl = document.getElementById('adblock_status');
-                statusEl.textContent = enabled ? 'Enabled' : 'Disabled';
+                statusEl.textContent = enabled ? i18n.t('adblock.statusEnabled') : i18n.t('adblock.statusDisabled');
                 statusEl.className = enabled ? 'value status-success' : 'value status-error';
                 console.log('AdBlock status changed to:', enabled);
             } else {
                 // Revert toggle on failure
                 e.target.checked = !enabled;
-                response.text().then(text => alert('Failed to toggle AdBlock: ' + text));
+                response.text().then(text => alert(i18n.t('messages.adblockToggleError', { error: text })));
             }
         })
         .catch(error => {
             // Revert toggle on error
             e.target.checked = !enabled;
-            alert('An error occurred: ' + error);
+            alert(i18n.t('messages.adblockToggleError', { error: error }));
         });
 });
 
 document.getElementById('adblockUpdateRulesButton').addEventListener('click', () => {
-    if (!confirm('Are you sure you want to force an update of all adblock rules? This may take a moment.')) return;
+    if (!confirm(i18n.t('messages.adblockUpdateConfirm'))) return;
     fetch('/api/adblock/update', { method: 'POST' })
         .then(response => {
             if (response.ok) {
-                alert('AdBlock rule update started in the background.');
+                alert(i18n.t('messages.adblockUpdateStarted'));
             } else {
-                response.text().then(text => alert('Failed to start update: ' + text));
+                response.text().then(text => alert(i18n.t('messages.adblockUpdateFailed', { error: text })));
             }
         })
-        .catch(error => alert('An error occurred: ' + error));
+        .catch(error => alert(i18n.t('messages.adblockUpdateError', { error: error })));
 });
 
 document.getElementById('adblockAddSourceButton').addEventListener('click', () => {
     const urlInput = document.getElementById('adblock_new_source_url');
     const url = urlInput.value.trim();
     if (!url) {
-        alert('Please enter a URL for the new rule source.');
+        alert(i18n.t('messages.enterUrl'));
         return;
     }
     fetch('/api/adblock/sources', {
@@ -509,21 +577,21 @@ document.getElementById('adblockAddSourceButton').addEventListener('click', () =
     })
         .then(response => {
             if (response.ok) {
-                alert('Source added successfully! It will be included in the next update.');
+                alert(i18n.t('messages.adblockSourceAdded'));
                 urlInput.value = '';
                 updateAdBlockTab(); // Refresh the list
             } else {
-                response.json().then(data => alert('Failed to add source: ' + data.message));
+                response.json().then(data => alert(i18n.t('messages.adblockSourceAddError', { error: data.message })));
             }
         })
-        .catch(error => alert('An error occurred: ' + error));
+        .catch(error => alert(i18n.t('messages.adblockSourceAddError', { error: error })));
 });
 
 // Event delegation for delete buttons
 document.getElementById('adblock_sources_table').addEventListener('click', function (e) {
     if (e.target && e.target.matches('button.btn-danger')) {
         const url = e.target.dataset.url;
-        if (!confirm(`Are you sure you want to delete the source:\\n${url}`)) return;
+        if (!confirm(i18n.t('messages.deleteConfirm') + '\n' + url)) return;
 
         fetch('/api/adblock/sources', {
             method: 'DELETE',
@@ -532,13 +600,13 @@ document.getElementById('adblock_sources_table').addEventListener('click', funct
         })
             .then(response => {
                 if (response.ok) {
-                    alert('Source deleted successfully!');
+                    alert(i18n.t('messages.adblockSourceDeleted'));
                     updateAdBlockTab(); // Refresh the list
                 } else {
-                    response.json().then(data => alert('Failed to delete source: ' + data.message));
+                    response.json().then(data => alert(i18n.t('messages.adblockSourceDeleteError', { error: data.message })));
                 }
             })
-            .catch(error => alert('An error occurred: ' + error));
+            .catch(error => alert(i18n.t('messages.adblockSourceDeleteError', { error: error })));
     }
 });
 
@@ -548,12 +616,12 @@ document.getElementById('adblockTestDomainButton').addEventListener('click', () 
     const resultDiv = document.getElementById('adblock_test_result');
 
     if (!domain) {
-        resultDiv.textContent = 'Please enter a domain to test.';
+        resultDiv.textContent = i18n.t('messages.enterDomain');
         resultDiv.className = 'test-result status-error';
         return;
     }
 
-    resultDiv.textContent = 'Testing...';
+    resultDiv.textContent = i18n.t('messages.testing');
     resultDiv.className = 'test-result';
 
     fetch('/api/adblock/test', {
@@ -565,15 +633,15 @@ document.getElementById('adblockTestDomainButton').addEventListener('click', () 
         .then(response => {
             const result = response.data;
             if (result.blocked) {
-                resultDiv.innerHTML = `<strong>Blocked!</strong><br>Rule: <code>${result.rule}</code>`;
+                resultDiv.innerHTML = `<strong>${i18n.t('messages.blocked')}</strong><br>${i18n.t('messages.rule')}: <code>${result.rule}</code>`;
                 resultDiv.className = 'test-result status-error';
             } else {
-                resultDiv.textContent = 'Not Blocked.';
+                resultDiv.textContent = i18n.t('messages.notBlocked');
                 resultDiv.className = 'test-result status-success';
             }
         })
         .catch(error => {
-            resultDiv.textContent = 'An error occurred during the test.';
+            resultDiv.textContent = i18n.t('messages.testError');
             resultDiv.className = 'test-result status-error';
             console.error('Test domain error:', error);
         });
@@ -586,7 +654,7 @@ document.getElementById('adblockSaveBlockModeButton').addEventListener('click', 
     const blockMode = blockModeSelect.value;
 
     if (!blockMode) {
-        alert('Please select a block mode.');
+        alert(i18n.t('messages.selectBlockMode'));
         return;
     }
 
@@ -597,14 +665,13 @@ document.getElementById('adblockSaveBlockModeButton').addEventListener('click', 
     })
         .then(response => {
             if (response.ok) {
-                alert('Block mode saved successfully!');
+                alert(i18n.t('messages.adblockBlockModeSaved'));
             } else {
-                response.text().then(text => alert('Failed to save block mode: ' + text));
+                response.text().then(text => alert(i18n.t('messages.adblockBlockModeSaveError', { error: text })));
             }
         })
         .catch(error => {
-            alert('An error occurred: ' + error);
+            alert(i18n.t('messages.adblockBlockModeSaveError', { error: error }));
             console.error('Save block mode error:', error);
         });
 });
-

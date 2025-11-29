@@ -888,3 +888,40 @@ input:disabled+.slider {
 .footer a:hover {
     text-decoration: underline;
 }
+/* Language Switcher */
+.lang-select {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: white;
+    font-size: 0.9rem;
+    color: #333;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+.lang-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+/* Chinese Font Support */
+[lang='zh-CN'] body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'Î¢ÈíÑÅºÚ', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+[lang='zh-CN'] .btn,
+[lang='zh-CN'] .tab-button,
+[lang='zh-CN'] button {
+    white-space: nowrap;
+}
+
+[lang='zh-CN'] .label,
+[lang='zh-CN'] th {
+    min-width: 140px;
+}
+
+[lang='zh-CN'] {
+    line-height: 1.65;
+}
+
