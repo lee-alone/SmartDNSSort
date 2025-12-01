@@ -1,9 +1,9 @@
 package prefetch
 
 import (
-	"log"
 	"smartdnssort/cache"
 	"smartdnssort/config"
+	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"sync"
 	"time"
@@ -55,12 +55,12 @@ func NewPrefetcher(cfg *config.PrefetchConfig, s Stats, c Cache, r Refresher) *P
 // Start begins the prefetching loop.
 func (p *Prefetcher) Start() {
 	if !p.cfg.Enabled {
-		log.Println("[Prefetcher] Prefetcher is disabled.")
+		logger.Info("[Prefetcher] Prefetcher is disabled.")
 		return
 	}
 	p.wg.Add(1)
 	go p.prefetchLoop()
-	log.Println("[Prefetcher] Prefetcher started.")
+	logger.Info("[Prefetcher] Prefetcher started.")
 }
 
 // Stop gracefully stops the prefetcher.
@@ -70,7 +70,7 @@ func (p *Prefetcher) Stop() {
 	}
 	close(p.stopChan)
 	p.wg.Wait()
-	log.Println("[Prefetcher] Prefetcher stopped.")
+	logger.Info("[Prefetcher] Prefetcher stopped.")
 }
 
 func (p *Prefetcher) prefetchLoop() {
@@ -90,7 +90,7 @@ func (p *Prefetcher) prefetchLoop() {
 
 // runPrefetchAndGetNextInterval runs a prefetch cycle and returns the duration until the next cycle should run.
 func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
-	log.Println("[Prefetcher] Running prefetch cycle.")
+	logger.Debug("[Prefetcher] Running prefetch cycle.")
 	topDomainsList := p.stats.GetTopDomains(p.cfg.TopDomainsLimit)
 
 	newTopDomains := make(map[string]bool, len(topDomainsList))
@@ -102,7 +102,7 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 	p.topDomainsMu.Unlock()
 
 	if len(topDomainsList) == 0 {
-		log.Println("[Prefetcher] No domains to prefetch. Sleeping for a default interval.")
+		logger.Debug("[Prefetcher] No domains to prefetch. Sleeping for a default interval.")
 		return 5 * time.Minute
 	}
 
@@ -123,7 +123,7 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 			threshold := float64(p.cfg.RefreshBeforeExpireSeconds)
 
 			if expiresIn.Seconds() < threshold {
-				log.Printf("[Prefetcher] Prefetching %s (type %s), expires in %.1f seconds.",
+				logger.Debugf("[Prefetcher] Prefetching %s (type %s), expires in %.1f seconds.",
 					domainStat.Domain, dns.TypeToString[qtype], expiresIn.Seconds())
 				p.refresher.RefreshDomain(domainStat.Domain, qtype)
 				prefetchedCount++
@@ -136,14 +136,14 @@ func (p *Prefetcher) runPrefetchAndGetNextInterval() time.Duration {
 		}
 	}
 	if prefetchedCount > 0 {
-		log.Printf("[Prefetcher] Prefetched %d entries.", prefetchedCount)
+		logger.Debugf("[Prefetcher] Prefetched %d entries.", prefetchedCount)
 	}
 
 	if minTimeToNextRefresh < 1*time.Second {
 		minTimeToNextRefresh = 1 * time.Second
 	}
 
-	log.Printf("[Prefetcher] Next prefetch cycle in %.1f seconds.", minTimeToNextRefresh.Seconds())
+	logger.Debugf("[Prefetcher] Next prefetch cycle in %.1f seconds.", minTimeToNextRefresh.Seconds())
 	return minTimeToNextRefresh
 }
 

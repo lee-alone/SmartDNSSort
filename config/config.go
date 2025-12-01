@@ -298,60 +298,18 @@ func CreateDefaultConfig(filePath string) error {
 }
 
 // ValidateAndRepairConfig 验证并修复配置文件中缺失的字段
-// 该函数会读取现有配置, 与默认配置合并后, 写入缺失的项
+// 该函数只在配置文件不存在时创建默认配置
+// 如果配置文件已存在，不做任何修改，以保留用户的注释和自定义配置
 func ValidateAndRepairConfig(filePath string) error {
 	// 如果文件不存在, 直接创建默认配置
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return CreateDefaultConfig(filePath)
 	}
 
-	// 读取现有配置
-	existingData, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-
-	// 解析现有配置到map
-	var existingConfig map[string]interface{}
-	if err := yaml.Unmarshal(existingData, &existingConfig); err != nil {
-		return err
-	}
-
-	// 解析默认配置到map
-	var defaultConfig map[string]interface{}
-	if err := yaml.Unmarshal([]byte(DefaultConfigContent), &defaultConfig); err != nil {
-		return err
-	}
-
-	// 合并配置(保留现有值, 只添加缺失的字段)
-	mergeConfig(existingConfig, defaultConfig)
-
-	// 将合并后的配置写回文件
-	mergedData, err := yaml.Marshal(existingConfig)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filePath, mergedData, 0644)
-}
-
-// mergeConfig 递归合并配置, 将default中存在但existing中不存在的字段添加到existing
-func mergeConfig(existing, defaultCfg map[string]interface{}) {
-	for key, defaultValue := range defaultCfg {
-		if existingValue, exists := existing[key]; exists {
-			// 如果existing中存在该key, 检查是否为嵌套map
-			if existingMap, ok := existingValue.(map[string]interface{}); ok {
-				if defaultMap, ok := defaultValue.(map[string]interface{}); ok {
-					// 递归合并嵌套map
-					mergeConfig(existingMap, defaultMap)
-				}
-			}
-			// 如果不是map或值已存在, 保留existing中的值
-		} else {
-			// 如果existing中不存在该key, 使用默认值
-			existing[key] = defaultValue
-		}
-	}
+	// 配置文件已存在，不做任何修改
+	// 这样可以保留用户的注释和零值配置（如 max_cpu_cores: 0）
+	// LoadConfig 函数会负责设置缺失字段的默认值
+	return nil
 }
 
 // LoadConfig 从YAML文件加载配置
@@ -390,6 +348,8 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	// Bootstrap DNS 默认值：如果未配置，使用公共 DNS 服务器
 	// 用于解析 DoH/DoT 服务器的域名
+	// 注意：这里不设置默认值，因为 DefaultConfigContent 中已经定义了
+	// 如果用户删除了这个配置，我们才使用公共 DNS
 	if len(cfg.Upstream.BootstrapDNS) == 0 {
 		cfg.Upstream.BootstrapDNS = []string{"8.8.8.8", "1.1.1.1", "8.8.4.4", "1.0.0.1"}
 	}
@@ -419,10 +379,10 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	// MaxTestIPs: 0 means unlimited, so we don't need to set a default if it's 0.
 	if cfg.Ping.RttCacheTtlSeconds == 0 {
-		cfg.Ping.RttCacheTtlSeconds = 600
+		cfg.Ping.RttCacheTtlSeconds = 60 // 与 DefaultConfigContent 保持一致
 	}
 	if cfg.Cache.FastResponseTTL == 0 {
-		cfg.Cache.FastResponseTTL = 60
+		cfg.Cache.FastResponseTTL = 15 // 与 DefaultConfigContent 保持一致
 	}
 	// Note: MinTTLSeconds 和 MaxTTLSeconds 默认为 0
 	// 0 表示不限制
@@ -430,7 +390,7 @@ func LoadConfig(filePath string) (*Config, error) {
 	//   - 仅 min > 0: 只增加过小的 TTL
 	//   - 仅 max > 0: 只减小过大的 TTL
 	if cfg.Cache.UserReturnTTL == 0 {
-		cfg.Cache.UserReturnTTL = 500
+		cfg.Cache.UserReturnTTL = 600 // 与 DefaultConfigContent 保持一致
 	}
 	if cfg.Cache.NegativeTTLSeconds == 0 {
 		cfg.Cache.NegativeTTLSeconds = 300
@@ -451,7 +411,7 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 
 	if cfg.Prefetch.TopDomainsLimit == 0 {
-		cfg.Prefetch.TopDomainsLimit = 1000
+		cfg.Prefetch.TopDomainsLimit = 100 // 与 DefaultConfigContent 保持一致
 	}
 	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
 		cfg.Prefetch.RefreshBeforeExpireSeconds = 10
@@ -468,7 +428,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.AdBlock.CacheDir = "./adblock_cache"
 	}
 	if cfg.AdBlock.UpdateIntervalHours == 0 {
-		cfg.AdBlock.UpdateIntervalHours = 24
+		cfg.AdBlock.UpdateIntervalHours = 168 // 与 DefaultConfigContent 保持一致
 	}
 	if cfg.AdBlock.MaxCacheAgeHours == 0 {
 		cfg.AdBlock.MaxCacheAgeHours = 168

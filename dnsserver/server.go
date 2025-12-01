@@ -838,7 +838,7 @@ func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname st
 	fqdn := dns.Fqdn(domain)
 	target := dns.Fqdn(cname)
 
-	log.Printf("[buildDNSResponseWithCNAME] 构造 CNAME 响应链: %s -> %s, 包含 %d 个IP, TTL=%d\n",
+	logger.Debugf("[buildDNSResponseWithCNAME] 构造 CNAME 响应链: %s -> %s, 包含 %d 个IP, TTL=%d\n",
 		domain, cname, len(ips), ttl)
 
 	// 1. 首先添加 CNAME 记录

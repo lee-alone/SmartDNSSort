@@ -77,20 +77,21 @@ func main() {
 	}
 
 	// 正常的 DNS 服务器启动流程
+	// 加载配置（先加载配置以获取日志级别设置）
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 立即设置日志级别，确保后续所有日志都遵循配置
+	logger.SetLevel(cfg.System.LogLevel)
+
 	// 验证并修复配置文件
 	logger.Infof("Validating config file: %s", *configPath)
 	if err := config.ValidateAndRepairConfig(*configPath); err != nil {
 		logger.Fatalf("Failed to validate/repair config: %v", err)
 	}
 
-	// 加载配置
-	cfg, err := config.LoadConfig(*configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// 设置日志级别
-	logger.SetLevel(cfg.System.LogLevel)
 	logger.Infof("Log level set to: %s", cfg.System.LogLevel)
 
 	// 设置 GOMAXPROCS

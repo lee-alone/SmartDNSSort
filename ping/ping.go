@@ -2,8 +2,8 @@ package ping
 
 import (
 	"context"
-	"log"
 	"net"
+	"smartdnssort/logger"
 	"sort"
 	"sync"
 	"time"
@@ -107,7 +107,7 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string) []Result {
 	var ipsToTest []string
 	if p.maxTestIPs > 0 && len(ips) > p.maxTestIPs {
 		ipsToTest = ips[:p.maxTestIPs]
-		log.Printf("[PingAndSort] IP 数量超过 max_test_ips (%d)，只测试前 %d 个 IP\n", p.maxTestIPs, p.maxTestIPs)
+		logger.Debugf("[PingAndSort] IP 数量超过 max_test_ips (%d)，只测试前 %d 个 IP", p.maxTestIPs, p.maxTestIPs)
 	} else {
 		ipsToTest = ips
 	}
@@ -127,7 +127,7 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string) []Result {
 			}
 		}
 		p.rttCacheMu.RUnlock()
-		log.Printf("[PingAndSort] RTT 缓存检查完成: %d 个命中, %d 个需要 ping\n", len(cachedResults), len(ipsToPing))
+		logger.Debugf("[PingAndSort] RTT 缓存检查完成: %d 个命中, %d 个需要 ping", len(cachedResults), len(ipsToPing))
 	} else {
 		// 未启用 RTT 缓存
 		ipsToPing = ipsToTest
@@ -159,14 +159,14 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string) []Result {
 	// 6. 对最终结果进行排序
 	p.sortResults(finalResults)
 
-	log.Printf("[PingAndSort] 排序完成，最终结果: %v\n", finalResults)
+	logger.Debugf("[PingAndSort] 排序完成，最终结果: %v", finalResults)
 
 	return finalResults
 }
 
 // performConcurrentPing 并发 ping 多个 IP，返回未排序的结果
 func (p *Pinger) performConcurrentPing(ctx context.Context, ips []string) []Result {
-	log.Printf("[performConcurrentPing] 开始对 %d 个 IP 进行并发ping测试，并发数:%d, 每个IP测试次数:%d\n", len(ips), p.concurrency, p.count)
+	logger.Debugf("[performConcurrentPing] 开始对 %d 个 IP 进行并发ping测试，并发数:%d, 每个IP测试次数:%d", len(ips), p.concurrency, p.count)
 
 	sem := make(chan struct{}, p.concurrency)
 	resultCh := make(chan Result, len(ips))
@@ -194,7 +194,7 @@ func (p *Pinger) performConcurrentPing(ctx context.Context, ips []string) []Resu
 		results = append(results, result)
 	}
 
-	log.Printf("[performConcurrentPing] 所有 ping 测试完成，收集了 %d 个结果\n", len(results))
+	logger.Debugf("[performConcurrentPing] 所有 ping 测试完成，收集了 %d 个结果", len(results))
 	return results
 }
 

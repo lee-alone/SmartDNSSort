@@ -3,7 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
-	"log"
+	"smartdnssort/logger"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,7 +130,7 @@ func (sq *SortQueue) workerLoop(id int) {
 
 // processTask 处理单个排序任务
 func (sq *SortQueue) processTask(task *SortTask, workerID int) {
-	log.Printf("[SortQueue Worker #%d] 开始处理排序任务: %s (IP数量:%d)\n", workerID, task.Domain, len(task.IPs))
+	logger.Debugf("[SortQueue Worker #%d] 开始处理排序任务: %s (IP数量:%d)\n", workerID, task.Domain, len(task.IPs))
 
 	sq.mu.Lock()
 	sortFunc := sq.sortFunc
@@ -138,7 +138,7 @@ func (sq *SortQueue) processTask(task *SortTask, workerID int) {
 	sq.mu.Unlock()
 
 	if sortFunc == nil {
-		log.Printf("[SortQueue Worker #%d] 错误：排序函数未设置\n", workerID)
+		logger.Debugf("[SortQueue Worker #%d] 错误：排序函数未设置\n", workerID)
 		if task.Callback != nil {
 			task.Callback(nil, ErrSortFuncNotSet)
 		}
@@ -152,7 +152,7 @@ func (sq *SortQueue) processTask(task *SortTask, workerID int) {
 	// 调用排序函数
 	sortedIPs, rtts, err := sortFunc(ctx, task.IPs)
 	if err != nil {
-		log.Printf("[SortQueue Worker #%d] 排序失败: %s, 错误: %v\n", workerID, task.Domain, err)
+		logger.Warnf("[SortQueue Worker #%d] 排序失败: %s, 错误: %v\n", workerID, task.Domain, err)
 		if task.Callback != nil {
 			task.Callback(nil, err)
 		}
@@ -169,7 +169,7 @@ func (sq *SortQueue) processTask(task *SortTask, workerID int) {
 		IsValid:   true,
 	}
 
-	log.Printf("[SortQueue Worker #%d] 排序完成: %s -> %v (RTT: %v)\n", workerID, task.Domain, sortedIPs, rtts)
+	logger.Debugf("[SortQueue Worker #%d] 排序完成: %s -> %v (RTT: %v)\n", workerID, task.Domain, sortedIPs, rtts)
 
 	// 调用回调函数
 	if task.Callback != nil {
@@ -186,7 +186,7 @@ func (sq *SortQueue) Stop() {
 	close(sq.taskQueue)
 	processed := atomic.LoadInt64(&sq.tasksProcessed)
 	failed := atomic.LoadInt64(&sq.tasksFailed)
-	log.Printf("[SortQueue] 排序队列已停止. 已处理任务: %d, 失败任务: %d\n", processed, failed)
+	logger.Debugf("[SortQueue] 排序队列已停止. 已处理任务: %d, 失败任务: %d\n", processed, failed)
 }
 
 // GetStats 获取统计信息

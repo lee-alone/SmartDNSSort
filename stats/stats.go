@@ -1,9 +1,9 @@
 package stats
 
 import (
-	"log"
 	"runtime"
 	"smartdnssort/config"
+	"smartdnssort/logger"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,7 +39,7 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 	go func() {
 		_, err := cpu.Percent(time.Second, false)
 		if err != nil {
-			log.Printf("无法初始化 CPU 使用率统计: %v", err)
+			logger.Warnf("无法初始化 CPU 使用率统计: %v", err)
 		}
 	}()
 
@@ -182,7 +182,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 	go func() {
 		usage, err := cpu.Percent(time.Millisecond*200, false)
 		if err != nil {
-			log.Printf("无法获取 CPU 使用率: %v", err)
+			logger.Warnf("无法获取 CPU 使用率: %v", err)
 			cpuUsageCh <- []float64{0.0}
 			return
 		}
@@ -199,7 +199,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		log.Printf("无法获取内存信息: %v", err)
+		logger.Warnf("无法获取内存信息: %v", err)
 	}
 
 	var memStats runtime.MemStats
