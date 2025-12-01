@@ -262,7 +262,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		} else {
 			// 3. 执行完整的规则匹配
 			if blocked, rule := adblockMgr.CheckHost(domain); blocked {
-				logger.Infof("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
+				logger.Debugf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
 
 				// 记录统计
 				adblockMgr.RecordBlock(domain, rule)
