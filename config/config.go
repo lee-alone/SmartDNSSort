@@ -154,6 +154,8 @@ system:
   sort_queue_workers: 0
   # 异步缓存刷新工作线程数，0 表示根据 CPU 核心数自动调整
   refresh_workers: 0
+  # 日志级别: debug, info, warn, error. 默认 info
+  log_level: "info"
 `
 
 type Config struct {
@@ -252,9 +254,10 @@ type AdBlockConfig struct {
 }
 
 type SystemConfig struct {
-	MaxCPUCores      int `yaml:"max_cpu_cores" json:"max_cpu_cores"`
-	SortQueueWorkers int `yaml:"sort_queue_workers" json:"sort_queue_workers"`
-	RefreshWorkers   int `yaml:"refresh_workers" json:"refresh_workers"`
+	MaxCPUCores      int    `yaml:"max_cpu_cores" json:"max_cpu_cores"`
+	SortQueueWorkers int    `yaml:"sort_queue_workers" json:"sort_queue_workers"`
+	RefreshWorkers   int    `yaml:"refresh_workers" json:"refresh_workers"`
+	LogLevel         string `yaml:"log_level" json:"log_level"`
 }
 
 type StatsConfig struct {
@@ -491,6 +494,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	if cfg.System.RefreshWorkers == 0 {
 		// Default to MaxCPUCores for better concurrency performance
 		cfg.System.RefreshWorkers = cfg.System.MaxCPUCores
+	}
+	if cfg.System.LogLevel == "" {
+		cfg.System.LogLevel = "info"
 	}
 
 	// Stats defaults

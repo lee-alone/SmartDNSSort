@@ -2,7 +2,7 @@ package dnsserver
 
 import (
 	"fmt"
-	"log"
+	"smartdnssort/logger"
 	"sync"
 )
 
@@ -91,7 +91,7 @@ func (rq *RefreshQueue) Submit(task RefreshTask) bool {
 
 	// 检查是否已有相同任务在进行中
 	if rq.inProgress[key] {
-		log.Printf("[RefreshQueue] 刷新任务已在进行中,跳过重复提交: %s (type=%d)\n", task.Domain, task.Qtype)
+		logger.Debugf("[RefreshQueue] 刷新任务已在进行中,跳过重复提交: %s (type=%d)", task.Domain, task.Qtype)
 		return false
 	}
 
@@ -100,10 +100,12 @@ func (rq *RefreshQueue) Submit(task RefreshTask) bool {
 	case rq.taskQueue <- task:
 		// 标记为进行中
 		rq.inProgress[key] = true
-		log.Printf("[RefreshQueue] 提交刷新任务: %s (type=%d)\n", task.Domain, task.Qtype)
+		// 标记为进行中
+		rq.inProgress[key] = true
+		logger.Debugf("[RefreshQueue] 提交刷新任务: %s (type=%d)", task.Domain, task.Qtype)
 		return true
 	default:
-		log.Printf("[RefreshQueue] 队列已满,刷新任务被丢弃: %s (type=%d)\n", task.Domain, task.Qtype)
+		logger.Warnf("[RefreshQueue] 队列已满,刷新任务被丢弃: %s (type=%d)", task.Domain, task.Qtype)
 		return false
 	}
 }
@@ -115,7 +117,7 @@ func (rq *RefreshQueue) markComplete(task RefreshTask) {
 
 	key := task.key()
 	delete(rq.inProgress, key)
-	log.Printf("[RefreshQueue] 刷新任务完成: %s (type=%d)\n", task.Domain, task.Qtype)
+	logger.Debugf("[RefreshQueue] 刷新任务完成: %s (type=%d)", task.Domain, task.Qtype)
 }
 
 // Stop 停止队列并等待所有任务完成
@@ -125,5 +127,7 @@ func (rq *RefreshQueue) Stop() {
 	// 注意:这里没有关闭 taskQueue,因为可能还有 worker 在读取
 	// worker 会在 quit 信号后退出循环
 	rq.wg.Wait()
-	log.Println("[RefreshQueue] 刷新队列已停止")
+	// worker 会在 quit 信号后退出循环
+	rq.wg.Wait()
+	logger.Info("[RefreshQueue] 刷新队列已停止")
 }

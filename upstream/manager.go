@@ -3,8 +3,8 @@ package upstream
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
+	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"sync"
 	"time"
@@ -88,7 +88,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
 
-	log.Printf("[queryParallel] 并行查询 %d 个服务器,查询 %s (type=%s),并发数=%d\n",
+	logger.Debugf("[queryParallel] 并行查询 %d 个服务器,查询 %s (type=%s),并发数=%d",
 		len(u.servers), domain, dns.TypeToString[qtype], u.concurrency)
 
 	// 创建结果通道
@@ -165,7 +165,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 				fastResponseSent.Do(func() {
 					select {
 					case fastResponseChan <- result:
-						log.Printf("[queryParallel] 🚀 快速响应: 服务器 %s 第一个返回成功结果，立即响应用户\n", srv.Address())
+						logger.Debugf("[queryParallel] 🚀 快速响应: 服务器 %s 第一个返回成功结果，立即响应用户", srv.Address())
 					default:
 					}
 				})
@@ -186,7 +186,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	select {
 	case fastResponse = <-fastResponseChan:
 		if fastResponse != nil {
-			log.Printf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+			logger.Debugf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
 				fastResponse.Server, len(fastResponse.IPs), fastResponse.CNAME, fastResponse.TTL, fastResponse.IPs)
 		}
 	case <-ctx.Done():
@@ -226,7 +226,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 // collectRemainingResponses 在后台收集剩余的响应并更新缓存
 func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastResponse *QueryResult, resultChan chan *QueryResult) {
-	log.Printf("[collectRemainingResponses] 🔄 开始后台收集剩余响应: %s (type=%s)\n", domain, dns.TypeToString[qtype])
+	logger.Debugf("[collectRemainingResponses] 🔄 开始后台收集剩余响应: %s (type=%s)", domain, dns.TypeToString[qtype])
 
 	allSuccessResults := []*QueryResult{fastResponse}
 	successCount := 1
@@ -247,7 +247,7 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 					u.stats.IncUpstreamFailure(result.Server)
 				}
 			}
-			log.Printf("[collectRemainingResponses] 服务器 %s 查询失败: %v\n", result.Server, result.Error)
+			logger.Warnf("[collectRemainingResponses] 服务器 %s 查询失败: %v", result.Server, result.Error)
 			continue
 		}
 
@@ -256,7 +256,7 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(result.Server)
 		}
-		log.Printf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
 			result.Server, successCount, len(result.IPs), result.CNAME, result.TTL, result.IPs)
 
 		// 收集所有成功的结果
@@ -274,16 +274,16 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		}
 	}
 
-	log.Printf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒\n",
+	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒",
 		successCount, len(mergedIPs), len(fastResponse.IPs), len(mergedIPs), fastResponse.CNAME, minTTL)
-	log.Printf("[collectRemainingResponses] 完整IP池: %v\n", mergedIPs)
+	logger.Debugf("[collectRemainingResponses] 完整IP池: %v", mergedIPs)
 
 	// 如果设置了缓存更新回调，则调用它来更新缓存
 	if u.cacheUpdateCallback != nil {
-		log.Printf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整IP池到缓存\n")
+		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整IP池到缓存")
 		u.cacheUpdateCallback(domain, qtype, mergedIPs, fastResponse.CNAME, minTTL)
 	} else {
-		log.Printf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存\n")
+		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存")
 	}
 }
 
@@ -320,7 +320,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		indices[i], indices[j] = indices[j], indices[i]
 	})
 
-	log.Printf("[queryRandom] 开始随机容错查询 %s (type=%s), 共 %d 个候选服务器\n",
+	logger.Debugf("[queryRandom] 开始随机容错查询 %s (type=%s), 共 %d 个候选服务器",
 		domain, dns.TypeToString[qtype], len(u.servers))
 
 	var lastResult *QueryResultWithTTL
@@ -334,7 +334,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 
 		// 健康检查：跳过临时不可用的服务器（熔断状态）
 		if server.ShouldSkipTemporarily() {
-			log.Printf("[queryRandom] ⚠️  跳过临时不可用的服务器: %s (熔断状态)\n",
+			logger.Warnf("[queryRandom] ⚠️  跳过临时不可用的服务器: %s (熔断状态)",
 				server.Address())
 			continue
 		}
@@ -342,7 +342,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		// 检查上下文是否已超时或取消
 		select {
 		case <-ctx.Done():
-			log.Printf("[queryRandom] ⏱️  上下文已取消/超时,停止尝试 (已尝试 %d/%d 个服务器)\n",
+			logger.Warnf("[queryRandom] ⏱️  上下文已取消/超时,停止尝试 (已尝试 %d/%d 个服务器)",
 				attemptNum, len(u.servers))
 			if lastErr == nil {
 				lastErr = ctx.Err()
@@ -351,7 +351,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		default:
 		}
 
-		log.Printf("[queryRandom] 第 %d/%d 次尝试: 服务器 %s\n",
+		logger.Debugf("[queryRandom] 第 %d/%d 次尝试: 服务器 %s",
 			attemptNum+1, len(u.servers), server.Address())
 
 		// 为单个服务器查询创建独立的超时上下文
@@ -371,7 +371,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			if u.stats != nil {
 				u.stats.IncUpstreamFailure(server.Address())
 			}
-			log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, 错误: %v\n",
+			logger.Warnf("[queryRandom] ❌ 第 %d 次尝试失败: %s, 错误: %v",
 				attemptNum+1, server.Address(), err)
 			continue
 		}
@@ -383,7 +383,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			if u.stats != nil {
 				u.stats.IncUpstreamSuccess(server.Address())
 			}
-			log.Printf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒\n",
+			logger.Debugf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒",
 				attemptNum+1, server.Address(), ttl)
 			return &QueryResultWithTTL{IPs: nil, CNAME: "", TTL: ttl}, nil
 		}
@@ -395,7 +395,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			if u.stats != nil {
 				u.stats.IncUpstreamFailure(server.Address())
 			}
-			log.Printf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)\n",
+			logger.Warnf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)",
 				attemptNum+1, server.Address(), reply.Rcode, dns.RcodeToString[reply.Rcode])
 			continue
 		}
@@ -407,7 +407,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		if len(ips) == 0 && cname == "" {
 			failureCount++
 			lastErr = fmt.Errorf("empty response: no IPs or CNAME found")
-			log.Printf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果\n",
+			logger.Warnf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果",
 				attemptNum+1, server.Address())
 			// 保存这个空结果,但继续尝试其他服务器
 			lastResult = &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}
@@ -420,19 +420,19 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			u.stats.IncUpstreamSuccess(server.Address())
 		}
 
-		log.Printf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
 			attemptNum+1, server.Address(), len(ips), cname, ttl, ips)
 
 		return &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}, nil
 	}
 
 	// 所有服务器都失败了
-	log.Printf("[queryRandom] ❌ 所有服务器都失败: 成功=%d, 失败=%d, 最后错误: %v\n",
+	logger.Errorf("[queryRandom] ❌ 所有服务器都失败: 成功=%d, 失败=%d, 最后错误: %v",
 		successCount, failureCount, lastErr)
 
 	// 返回最后一次的结果(即使是空的),这比返回 nil 更友好
 	if lastResult != nil {
-		log.Printf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAME=%s\n",
+		logger.Warnf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAME=%s",
 			len(lastResult.IPs), lastResult.CNAME)
 	}
 

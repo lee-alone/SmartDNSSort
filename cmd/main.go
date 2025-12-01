@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
+	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
@@ -77,9 +78,9 @@ func main() {
 
 	// 正常的 DNS 服务器启动流程
 	// 验证并修复配置文件
-	log.Printf("Validating config file: %s\n", *configPath)
+	logger.Infof("Validating config file: %s", *configPath)
 	if err := config.ValidateAndRepairConfig(*configPath); err != nil {
-		log.Fatalf("Failed to validate/repair config: %v", err)
+		logger.Fatalf("Failed to validate/repair config: %v", err)
 	}
 
 	// 加载配置
@@ -88,10 +89,14 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 设置日志级别
+	logger.SetLevel(cfg.System.LogLevel)
+	logger.Infof("Log level set to: %s", cfg.System.LogLevel)
+
 	// 设置 GOMAXPROCS
 	if cfg.System.MaxCPUCores > 0 {
 		runtime.GOMAXPROCS(cfg.System.MaxCPUCores)
-		log.Printf("Set GOMAXPROCS to %d\n", cfg.System.MaxCPUCores)
+		logger.Infof("Set GOMAXPROCS to %d", cfg.System.MaxCPUCores)
 	}
 
 	// 初始化统计模块
@@ -117,7 +122,7 @@ func main() {
 		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, *configPath, restartFunc)
 		go func() {
 			if err := webServer.Start(); err != nil {
-				log.Printf("Web API server error: %v\n", err)
+				logger.Errorf("Web API server error: %v", err)
 			}
 		}()
 	}
@@ -125,7 +130,7 @@ func main() {
 	// 在 goroutine 中启动 DNS 服务器，以非阻塞方式运行
 	go func() {
 		if err := dnsServer.Start(); err != nil {
-			log.Fatalf("Failed to start DNS server: %v", err)
+			logger.Fatalf("Failed to start DNS server: %v", err)
 		}
 	}()
 
@@ -134,12 +139,12 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	// 停止服务
 	dnsServer.Shutdown()
 
-	log.Println("Server gracefully stopped.")
+	logger.Info("Server gracefully stopped.")
 }
 
 func printHelp() {

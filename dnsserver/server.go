@@ -9,6 +9,7 @@ import (
 	"smartdnssort/adblock"
 	"smartdnssort/cache"
 	"smartdnssort/config"
+	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
 	"smartdnssort/stats"
@@ -58,7 +59,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	for _, serverUrl := range cfg.Upstream.Servers {
 		u, err := upstream.NewUpstream(serverUrl, boot)
 		if err != nil {
-			log.Printf("Failed to create upstream for %s: %v", serverUrl, err)
+			logger.Errorf("Failed to create upstream for %s: %v", serverUrl, err)
 			continue
 		}
 		upstreams = append(upstreams, u)
@@ -75,10 +76,10 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	// 初始化 AdBlock 管理器
-	log.Println("[AdBlock] Initializing AdBlock Manager...")
+	logger.Info("[AdBlock] Initializing AdBlock Manager...")
 	adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
 	if err != nil {
-		log.Printf("[AdBlock] Failed to initialize manager: %v", err)
+		logger.Errorf("[AdBlock] Failed to initialize manager: %v", err)
 		// If initialization fails, we must ensure it's disabled in config
 		cfg.AdBlock.Enable = false
 	} else {
@@ -86,9 +87,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		// Start the adblock manager (downloads rules, etc.)
 		go server.adblockManager.Start(context.Background())
 		if cfg.AdBlock.Enable {
-			log.Println("[AdBlock] Manager initialized and started (Enabled).")
+			logger.Info("[AdBlock] Manager initialized and started (Enabled).")
 		} else {
-			log.Println("[AdBlock] Manager initialized and started (Disabled).")
+			logger.Info("[AdBlock] Manager initialized and started (Disabled).")
 		}
 	}
 
@@ -113,7 +114,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 // setupUpstreamCallback 设置上游管理器的缓存更新回调
 func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 	u.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cname string, ttl uint32) {
-		log.Printf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAME=%s, TTL=%d秒\n",
+		logger.Debugf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAME=%s, TTL=%d秒",
 			domain, dns.TypeToString[qtype], len(ips), cname, ttl)
 
 		// 获取当前原始缓存中的 IP 数量
@@ -128,7 +129,7 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 
 		// 如果后台收集的 IP 数量比之前多，需要重新排序
 		if len(ips) > oldIPCount {
-			log.Printf("[CacheUpdateCallback] 后台收集到更多IP (%d -> %d)，清除旧排序状态并重新排序\n",
+			logger.Debugf("[CacheUpdateCallback] 后台收集到更多IP (%d -> %d)，清除旧排序状态并重新排序",
 				oldIPCount, len(ips))
 
 			// 清除旧的排序状态，允许重新排序
@@ -137,14 +138,14 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 			// 触发异步排序，更新排序缓存
 			go s.sortIPsAsync(domain, qtype, ips, ttl, time.Now())
 		} else {
-			log.Printf("[CacheUpdateCallback] IP数量未增加 (%d)，保持现有排序\n", len(ips))
+			logger.Debugf("[CacheUpdateCallback] IP数量未增加 (%d)，保持现有排序", len(ips))
 		}
 	})
 }
 
 // performPingSort 执行 ping 排序操作
 func (s *Server) performPingSort(ctx context.Context, ips []string) ([]string, []int, error) {
-	log.Printf("[performPingSort] 对 %d 个 IP 进行 ping 排序\n", len(ips))
+	logger.Debugf("[performPingSort] 对 %d 个 IP 进行 ping 排序", len(ips))
 
 	s.mu.RLock()
 	pinger := s.pinger
@@ -192,9 +193,9 @@ func (s *Server) Start() error {
 		}
 
 		go func() {
-			log.Printf("TCP DNS server started on %s\n", addr)
+			logger.Infof("TCP DNS server started on %s", addr)
 			if err := s.tcpServer.ListenAndServe(); err != nil {
-				log.Printf("TCP server error: %v\n", err)
+				logger.Errorf("TCP server error: %v", err)
 			}
 		}()
 	}
@@ -205,7 +206,7 @@ func (s *Server) Start() error {
 	// Start the prefetcher
 	s.prefetcher.Start()
 
-	log.Printf("UDP DNS server started on %s\n", addr)
+	logger.Infof("UDP DNS server started on %s", addr)
 	return s.udpServer.ListenAndServe()
 }
 
@@ -235,7 +236,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if adblockMgr != nil && currentCfg.AdBlock.Enable {
 		// 1. 检查拦截缓存 (快速路径)
 		if entry, hit := s.cache.GetBlocked(domain); hit {
-			log.Printf("[AdBlock] Cache Hit (Blocked): %s (rule: %s)", domain, entry.Rule)
+			logger.Debugf("[AdBlock] Cache Hit (Blocked): %s (rule: %s)", domain, entry.Rule)
 			adblockMgr.RecordBlock(domain, entry.Rule)
 
 			// 使用缓存中的 BlockType 或当前配置
@@ -261,7 +262,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		} else {
 			// 3. 执行完整的规则匹配
 			if blocked, rule := adblockMgr.CheckHost(domain); blocked {
-				log.Printf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
+				logger.Infof("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
 
 				// 记录统计
 				adblockMgr.RecordBlock(domain, rule)
@@ -316,13 +317,13 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// 这样只统计有效域名（能解析出IP的域名）
 	s.RecordRecentQuery(domain)
 
-	log.Printf("[handleQuery] 查询: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
+	logger.Debugf("[handleQuery] 查询: %s (type=%s)", domain, dns.TypeToString[question.Qtype])
 
 	// ========== 优先检查错误缓存 ==========
 	// 只缓存 NXDOMAIN（域名不存在）错误，不缓存 SERVFAIL 等临时错误
 	if _, ok := s.cache.GetError(domain, question.Qtype); ok {
 		currentStats.IncCacheHits()
-		log.Printf("[handleQuery] NXDOMAIN 缓存命中: %s (type=%s)\n",
+		logger.Debugf("[handleQuery] NXDOMAIN 缓存命中: %s (type=%s)",
 			domain, dns.TypeToString[question.Qtype])
 		msg.SetRcode(r, dns.RcodeNameError)
 		w.WriteMsg(msg)
@@ -358,7 +359,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			userTTL = uint32(remaining)
 		}
 
-		log.Printf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (原始TTL=%d, 剩余=%d, 返回=%d)\n",
+		logger.Debugf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (原始TTL=%d, 剩余=%d, 返回=%d)",
 			domain, dns.TypeToString[question.Qtype], sorted.IPs, sorted.TTL, remaining, userTTL)
 
 		// 检查是否有 CNAME（从原始缓存获取）
@@ -383,7 +384,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
-		log.Printf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)\n",
+		logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)",
 			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAME, raw.IsExpired())
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
@@ -396,7 +397,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		w.WriteMsg(msg)
 
 		if raw.IsExpired() {
-			log.Printf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)\n",
+			logger.Debugf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)",
 				domain, dns.TypeToString[question.Qtype])
 			task := RefreshTask{Domain: domain, Qtype: question.Qtype}
 			s.refreshQueue.Submit(task)
@@ -410,7 +411,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// ========== IPv6 开关检查 ==========
 	if question.Qtype == dns.TypeAAAA && !currentCfg.DNS.EnableIPv6 {
-		log.Printf("[handleQuery] IPv6 已禁用，直接返回空响应: %s\n", domain)
+		logger.Debugf("[handleQuery] IPv6 已禁用，直接返回空响应: %s", domain)
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
 		w.WriteMsg(msg)
@@ -418,7 +419,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	// ========== 阶段一：首次查询（无缓存）==========
-	log.Printf("[handleQuery] 首次查询，无缓存: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
+	logger.Debugf("[handleQuery] 首次查询，无缓存: %s (type=%s)", domain, dns.TypeToString[question.Qtype])
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
@@ -432,7 +433,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	})
 
 	if shared {
-		log.Printf("[handleQuery] 合并并发请求: %s (type=%s)\n", domain, dns.TypeToString[question.Qtype])
+		logger.Debugf("[handleQuery] 合并并发请求: %s (type=%s)", domain, dns.TypeToString[question.Qtype])
 	}
 
 	var result *upstream.QueryResultWithTTL
@@ -445,7 +446,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
-		log.Printf("[handleQuery] 上游查询失败: %v\n", err)
+		logger.Warnf("[handleQuery] 上游查询失败: %v", err)
 		originalRcode := parseRcodeFromError(err)
 		if originalRcode != dns.RcodeNameError {
 			currentStats.IncUpstreamFailures()
@@ -453,11 +454,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		if originalRcode == dns.RcodeNameError {
 			s.cache.SetError(domain, question.Qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
-			log.Printf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s\n", domain)
+			logger.Debugf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s", domain)
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(msg)
 		} else {
-			log.Printf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d\n", domain, originalRcode)
+			logger.Debugf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d", domain, originalRcode)
 			msg.SetRcode(r, dns.RcodeSuccess)
 			msg.Answer = nil
 			w.WriteMsg(msg)
@@ -473,7 +474,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	if len(ips) > 0 {
 		currentStats.RecordDomainQuery(domain)
-		log.Printf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v\n",
+		logger.Debugf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v",
 			domain, dns.TypeToString[question.Qtype], len(ips), cname, upstreamTTL, ips)
 
 		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
@@ -481,7 +482,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		if cname != "" {
-			log.Printf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs\n", domain, cname)
+			logger.Debugf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs", domain, cname)
 			s.buildDNSResponseWithCNAME(msg, domain, cname, ips, question.Qtype, fastTTL)
 		} else {
 			s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
@@ -491,11 +492,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	if cname != "" {
-		log.Printf("[handleQuery] 上游查询返回 CNAME，开始递归解析: %s -> %s\n", domain, cname)
+		logger.Debugf("[handleQuery] 上游查询返回 CNAME，开始递归解析: %s -> %s", domain, cname)
 
 		finalResult, err := s.resolveCNAME(ctx, cname, question.Qtype)
 		if err != nil {
-			log.Printf("[handleQuery] CNAME 递归解析失败: %v\n", err)
+			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", err)
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(msg)
 			return
@@ -515,7 +516,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	log.Printf("[handleQuery] 上游查询返回空结果 (NODATA): %s\n", domain)
+	logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
 	msg.SetRcode(r, dns.RcodeSuccess)
 	msg.Answer = nil
 	w.WriteMsg(msg)
@@ -526,7 +527,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg, domain string, question dns.Question) bool {
 	// Rule: Single-label domain (no dots)
 	if !strings.Contains(domain, ".") {
-		log.Printf("[QueryFilter] REFUSED: single-label domain query for '%s'", domain)
+		logger.Debugf("[QueryFilter] REFUSED: single-label domain query for '%s'", domain)
 		msg.SetRcode(r, dns.RcodeRefused)
 		w.WriteMsg(msg)
 		return true
@@ -534,7 +535,7 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 
 	// Rule: localhost
 	if domain == "localhost" {
-		log.Printf("[QueryFilter] STATIC: localhost query for '%s'", domain)
+		logger.Debugf("[QueryFilter] STATIC: localhost query for '%s'", domain)
 		var ips []string
 		switch question.Qtype {
 		case dns.TypeA:
@@ -549,7 +550,7 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 
 	// Rule: Reverse DNS queries
 	if strings.HasSuffix(domain, ".in-addr.arpa") || strings.HasSuffix(domain, ".ip6.arpa") {
-		log.Printf("[QueryFilter] REFUSED: reverse DNS query for '%s'", domain)
+		logger.Debugf("[QueryFilter] REFUSED: reverse DNS query for '%s'", domain)
 		msg.SetRcode(r, dns.RcodeRefused)
 		w.WriteMsg(msg)
 		return true
@@ -572,7 +573,7 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	}
 
 	if rcode, ok := blockedDomains[domain]; ok {
-		log.Printf("[QueryFilter] Rule match for '%s', responding with %s", domain, dns.RcodeToString[rcode])
+		logger.Debugf("[QueryFilter] Rule match for '%s', responding with %s", domain, dns.RcodeToString[rcode])
 		msg.SetRcode(r, rcode)
 		w.WriteMsg(msg)
 		return true
@@ -618,14 +619,14 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 	// 检查是否已有排序任务在进行
 	state, isNew := s.cache.GetOrStartSort(domain, qtype)
 	if !isNew {
-		log.Printf("[sortIPsAsync] 排序任务已在进行: %s (type=%s)，跳过重复排序\n",
+		logger.Debugf("[sortIPsAsync] 排序任务已在进行: %s (type=%s)，跳过重复排序",
 			domain, dns.TypeToString[qtype])
 		return
 	}
 
 	// 优化：如果只有一个IP，则无需排序
 	if len(ips) == 1 {
-		log.Printf("[sortIPsAsync] 只有一个IP，跳过排序: %s (type=%s) -> %s\n",
+		logger.Debugf("[sortIPsAsync] 只有一个IP，跳过排序: %s (type=%s) -> %s",
 			domain, dns.TypeToString[qtype], ips[0])
 
 		// 直接创建排序结果
@@ -642,7 +643,7 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		return
 	}
 
-	log.Printf("[sortIPsAsync] 启动异步排序任务: %s (type=%s), IP数量=%d\n",
+	logger.Debugf("[sortIPsAsync] 启动异步排序任务: %s (type=%s), IP数量=%d",
 		domain, dns.TypeToString[qtype], len(ips))
 
 	// 创建排序任务
@@ -659,7 +660,7 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 	// 提交到排序队列
 	// 如果队列已满，回退到同步排序（立即执行）
 	if !s.sortQueue.Submit(task) {
-		log.Printf("[sortIPsAsync] 排序队列已满，改用同步排序: %s (type=%s)\n",
+		logger.Warnf("[sortIPsAsync] 排序队列已满，改用同步排序: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
 		task.Callback(nil, fmt.Errorf("sort queue full"))
 	}
@@ -668,20 +669,20 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 // handleSortComplete 处理排序完成事件
 func (s *Server) handleSortComplete(domain string, qtype uint16, result *cache.SortedCacheEntry, err error, state *cache.SortingState) {
 	if err != nil {
-		log.Printf("[handleSortComplete] 排序失败: %s (type=%s), 错误: %v\n",
+		logger.Warnf("[handleSortComplete] 排序失败: %s (type=%s), 错误: %v",
 			domain, dns.TypeToString[qtype], err)
 		s.cache.FinishSort(domain, qtype, nil, err, state)
 		return
 	}
 
 	if result == nil {
-		log.Printf("[handleSortComplete] 排序结果为空: %s (type=%s)\n",
+		logger.Warnf("[handleSortComplete] 排序结果为空: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
 		s.cache.FinishSort(domain, qtype, nil, fmt.Errorf("sort result is nil"), state)
 		return
 	}
 
-	log.Printf("[handleSortComplete] 排序完成: %s (type=%s) -> %v (RTT: %v)\n",
+	logger.Debugf("[handleSortComplete] 排序完成: %s (type=%s) -> %v (RTT: %v)",
 		domain, dns.TypeToString[qtype], result.IPs, result.RTTs)
 
 	// 从原始缓存获取获取时间，计算剩余 TTL
@@ -706,7 +707,7 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	domain := task.Domain
 	qtype := task.Qtype
 
-	log.Printf("[refreshCacheAsync] 开始异步刷新缓存: %s (type=%s)\n", domain, dns.TypeToString[qtype])
+	logger.Debugf("[refreshCacheAsync] 开始异步刷新缓存: %s (type=%s)", domain, dns.TypeToString[qtype])
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cfg.Upstream.TimeoutMs)*time.Millisecond)
 	defer cancel()
@@ -714,18 +715,18 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	// 查询上游 DNS
 	result, err := s.upstream.Query(ctx, domain, qtype)
 	if err != nil {
-		log.Printf("[refreshCacheAsync] 刷新缓存失败: %s (type=%s), 错误: %v\n",
+		logger.Warnf("[refreshCacheAsync] 刷新缓存失败: %s (type=%s), 错误: %v",
 			domain, dns.TypeToString[qtype], err)
 		return
 	}
 
 	if result == nil || len(result.IPs) == 0 {
-		log.Printf("[refreshCacheAsync] 刷新缓存返回空结果: %s (type=%s)\n",
+		logger.Debugf("[refreshCacheAsync] 刷新缓存返回空结果: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
 		return
 	}
 
-	log.Printf("[refreshCacheAsync] 刷新缓存成功，获得 %d 个IP: %v\n", len(result.IPs), result.IPs)
+	logger.Debugf("[refreshCacheAsync] 刷新缓存成功，获得 %d 个IP: %v", len(result.IPs), result.IPs)
 
 	// 更新原始缓存
 	s.cache.SetRaw(domain, qtype, result.IPs, result.CNAME, result.TTL)
@@ -740,7 +741,7 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 	currentDomain := domain
 
 	for i := 0; i < maxRedirects; i++ {
-		log.Printf("[resolveCNAME] 递归查询 #%d: %s (type=%s)\n", i+1, currentDomain, dns.TypeToString[qtype])
+		logger.Debugf("[resolveCNAME] 递归查询 #%d: %s (type=%s)", i+1, currentDomain, dns.TypeToString[qtype])
 
 		// 检查上下文是否已取消
 		if err := ctx.Err(); err != nil {
@@ -757,7 +758,7 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 
 		// 如果找到了 IP，解析结束
 		if len(result.IPs) > 0 {
-			log.Printf("[resolveCNAME] 成功解析到 IP: %v for domain %s\n", result.IPs, queryDomain)
+			logger.Debugf("[resolveCNAME] 成功解析到 IP: %v for domain %s", result.IPs, queryDomain)
 			// CNAME链的最终结果的CNAME字段应为空
 			result.CNAME = ""
 			return result, nil
@@ -765,7 +766,7 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 
 		// 如果没有 IP 但有 CNAME，继续重定向
 		if result.CNAME != "" {
-			log.Printf("[resolveCNAME] 发现下一跳 CNAME: %s -> %s\n", queryDomain, result.CNAME)
+			logger.Debugf("[resolveCNAME] 发现下一跳 CNAME: %s -> %s", queryDomain, result.CNAME)
 			currentDomain = result.CNAME
 			continue
 		}
@@ -788,7 +789,7 @@ func (s *Server) RefreshDomain(domain string, qtype uint16) {
 // buildDNSResponse 构造 DNS 响应
 func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32) {
 	fqdn := dns.Fqdn(domain)
-	log.Printf("[buildDNSResponse] 构造响应: %s (type=%s) 包含 %d 个IP, TTL=%d\n",
+	logger.Debugf("[buildDNSResponse] 构造响应: %s (type=%s) 包含 %d 个IP, TTL=%d",
 		domain, dns.TypeToString[qtype], len(ips), ttl)
 
 	for _, ip := range ips {
@@ -998,7 +999,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	var newSortQueue *cache.SortQueue
 	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
-		log.Printf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
+		logger.Infof("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
 		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
 		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
 			return s.performPingSort(ctx, ips)
@@ -1007,14 +1008,14 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	var newRefreshQueue *RefreshQueue
 	if s.cfg.System.RefreshWorkers != newCfg.System.RefreshWorkers {
-		log.Printf("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
+		logger.Infof("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
 		newRefreshQueue = NewRefreshQueue(newCfg.System.RefreshWorkers, 100)
 		newRefreshQueue.SetWorkFunc(s.refreshCacheAsync)
 	}
 
 	var newPrefetcher *prefetch.Prefetcher
 	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
-		log.Println("Reloading Prefetcher due to configuration changes.")
+		logger.Info("Reloading Prefetcher due to configuration changes.")
 		newPrefetcher = prefetch.NewPrefetcher(&newCfg.Prefetch, s.stats, s.cache, s)
 	}
 
@@ -1052,29 +1053,29 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	// Update the config reference
 	s.cfg = newCfg
 
-	log.Println("New configuration applied successfully.")
+	logger.Info("New configuration applied successfully.")
 	return nil
 }
 
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown() {
-	log.Printf("[Server] 开始关闭服务器...\n")
+	logger.Info("[Server] 开始关闭服务器...")
 
 	if s.udpServer != nil {
 		if err := s.udpServer.Shutdown(); err != nil {
-			log.Printf("[Server] UDP server shutdown error: %v", err)
+			logger.Errorf("[Server] UDP server shutdown error: %v", err)
 		}
 	}
 	if s.tcpServer != nil {
 		if err := s.tcpServer.Shutdown(); err != nil {
-			log.Printf("[Server] TCP server shutdown error: %v", err)
+			logger.Errorf("[Server] TCP server shutdown error: %v", err)
 		}
 	}
 
 	s.sortQueue.Stop()
 	s.prefetcher.Stop()
 	s.refreshQueue.Stop()
-	log.Printf("[Server] 服务器已关闭\n")
+	logger.Info("[Server] 服务器已关闭")
 }
 
 // GetAdBlockManager returns the adblock manager instance.
@@ -1088,7 +1089,7 @@ func (s *Server) SetAdBlockEnabled(enabled bool) {
 	defer s.mu.Unlock()
 
 	s.cfg.AdBlock.Enable = enabled
-	log.Printf("[AdBlock] Filtering status changed to: %v", enabled)
+	logger.Infof("[AdBlock] Filtering status changed to: %v", enabled)
 }
 
 // convertHealthCheckConfig 将 config.HealthCheckConfig 转换为 upstream.HealthCheckConfig
