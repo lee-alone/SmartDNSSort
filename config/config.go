@@ -115,6 +115,8 @@ cache:
   eviction_batch_percent: 0.1
   # 在LRU淘汰期间，是否保护预取列表中的域名不被清除。
   protect_prefetch_domains: true
+  # 缓存持久化落盘间隔（分钟），默认 60 分钟
+  save_to_disk_interval_minutes: 60
 
 # 预取配置（提前刷新缓存）
 prefetch:
@@ -219,11 +221,12 @@ type CacheConfig struct {
 	ErrorCacheTTL      int `yaml:"error_cache_ttl_seconds" json:"error_cache_ttl_seconds"` // 错误响应缓存的TTL
 
 	// 内存缓存管理 (高级)
-	MaxMemoryMB            int     `yaml:"max_memory_mb" json:"max_memory_mb"`
-	KeepExpiredEntries     bool    `yaml:"keep_expired_entries" json:"keep_expired_entries"`
-	EvictionThreshold      float64 `yaml:"eviction_threshold" json:"eviction_threshold"`
-	EvictionBatchPercent   float64 `yaml:"eviction_batch_percent" json:"eviction_batch_percent"`
-	ProtectPrefetchDomains bool    `yaml:"protect_prefetch_domains" json:"protect_prefetch_domains"`
+	MaxMemoryMB               int     `yaml:"max_memory_mb" json:"max_memory_mb"`
+	KeepExpiredEntries        bool    `yaml:"keep_expired_entries" json:"keep_expired_entries"`
+	EvictionThreshold         float64 `yaml:"eviction_threshold" json:"eviction_threshold"`
+	EvictionBatchPercent      float64 `yaml:"eviction_batch_percent" json:"eviction_batch_percent"`
+	ProtectPrefetchDomains    bool    `yaml:"protect_prefetch_domains" json:"protect_prefetch_domains"`
+	SaveToDiskIntervalMinutes int     `yaml:"save_to_disk_interval_minutes" json:"save_to_disk_interval_minutes"`
 }
 
 type PrefetchConfig struct {
@@ -408,6 +411,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Cache.EvictionBatchPercent == 0 {
 		cfg.Cache.EvictionBatchPercent = 0.1
+	}
+	if cfg.Cache.SaveToDiskIntervalMinutes == 0 {
+		cfg.Cache.SaveToDiskIntervalMinutes = 60
 	}
 
 	if cfg.Prefetch.TopDomainsLimit == 0 {

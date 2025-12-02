@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"encoding/json"
+	"os"
 	"smartdnssort/config"
 	"sort"
 	"strings"
@@ -470,4 +472,86 @@ func (c *Cache) cleanAuxiliaryCaches() {
 
 	// 调用 adblock_cache.go 中的清理方法
 	c.cleanAdBlockCaches()
+}
+
+// PersistentCacheEntry 用于持久化的缓存项
+type PersistentCacheEntry struct {
+	Domain string   `json:"domain"`
+	QType  uint16   `json:"qtype"`
+	IPs    []string `json:"ips"`
+	CNAME  string   `json:"cname,omitempty"`
+}
+
+// SaveToDisk 将缓存保存到磁盘
+// 采用原子写入策略：先写入临时文件，再重命名，防止写入中断导致文件损坏
+func (c *Cache) SaveToDisk(filename string) error {
+	c.mu.RLock()
+	// 注意：这里我们只持有读锁来读取数据，耗时的 IO 操作应该在锁外进行吗？
+	// 为了数据一致性，我们在持有锁期间生成快照（Marshal），这通常很快。
+	// 写入磁盘的操作可以放在锁外，但 data 已经在内存中了。
+
+	var entries []PersistentCacheEntry
+	for key, entry := range c.rawCache {
+		domain := c.extractDomain(key)
+		// Extract QType from key (format: domain#qtype_char)
+		parts := strings.Split(key, "#")
+		if len(parts) != 2 {
+			continue
+		}
+		// Convert string back to rune then to uint16
+		qtype := uint16([]rune(parts[1])[0])
+
+		entries = append(entries, PersistentCacheEntry{
+			Domain: domain,
+			QType:  qtype,
+			IPs:    entry.IPs,
+			CNAME:  entry.CNAME,
+		})
+	}
+	c.mu.RUnlock() // 数据收集完成，释放锁
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return err
+	}
+
+	// 写入临时文件
+	tempFile := filename + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return err
+	}
+
+	// 原子替换（在 Windows 上 Go 的 os.Rename 会尝试覆盖目标文件）
+	return os.Rename(tempFile, filename)
+}
+
+// LoadFromDisk 从磁盘加载缓存
+func (c *Cache) LoadFromDisk(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File doesn't exist, nothing to load
+		}
+		return err
+	}
+
+	var entries []PersistentCacheEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, entry := range entries {
+		key := cacheKey(entry.Domain, entry.QType)
+		c.rawCache[key] = &RawCacheEntry{
+			IPs:             entry.IPs,
+			CNAME:           entry.CNAME,
+			UpstreamTTL:     300, // Default 5 minutes as we don't persist TTL
+			AcquisitionTime: time.Now(),
+			LastAccessTime:  time.Now(),
+		}
+	}
+	return nil
 }

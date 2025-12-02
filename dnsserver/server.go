@@ -75,6 +75,14 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		refreshQueue: refreshQueue,
 	}
 
+	// 尝试加载持久化缓存
+	logger.Info("[Cache] Loading cache from disk...")
+	if err := server.cache.LoadFromDisk("dns_cache.json"); err != nil {
+		logger.Errorf("[Cache] Failed to load cache: %v", err)
+	} else {
+		logger.Infof("[Cache] Loaded %d entries from disk.", server.cache.GetCurrentEntries())
+	}
+
 	// 初始化 AdBlock 管理器
 	logger.Info("[AdBlock] Initializing AdBlock Manager...")
 	adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
@@ -202,6 +210,9 @@ func (s *Server) Start() error {
 
 	// 启动清理过期缓存的 goroutine
 	go s.cleanCacheRoutine()
+
+	// 启动定期保存缓存的 goroutine
+	go s.saveCacheRoutine()
 
 	// Start the prefetcher
 	s.prefetcher.Start()
@@ -1104,5 +1115,24 @@ func convertHealthCheckConfig(cfg *config.HealthCheckConfig) *upstream.HealthChe
 		CircuitBreakerThreshold: cfg.CircuitBreakerThreshold,
 		CircuitBreakerTimeout:   cfg.CircuitBreakerTimeout,
 		SuccessThreshold:        cfg.SuccessThreshold,
+	}
+}
+
+// saveCacheRoutine 定期保存缓存到磁盘
+func (s *Server) saveCacheRoutine() {
+	interval := time.Duration(s.cfg.Cache.SaveToDiskIntervalMinutes) * time.Minute
+	if interval <= 0 {
+		interval = 60 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		logger.Info("[Cache] Saving cache to disk...")
+		if err := s.cache.SaveToDisk("dns_cache.json"); err != nil {
+			logger.Errorf("[Cache] Failed to save cache: %v", err)
+		} else {
+			logger.Info("[Cache] Cache saved successfully.")
+		}
 	}
 }
