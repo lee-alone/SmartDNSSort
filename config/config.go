@@ -173,101 +173,101 @@ type Config struct {
 }
 
 type DNSConfig struct {
-	ListenPort int  `yaml:"listen_port" json:"listen_port"`
+	ListenPort int  `yaml:"listen_port,omitempty" json:"listen_port"`
 	EnableTCP  bool `yaml:"enable_tcp" json:"enable_tcp"`
 	EnableIPv6 bool `yaml:"enable_ipv6" json:"enable_ipv6"`
 }
 
 type UpstreamConfig struct {
-	Servers []string `yaml:"servers" json:"servers"`
+	Servers []string `yaml:"servers,omitempty" json:"servers"`
 	// [新增] 引导 DNS，用于解析 DoH/DoT 的域名
 	// 必须是纯 IP，如 "223.5.5.5:53"
-	BootstrapDNS []string `yaml:"bootstrap_dns" json:"bootstrap_dns"`
+	BootstrapDNS []string `yaml:"bootstrap_dns,omitempty" json:"bootstrap_dns"`
 
-	Strategy    string `yaml:"strategy" json:"strategy"`
-	TimeoutMs   int    `yaml:"timeout_ms" json:"timeout_ms"`
-	Concurrency int    `yaml:"concurrency" json:"concurrency"` // 并行查询时的并发数
+	Strategy    string `yaml:"strategy,omitempty" json:"strategy"`
+	TimeoutMs   int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
+	Concurrency int    `yaml:"concurrency,omitempty" json:"concurrency"` // 并行查询时的并发数
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
 
 	// 健康检查配置
-	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
+	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`
 }
 
 // HealthCheckConfig 健康检查配置
 type HealthCheckConfig struct {
 	Enabled                 bool `yaml:"enabled" json:"enabled"`
-	FailureThreshold        int  `yaml:"failure_threshold" json:"failure_threshold"`
-	CircuitBreakerThreshold int  `yaml:"circuit_breaker_threshold" json:"circuit_breaker_threshold"`
-	CircuitBreakerTimeout   int  `yaml:"circuit_breaker_timeout" json:"circuit_breaker_timeout"`
-	SuccessThreshold        int  `yaml:"success_threshold" json:"success_threshold"`
+	FailureThreshold        int  `yaml:"failure_threshold,omitempty" json:"failure_threshold"`
+	CircuitBreakerThreshold int  `yaml:"circuit_breaker_threshold,omitempty" json:"circuit_breaker_threshold"`
+	CircuitBreakerTimeout   int  `yaml:"circuit_breaker_timeout,omitempty" json:"circuit_breaker_timeout"`
+	SuccessThreshold        int  `yaml:"success_threshold,omitempty" json:"success_threshold"`
 }
 
 type PingConfig struct {
-	Count              int    `yaml:"count" json:"count"`
-	TimeoutMs          int    `yaml:"timeout_ms" json:"timeout_ms"`
-	Concurrency        int    `yaml:"concurrency" json:"concurrency"`
-	Strategy           string `yaml:"strategy" json:"strategy"`
-	MaxTestIPs         int    `yaml:"max_test_ips" json:"max_test_ips"`
-	RttCacheTtlSeconds int    `yaml:"rtt_cache_ttl_seconds" json:"rtt_cache_ttl_seconds"`
+	Count              int    `yaml:"count,omitempty" json:"count"`
+	TimeoutMs          int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
+	Concurrency        int    `yaml:"concurrency,omitempty" json:"concurrency"`
+	Strategy           string `yaml:"strategy,omitempty" json:"strategy"`
+	MaxTestIPs         int    `yaml:"max_test_ips,omitempty" json:"max_test_ips"`
+	RttCacheTtlSeconds int    `yaml:"rtt_cache_ttl_seconds,omitempty" json:"rtt_cache_ttl_seconds"`
 }
 
 type CacheConfig struct {
-	FastResponseTTL    int `yaml:"fast_response_ttl" json:"fast_response_ttl"`
-	UserReturnTTL      int `yaml:"user_return_ttl" json:"user_return_ttl"`
-	MinTTLSeconds      int `yaml:"min_ttl_seconds" json:"min_ttl_seconds"`
-	MaxTTLSeconds      int `yaml:"max_ttl_seconds" json:"max_ttl_seconds"`
-	NegativeTTLSeconds int `yaml:"negative_ttl_seconds" json:"negative_ttl_seconds"`       // 否定缓存(NXDOMAIN/NODATA)的TTL
-	ErrorCacheTTL      int `yaml:"error_cache_ttl_seconds" json:"error_cache_ttl_seconds"` // 错误响应缓存的TTL
+	FastResponseTTL    int `yaml:"fast_response_ttl,omitempty" json:"fast_response_ttl"`
+	UserReturnTTL      int `yaml:"user_return_ttl,omitempty" json:"user_return_ttl"`
+	MinTTLSeconds      int `yaml:"min_ttl_seconds,omitempty" json:"min_ttl_seconds"`
+	MaxTTLSeconds      int `yaml:"max_ttl_seconds,omitempty" json:"max_ttl_seconds"`
+	NegativeTTLSeconds int `yaml:"negative_ttl_seconds,omitempty" json:"negative_ttl_seconds"`       // 否定缓存(NXDOMAIN/NODATA)的TTL
+	ErrorCacheTTL      int `yaml:"error_cache_ttl_seconds,omitempty" json:"error_cache_ttl_seconds"` // 错误响应缓存的TTL
 
 	// 内存缓存管理 (高级)
-	MaxMemoryMB               int     `yaml:"max_memory_mb" json:"max_memory_mb"`
+	MaxMemoryMB               int     `yaml:"max_memory_mb,omitempty" json:"max_memory_mb"`
 	KeepExpiredEntries        bool    `yaml:"keep_expired_entries" json:"keep_expired_entries"`
-	EvictionThreshold         float64 `yaml:"eviction_threshold" json:"eviction_threshold"`
-	EvictionBatchPercent      float64 `yaml:"eviction_batch_percent" json:"eviction_batch_percent"`
+	EvictionThreshold         float64 `yaml:"eviction_threshold,omitempty" json:"eviction_threshold"`
+	EvictionBatchPercent      float64 `yaml:"eviction_batch_percent,omitempty" json:"eviction_batch_percent"`
 	ProtectPrefetchDomains    bool    `yaml:"protect_prefetch_domains" json:"protect_prefetch_domains"`
 	SaveToDiskIntervalMinutes int     `yaml:"save_to_disk_interval_minutes" json:"save_to_disk_interval_minutes"`
 }
 
 type PrefetchConfig struct {
 	Enabled                    bool `yaml:"enabled" json:"enabled"`
-	TopDomainsLimit            int  `yaml:"top_domains_limit" json:"top_domains_limit"`
-	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds" json:"refresh_before_expire_seconds"`
+	TopDomainsLimit            int  `yaml:"top_domains_limit,omitempty" json:"top_domains_limit"`
+	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds,omitempty" json:"refresh_before_expire_seconds"`
 }
 
 type WebUIConfig struct {
 	Enabled    bool `yaml:"enabled" json:"enabled"`
-	ListenPort int  `yaml:"listen_port" json:"listen_port"`
+	ListenPort int  `yaml:"listen_port,omitempty" json:"listen_port"`
 }
 
 type AdBlockConfig struct {
 	Enable              bool     `yaml:"enable" json:"enable"`
-	Engine              string   `yaml:"engine" json:"engine"`
-	RuleURLs            []string `yaml:"rule_urls" json:"rule_urls"`
-	CustomRulesFile     string   `yaml:"custom_rules_file" json:"custom_rules_file"`
-	CacheDir            string   `yaml:"cache_dir" json:"cache_dir"`
-	UpdateIntervalHours int      `yaml:"update_interval_hours" json:"update_interval_hours"`
-	MaxCacheAgeHours    int      `yaml:"max_cache_age_hours" json:"max_cache_age_hours"`
-	MaxCacheSizeMB      int      `yaml:"max_cache_size_mb" json:"max_cache_size_mb"`
-	BlockMode           string   `yaml:"block_mode" json:"block_mode"`
-	BlockedResponseIP   string   `yaml:"blocked_response_ip" json:"blocked_response_ip"`
-	BlockedTTL          int      `yaml:"blocked_ttl" json:"blocked_ttl"`
-	LastUpdate          int64    `yaml:"last_update" json:"last_update"`
-	FailedSources       []string `yaml:"failed_sources" json:"failed_sources"`
+	Engine              string   `yaml:"engine,omitempty" json:"engine"`
+	RuleURLs            []string `yaml:"rule_urls,omitempty" json:"rule_urls"`
+	CustomRulesFile     string   `yaml:"custom_rules_file,omitempty" json:"custom_rules_file"`
+	CacheDir            string   `yaml:"cache_dir,omitempty" json:"cache_dir"`
+	UpdateIntervalHours int      `yaml:"update_interval_hours,omitempty" json:"update_interval_hours"`
+	MaxCacheAgeHours    int      `yaml:"max_cache_age_hours,omitempty" json:"max_cache_age_hours"`
+	MaxCacheSizeMB      int      `yaml:"max_cache_size_mb,omitempty" json:"max_cache_size_mb"`
+	BlockMode           string   `yaml:"block_mode,omitempty" json:"block_mode"`
+	BlockedResponseIP   string   `yaml:"blocked_response_ip,omitempty" json:"blocked_response_ip"`
+	BlockedTTL          int      `yaml:"blocked_ttl,omitempty" json:"blocked_ttl"`
+	LastUpdate          int64    `yaml:"last_update,omitempty" json:"last_update"`
+	FailedSources       []string `yaml:"failed_sources,omitempty" json:"failed_sources"`
 }
 
 type SystemConfig struct {
-	MaxCPUCores      int    `yaml:"max_cpu_cores" json:"max_cpu_cores"`
-	SortQueueWorkers int    `yaml:"sort_queue_workers" json:"sort_queue_workers"`
-	RefreshWorkers   int    `yaml:"refresh_workers" json:"refresh_workers"`
-	LogLevel         string `yaml:"log_level" json:"log_level"`
+	MaxCPUCores      int    `yaml:"max_cpu_cores,omitempty" json:"max_cpu_cores"`
+	SortQueueWorkers int    `yaml:"sort_queue_workers,omitempty" json:"sort_queue_workers"`
+	RefreshWorkers   int    `yaml:"refresh_workers,omitempty" json:"refresh_workers"`
+	LogLevel         string `yaml:"log_level,omitempty" json:"log_level"`
 }
 
 type StatsConfig struct {
-	HotDomainsWindowHours   int `yaml:"hot_domains_window_hours" json:"hot_domains_window_hours"`
-	HotDomainsBucketMinutes int `yaml:"hot_domains_bucket_minutes" json:"hot_domains_bucket_minutes"`
-	HotDomainsShardCount    int `yaml:"hot_domains_shard_count" json:"hot_domains_shard_count"`
-	HotDomainsMaxPerBucket  int `yaml:"hot_domains_max_per_bucket" json:"hot_domains_max_per_bucket"`
+	HotDomainsWindowHours   int `yaml:"hot_domains_window_hours,omitempty" json:"hot_domains_window_hours"`
+	HotDomainsBucketMinutes int `yaml:"hot_domains_bucket_minutes,omitempty" json:"hot_domains_bucket_minutes"`
+	HotDomainsShardCount    int `yaml:"hot_domains_shard_count,omitempty" json:"hot_domains_shard_count"`
+	HotDomainsMaxPerBucket  int `yaml:"hot_domains_max_per_bucket,omitempty" json:"hot_domains_max_per_bucket"`
 }
 
 const (

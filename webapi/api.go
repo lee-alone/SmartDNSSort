@@ -391,29 +391,41 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 }
 
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
-	var newCfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+	// 先加载现有配置，以保留 Web UI 中未包含的字段
+	existingCfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		s.writeJSONError(w, "Failed to load existing config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 解码新配置到现有配置上（覆盖）
+	if err := json.NewDecoder(r.Body).Decode(existingCfg); err != nil {
 		s.writeJSONError(w, "Failed to decode new config: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.validateConfig(&newCfg); err != nil {
+
+	if err := s.validateConfig(existingCfg); err != nil {
 		s.writeJSONError(w, "Configuration validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	yamlData, err := yaml.Marshal(&newCfg)
+
+	yamlData, err := yaml.Marshal(existingCfg)
 	if err != nil {
 		s.writeJSONError(w, "Failed to marshal new config to YAML: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	log.Printf("Configuration saved to %s", s.configPath)
-	if err := s.dnsServer.ApplyConfig(&newCfg); err != nil {
+	if err := s.dnsServer.ApplyConfig(existingCfg); err != nil {
 		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	log.Println("Configuration hot-reloaded successfully.")
 	s.writeJSONSuccess(w, "Configuration updated and applied successfully", nil)
 }
@@ -425,11 +437,11 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 
 	// Sanitize Upstream Servers (remove quotes and spaces)
 	for i, server := range cfg.Upstream.Servers {
-		cfg.Upstream.Servers[i] = strings.Trim(server, "' " ) // Corrected: removed extra backslash before space
+		cfg.Upstream.Servers[i] = strings.Trim(server, "' ") // Corrected: removed extra backslash before space
 	}
 	// Sanitize Bootstrap DNS
 	for i, server := range cfg.Upstream.BootstrapDNS {
-		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "' " ) // Corrected: removed extra backslash before space
+		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "' ") // Corrected: removed extra backslash before space
 	}
 
 	if len(cfg.Upstream.Servers) == 0 {
@@ -852,7 +864,7 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAdBlockSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.handleGetAdBlockSettings(w, r)
+		s.handleGetAdBlockSettings(w)
 	case http.MethodPost:
 		s.handlePostAdBlockSettings(w, r)
 	default:
@@ -860,7 +872,7 @@ func (s *Server) handleAdBlockSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleGetAdBlockSettings(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetAdBlockSettings(w http.ResponseWriter) {
 	currentConfig := s.dnsServer.GetConfig()
 	settings := map[string]interface{}{
 		"update_interval_hours": currentConfig.AdBlock.UpdateIntervalHours,
