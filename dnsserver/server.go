@@ -432,7 +432,25 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 阶段一：首次查询（无缓存）==========
 	logger.Debugf("[handleQuery] 首次查询，无缓存: %s (type=%s)", domain, dns.TypeToString[question.Qtype])
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(currentCfg.Upstream.TimeoutMs)*time.Millisecond)
+	// 计算动态超时时间: timeout_ms × 健康服务器数
+	// 这样可以确保每台服务器都有完整的超时时间进行尝试
+	healthyServerCount := currentUpstream.GetHealthyServerCount()
+	if healthyServerCount == 0 {
+		// 如果所有服务器都不健康,至少给一次机会
+		healthyServerCount = 1
+	}
+
+	// 设置最大总超时上限 (30秒),避免服务器太多时超时过长
+	maxTotalTimeout := 30 * time.Second
+	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs*healthyServerCount) * time.Millisecond
+	if totalTimeout > maxTotalTimeout {
+		totalTimeout = maxTotalTimeout
+	}
+
+	logger.Debugf("[handleQuery] 动态超时计算: 健康服务器=%d, 单次超时=%dms, 总超时=%v",
+		healthyServerCount, currentCfg.Upstream.TimeoutMs, totalTimeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), totalTimeout)
 	defer cancel()
 
 	// 使用 singleflight 合并相同的并发请求

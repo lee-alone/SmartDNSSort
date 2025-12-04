@@ -73,6 +73,23 @@ func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint
 	u.cacheUpdateCallback = callback
 }
 
+// GetHealthyServerCount 返回当前健康的服务器数量
+// 用于计算动态超时时间
+func (u *Manager) GetHealthyServerCount() int {
+	count := 0
+	for _, server := range u.servers {
+		if !server.ShouldSkipTemporarily() {
+			count++
+		}
+	}
+	return count
+}
+
+// GetTotalServerCount 返回总服务器数量
+func (u *Manager) GetTotalServerCount() int {
+	return len(u.servers)
+}
+
 // Query 查询域名，返回 IP 列表和 TTL
 func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
 	if u.strategy == "parallel" {
