@@ -363,6 +363,7 @@ window.addEventListener('languageChanged', (e) => {
     updateDashboard();
     updateAdBlockTab();
     loadCustomSettings();
+    initializeCounters();
     // loadConfig doesn't need i18n for the form values themselves, but if we had dynamic labels it would.
     // The labels are static HTML handled by applyTranslations().
     // So loadConfig is fine to run whenever.
@@ -679,6 +680,57 @@ document.getElementById('adblockSaveBlockModeButton').addEventListener('click', 
 
 // ========== Custom Settings Logic ==========
 
+// Update character and line counters
+function updateCounter(textareaId, lineCountId, charCountId) {
+    const textarea = document.getElementById(textareaId);
+    const content = textarea.value;
+    const lines = content ? content.split('\n').length : 0;
+    const chars = content.length;
+
+    document.getElementById(lineCountId).textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
+    document.getElementById(charCountId).textContent = `${chars} character${chars !== 1 ? 's' : ''}`;
+}
+
+// Initialize counters on load
+function initializeCounters() {
+    // Blocked domains counter
+    const blockedTextarea = document.getElementById('custom-blocked-content');
+    if (blockedTextarea) {
+        blockedTextarea.addEventListener('input', () => {
+            updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
+        });
+        updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
+    }
+
+    // Custom response counter
+    const responseTextarea = document.getElementById('custom-response-content');
+    if (responseTextarea) {
+        responseTextarea.addEventListener('input', () => {
+            updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
+        });
+        updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
+    }
+}
+
+// Add visual feedback to button
+function addButtonFeedback(button, success) {
+    const originalText = button.textContent;
+    button.classList.remove('success', 'error');
+
+    if (success) {
+        button.classList.add('success');
+        button.textContent = '✓ Saved!';
+    } else {
+        button.classList.add('error');
+        button.textContent = '✗ Error';
+    }
+
+    setTimeout(() => {
+        button.classList.remove('success', 'error');
+        button.textContent = originalText;
+    }, 2000);
+}
+
 function loadCustomSettings() {
     // Load Blocked Domains
     fetch('/api/custom/blocked')
@@ -686,6 +738,7 @@ function loadCustomSettings() {
         .then(data => {
             if (data.success) {
                 document.getElementById('custom-blocked-content').value = data.data.content;
+                updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
             } else {
                 console.error('Failed to load blocked domains:', data.message);
             }
@@ -698,6 +751,7 @@ function loadCustomSettings() {
         .then(data => {
             if (data.success) {
                 document.getElementById('custom-response-content').value = data.data.content;
+                updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
             } else {
                 console.error('Failed to load custom responses:', data.message);
             }
@@ -707,6 +761,9 @@ function loadCustomSettings() {
 
 function saveCustomBlocked() {
     const content = document.getElementById('custom-blocked-content').value;
+    const button = event.target;
+
+    button.disabled = true;
 
     fetch('/api/custom/blocked', {
         method: 'POST',
@@ -716,18 +773,27 @@ function saveCustomBlocked() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                addButtonFeedback(button, true);
                 alert(i18n.t('messages.customBlockedSaved'));
             } else {
+                addButtonFeedback(button, false);
                 alert(i18n.t('messages.customBlockedSaveError', { error: data.message }));
             }
         })
         .catch(error => {
+            addButtonFeedback(button, false);
             alert(i18n.t('messages.customBlockedSaveError', { error: error.message }));
+        })
+        .finally(() => {
+            button.disabled = false;
         });
 }
 
 function saveCustomResponse() {
     const content = document.getElementById('custom-response-content').value;
+    const button = event.target;
+
+    button.disabled = true;
 
     fetch('/api/custom/response', {
         method: 'POST',
@@ -737,12 +803,18 @@ function saveCustomResponse() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                addButtonFeedback(button, true);
                 alert(i18n.t('messages.customResponseSaved'));
             } else {
+                addButtonFeedback(button, false);
                 alert(i18n.t('messages.customResponseSaveError', { error: data.message }));
             }
         })
         .catch(error => {
+            addButtonFeedback(button, false);
             alert(i18n.t('messages.customResponseSaveError', { error: error.message }));
+        })
+        .finally(() => {
+            button.disabled = false;
         });
 }

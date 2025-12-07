@@ -7,6 +7,7 @@
     <title data-i18n="app.title">SmartDNSSort Control Panel</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/custom-settings.css">
 </head>
 
 <body>
@@ -531,29 +532,45 @@
     <!-- Custom Setting Tab -->
     <div id="custom-setting" class="tab-content">
         <div class="config-container">
-            <div class="config-content" style="width: 100%;">
+            <div class="config-content">
                 <fieldset>
                     <legend data-i18n="custom.blockedDomains">Blocked Domains</legend>
-                    <p class="help-text" data-i18n="custom.blockedDomainsHelp">One domain per line. These domains will
-                        be blocked by AdBlock.</p>
+                    <p class="help-text" data-i18n="custom.blockedDomainsHelp">
+                        One domain per line. These domains will be blocked by AdBlock.
+                    </p>
                     <textarea id="custom-blocked-content" class="code-editor" rows="15"
-                        placeholder="example.com"></textarea>
+                        placeholder="example.com&#10;ads.example.net&#10;tracker.example.org"
+                        spellcheck="false"></textarea>
+                    <div class="char-counter">
+                        <span id="blocked-line-count">0 lines</span> |
+                        <span id="blocked-char-count">0 characters</span>
+                    </div>
                     <div class="form-actions">
-                        <button class="primary-btn" onclick="saveCustomBlocked()" data-i18n="custom.saveBlocked">Save
-                            Block List</button>
+                        <button class="primary-btn" onclick="saveCustomBlocked()" data-i18n="custom.saveBlocked">
+                            Save Block List
+                        </button>
                     </div>
                 </fieldset>
 
-                <fieldset style="margin-top: 20px;">
+                <fieldset>
                     <legend data-i18n="custom.customResponses">Custom Responses</legend>
-                    <p class="help-text" data-i18n="custom.customResponsesHelp">Format: domain type value ttl</p>
-                    <div class="alert info" data-i18n="custom.customResponsesExample">Example: example.com A 1.2.3.4 300
+                    <p class="help-text" data-i18n="custom.customResponsesHelp">
+                        Format: domain type value ttl
+                    </p>
+                    <div class="alert info" data-i18n="custom.customResponsesExample">
+                        Example: example.com A 1.2.3.4 300
                     </div>
                     <textarea id="custom-response-content" class="code-editor" rows="15"
-                        placeholder="example.com A 1.2.3.4 300"></textarea>
+                        placeholder="example.com A 1.2.3.4 300&#10;mysite.local AAAA ::1 600&#10;test.local CNAME localhost 300"
+                        spellcheck="false"></textarea>
+                    <div class="char-counter">
+                        <span id="response-line-count">0 lines</span> |
+                        <span id="response-char-count">0 characters</span>
+                    </div>
                     <div class="form-actions">
-                        <button class="primary-btn" onclick="saveCustomResponse()" data-i18n="custom.saveResponse">Save
-                            Response Rules</button>
+                        <button class="primary-btn" onclick="saveCustomResponse()" data-i18n="custom.saveResponse">
+                            Save Response Rules
+                        </button>
                     </div>
                 </fieldset>
             </div>
