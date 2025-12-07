@@ -245,6 +245,7 @@ type AdBlockConfig struct {
 	Engine              string   `yaml:"engine,omitempty" json:"engine"`
 	RuleURLs            []string `yaml:"rule_urls,omitempty" json:"rule_urls"`
 	CustomRulesFile     string   `yaml:"custom_rules_file,omitempty" json:"custom_rules_file"`
+	CustomResponseFile  string   `yaml:"custom_response_file,omitempty" json:"custom_response_file"`
 	CacheDir            string   `yaml:"cache_dir,omitempty" json:"cache_dir"`
 	UpdateIntervalHours int      `yaml:"update_interval_hours,omitempty" json:"update_interval_hours"`
 	MaxCacheAgeHours    int      `yaml:"max_cache_age_hours,omitempty" json:"max_cache_age_hours"`
@@ -429,6 +430,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.AdBlock.CustomRulesFile == "" {
 		cfg.AdBlock.CustomRulesFile = "./custom_rules.txt"
+	}
+	if cfg.AdBlock.CustomResponseFile == "" {
+		cfg.AdBlock.CustomResponseFile = "./adblock_cache/custom_response_rules.txt"
 	}
 	if cfg.AdBlock.CacheDir == "" {
 		cfg.AdBlock.CacheDir = "./adblock_cache"

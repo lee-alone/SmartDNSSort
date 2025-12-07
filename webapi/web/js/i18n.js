@@ -11,6 +11,7 @@ const resources = {
         "tabs": {
             "dashboard": "Dashboard",
             "config": "Configuration",
+            "custom": "Custom Setting",
             "adblock": "AdBlock"
         },
         "actions": {
@@ -219,7 +220,20 @@ const resources = {
             "rule": "Rule",
             "notBlocked": "Not Blocked.",
             "testError": "An error occurred during the test.",
-            "selectBlockMode": "Please select a block mode."
+            "selectBlockMode": "Please select a block mode.",
+            "customBlockedSaved": "Custom blocked domains saved successfully.",
+            "customBlockedSaveError": "Error saving blocked domains: {error}",
+            "customResponseSaved": "Custom response rules saved successfully.",
+            "customResponseSaveError": "Error saving response rules: {error}"
+        },
+        "custom": {
+            "blockedDomains": "Blocked Domains",
+            "blockedDomainsHelp": "One domain per line. These domains will be blocked by AdBlock.",
+            "saveBlocked": "Save Block List",
+            "customResponses": "Custom Responses",
+            "customResponsesHelp": "Format: domain type value ttl. Rules here take precedence over block lists and upstream.",
+            "customResponsesExample": "Example: example.com A 1.2.3.4 300",
+            "saveResponse": "Save Response Rules"
         }
     },
     "zh-CN": {
@@ -229,6 +243,7 @@ const resources = {
         "tabs": {
             "dashboard": "仪表盘",
             "config": "配置",
+            "custom": "自定义设置",
             "adblock": "广告拦截"
         },
         "actions": {
@@ -437,7 +452,20 @@ const resources = {
             "rule": "规则",
             "notBlocked": "未拦截。",
             "testError": "测试期间发生错误。",
-            "selectBlockMode": "请选择拦截模式。"
+            "selectBlockMode": "请选择拦截模式。",
+            "customBlockedSaved": "自定义拦截域名已成功保存。",
+            "customBlockedSaveError": "保存拦截域名时出错：{error}",
+            "customResponseSaved": "自定义回复规则已成功保存。",
+            "customResponseSaveError": "保存回复规则时出错：{error}"
+        },
+        "custom": {
+            "blockedDomains": "拦截域名管理",
+            "blockedDomainsHelp": "每行一个域名。这些域名将被广告拦截功能拦截。",
+            "saveBlocked": "保存拦截列表",
+            "customResponses": "自定义回复管理",
+            "customResponsesHelp": "格式：域名 类型 值 TTL。此处的规则优先级高于拦截列表和上游查询。",
+            "customResponsesExample": "示例：example.com A 1.2.3.4 300",
+            "saveResponse": "保存回复规则"
         }
     }
 };

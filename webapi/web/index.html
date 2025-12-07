@@ -12,467 +12,559 @@
 <body>
     <div class="main-container">
         <div class="tabs">
-            <button class="tab-button active" onclick="showTab('dashboard')" data-i18n="tabs.dashboard">Dashboard</button>
+            <button class="tab-button active" onclick="showTab('dashboard')"
+                data-i18n="tabs.dashboard">Dashboard</button>
             <button class="tab-button" onclick="showTab('config')" data-i18n="tabs.config">Configuration</button>
-
-
-            <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
-
-            <div class="header-actions" style="display: flex; align-items: center; gap: 10px; padding-right: 10px;">
-                 <select id="langSwitch" class="lang-select">
-                    <option value="en">English</option>
-                    <option value="zh-CN">中文 (简体)</option>
-                </select>
-                <button id="clearCacheButton" class="btn btn-warning btn-sm" data-i18n="actions.clearCache">Clear DNS Cache</button>
-                <button id="clearStatsButton" class="btn btn-danger btn-sm" data-i18n="actions.clearStats">Clear All Stats</button>
-                <button id="refreshButton" class="btn btn-success btn-sm" data-i18n="actions.refresh">Refresh</button>
-                <button id="restartButton" class="btn btn-secondary btn-sm" data-i18n="actions.restart">Restart Service</button>
-            </div>
+            <button class="tab-button" onclick="showTab('custom-setting')" data-i18n="tabs.custom">Custom
+                Setting</button>
         </div>
 
-        <div id="status" class="status" data-i18n="status.connecting">Connecting...</div>
+        <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
 
-        <!-- Dashboard Tab -->
-        <div id="dashboard" class="tab-content active">
-            <div class="container">
-                <div class="card">
-                    <h2 data-i18n="dashboard.generalStats">General Stats</h2>
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.totalQueries">Total Queries</td>
-                                <td id="total_queries" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.cacheHits">Cache Hits</td>
-                                <td id="cache_hits" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.cacheMisses">Cache Misses</td>
-                                <td id="cache_misses" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.cacheHitRate">Cache Hit Rate</td>
-                                <td id="cache_hit_rate" class="value">0.00%</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.upstreamFailures">Upstream Failures</td>
-                                <td id="upstream_failures" class="value">0</td>
-                            </tr>
-                        </tbody>
-                    </table>
+        <div class="header-actions" style="display: flex; align-items: center; gap: 10px; padding-right: 10px;">
+            <select id="langSwitch" class="lang-select">
+                <option value="en">English</option>
+                <option value="zh-CN">中文 (简体)</option>
+            </select>
+            <button id="clearCacheButton" class="btn btn-warning btn-sm" data-i18n="actions.clearCache">Clear DNS
+                Cache</button>
+            <button id="clearStatsButton" class="btn btn-danger btn-sm" data-i18n="actions.clearStats">Clear All
+                Stats</button>
+            <button id="refreshButton" class="btn btn-success btn-sm" data-i18n="actions.refresh">Refresh</button>
+            <button id="restartButton" class="btn btn-secondary btn-sm" data-i18n="actions.restart">Restart
+                Service</button>
+        </div>
+    </div>
+
+    <div id="status" class="status" data-i18n="status.connecting">Connecting...</div>
+
+    <!-- Dashboard Tab -->
+    <div id="dashboard" class="tab-content active">
+        <div class="container">
+            <div class="card">
+                <h2 data-i18n="dashboard.generalStats">General Stats</h2>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.totalQueries">Total Queries</td>
+                            <td id="total_queries" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.cacheHits">Cache Hits</td>
+                            <td id="cache_hits" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.cacheMisses">Cache Misses</td>
+                            <td id="cache_misses" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.cacheHitRate">Cache Hit Rate</td>
+                            <td id="cache_hit_rate" class="value">0.00%</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.upstreamFailures">Upstream Failures</td>
+                            <td id="upstream_failures" class="value">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h2 data-i18n="dashboard.systemStatus">System Status</h2>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.cpuUsage">CPU Usage</td>
+                            <td id="cpu_usage_pct" class="value">0.0%</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.memoryUsage">Memory Usage</td>
+                            <td id="mem_usage_pct" class="value">0.0%</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.goroutines">Goroutines</td>
+                            <td id="goroutines" class="value">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h2 data-i18n="dashboard.adblockStatus">AdBlock Status</h2>
+                <div class="management-actions">
+                    <button id="adblockUpdateRulesButton" class="btn btn-primary"
+                        data-i18n="dashboard.updateRules">Update All Rules Now</button>
                 </div>
-                <div class="card">
-                    <h2 data-i18n="dashboard.systemStatus">System Status</h2>
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.cpuUsage">CPU Usage</td>
-                                <td id="cpu_usage_pct" class="value">0.0%</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.memoryUsage">Memory Usage</td>
-                                <td id="mem_usage_pct" class="value">0.0%</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.goroutines">Goroutines</td>
-                                <td id="goroutines" class="value">0</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.enableAdblock">Enable AdBlock</td>
+                            <td class="value">
+                                <label class="switch">
+                                    <input type="checkbox" id="adblock_enable_toggle">
+                                    <span class="slider"></span>
+                                </label>
+                                <span id="adblock_status" style="margin-left: 10px;">N/A</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.engine">Engine</td>
+                            <td id="adblock_engine" class="value">N/A</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.totalRules">Total Rules</td>
+                            <td id="adblock_total_rules" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.blockedToday">Blocked Today</td>
+                            <td id="adblock_blocked_today" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.blockedTotal">Blocked Total</td>
+                            <td id="adblock_blocked_total" class="value">0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.lastUpdate">Last Update</td>
+                            <td id="adblock_last_update" class="value">N/A</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h2 data-i18n="dashboard.memoryUsageTitle">Memory Usage</h2>
+                <div class="memory-bar-container">
+                    <div id="memory_usage_bar" class="memory-bar"></div>
                 </div>
-                <div class="card">
-                    <h2 data-i18n="dashboard.adblockStatus">AdBlock Status</h2>
-                    <div class="management-actions">
-                        <button id="adblockUpdateRulesButton" class="btn btn-primary" data-i18n="dashboard.updateRules">Update All Rules Now</button>
-                    </div>
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.enableAdblock">Enable AdBlock</td>
-                                <td class="value">
-                                    <label class="switch">
-                                        <input type="checkbox" id="adblock_enable_toggle">
-                                        <span class="slider"></span>
-                                    </label>
-                                    <span id="adblock_status" style="margin-left: 10px;">N/A</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.engine">Engine</td>
-                                <td id="adblock_engine" class="value">N/A</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.totalRules">Total Rules</td>
-                                <td id="adblock_total_rules" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.blockedToday">Blocked Today</td>
-                                <td id="adblock_blocked_today" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.blockedTotal">Blocked Total</td>
-                                <td id="adblock_blocked_total" class="value">0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.lastUpdate">Last Update</td>
-                                <td id="adblock_last_update" class="value">N/A</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="card">
-                    <h2 data-i18n="dashboard.memoryUsageTitle">Memory Usage</h2>
-                    <div class="memory-bar-container">
-                        <div id="memory_usage_bar" class="memory-bar"></div>
-                    </div>
-                    <div id="memory_usage_text" class="memory-text">0 MB / 0 MB</div>
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.cacheEntries">Cache Entries</td>
-                                <td id="cache_entries" class="value">0 / 0</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.expiredEntries">Expired Entries</td>
-                                <td id="expired_entries" class="value">0 (0.0%)</td>
-                            </tr>
-                            <tr>
-                                <td class="label" data-i18n="dashboard.protectedEntries">Protected Entries</td>
-                                <td id="protected_entries" class="value">0</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="card">
-                    <h2 data-i18n="dashboard.upstreamServers">Upstream Servers</h2>
-                    <table id="upstream_stats">
-                        <thead>
-                            <tr>
-                                <th data-i18n="dashboard.server">Server</th>
-                                <th class="value" data-i18n="dashboard.success">Success</th>
-                                <th class="value" data-i18n="dashboard.failure">Failure</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <div class="card" id="hot_domains_card">
-                    <h2 data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
-                    <table id="hot_domains_table">
-                        <thead>
-                            <tr>
-                                <th data-i18n="dashboard.domain">Domain</th>
-                                <th class="value" data-i18n="dashboard.count">Count</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <div class="card" id="recent_queries_card">
-                    <h2 data-i18n="dashboard.recentQueries">Recent Queries</h2>
-                    <div id="recent_queries_list" style="max-height: 200px; overflow-y: auto;"></div>
-                </div>
+                <div id="memory_usage_text" class="memory-text">0 MB / 0 MB</div>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.cacheEntries">Cache Entries</td>
+                            <td id="cache_entries" class="value">0 / 0</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.expiredEntries">Expired Entries</td>
+                            <td id="expired_entries" class="value">0 (0.0%)</td>
+                        </tr>
+                        <tr>
+                            <td class="label" data-i18n="dashboard.protectedEntries">Protected Entries</td>
+                            <td id="protected_entries" class="value">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h2 data-i18n="dashboard.upstreamServers">Upstream Servers</h2>
+                <table id="upstream_stats">
+                    <thead>
+                        <tr>
+                            <th data-i18n="dashboard.server">Server</th>
+                            <th class="value" data-i18n="dashboard.success">Success</th>
+                            <th class="value" data-i18n="dashboard.failure">Failure</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="card" id="hot_domains_card">
+                <h2 data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
+                <table id="hot_domains_table">
+                    <thead>
+                        <tr>
+                            <th data-i18n="dashboard.domain">Domain</th>
+                            <th class="value" data-i18n="dashboard.count">Count</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="card" id="recent_queries_card">
+                <h2 data-i18n="dashboard.recentQueries">Recent Queries</h2>
+                <div id="recent_queries_list" style="max-height: 200px; overflow-y: auto;"></div>
             </div>
         </div>
+    </div>
 
-        <!-- Configuration Tab -->
-        <div id="config" class="tab-content">
-            <div class="config-container">
-                <nav class="config-nav">
-                    <ul>
-                        <li><a href="#config-dns" data-i18n="config.nav.dns">DNS Service</a></li>
-                        <li><a href="#config-upstream" data-i18n="config.nav.upstream">Upstream</a></li>
-                        <li><a href="#config-ping" data-i18n="config.nav.ping">Ping</a></li>
-                        <li><a href="#config-cache" data-i18n="config.nav.cache">Cache</a></li>
-                        <li><a href="#config-prefetch" data-i18n="config.nav.prefetch">Prefetch</a></li>
-                        <li><a href="#config-adblock" data-i18n="tabs.adblock">AdBlock</a></li>
-                        <li><a href="#config-webui" data-i18n="config.nav.webui">Web UI</a></li>
-                        <li><a href="#config-system" data-i18n="config.nav.system">System</a></li>
-                    </ul>
-                </nav>
-                <div class="config-content">
-                    <form id="configForm">
-                        <fieldset id="config-dns">
-                            <legend data-i18n="config.dns.legend">DNS Service</legend>
-                            <div class="form-group">
-                                <label for="dns.listen_port" data-i18n="config.dns.listenPort">Listen Port</label>
-                                <input type="number" id="dns.listen_port" name="dns.listen_port">
-                            </div>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="dns.enable_tcp" name="dns.enable_tcp">
-                                <label for="dns.enable_tcp" data-i18n="config.dns.enableTcp">Enable TCP</label>
-                            </div>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="dns.enable_ipv6" name="dns.enable_ipv6">
-                                <label for="dns.enable_ipv6" data-i18n="config.dns.enableIpv6">Enable IPv6</label>
-                            </div>
-                        </fieldset>
+    <!-- Configuration Tab -->
+    <div id="config" class="tab-content">
+        <div class="config-container">
+            <nav class="config-nav">
+                <ul>
+                    <li><a href="#config-dns" data-i18n="config.nav.dns">DNS Service</a></li>
+                    <li><a href="#config-upstream" data-i18n="config.nav.upstream">Upstream</a></li>
+                    <li><a href="#config-ping" data-i18n="config.nav.ping">Ping</a></li>
+                    <li><a href="#config-cache" data-i18n="config.nav.cache">Cache</a></li>
+                    <li><a href="#config-prefetch" data-i18n="config.nav.prefetch">Prefetch</a></li>
+                    <li><a href="#config-adblock" data-i18n="tabs.adblock">AdBlock</a></li>
+                    <li><a href="#config-webui" data-i18n="config.nav.webui">Web UI</a></li>
+                    <li><a href="#config-system" data-i18n="config.nav.system">System</a></li>
+                </ul>
+            </nav>
+            <div class="config-content">
+                <form id="configForm">
+                    <fieldset id="config-dns">
+                        <legend data-i18n="config.dns.legend">DNS Service</legend>
+                        <div class="form-group">
+                            <label for="dns.listen_port" data-i18n="config.dns.listenPort">Listen Port</label>
+                            <input type="number" id="dns.listen_port" name="dns.listen_port">
+                        </div>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="dns.enable_tcp" name="dns.enable_tcp">
+                            <label for="dns.enable_tcp" data-i18n="config.dns.enableTcp">Enable TCP</label>
+                        </div>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="dns.enable_ipv6" name="dns.enable_ipv6">
+                            <label for="dns.enable_ipv6" data-i18n="config.dns.enableIpv6">Enable IPv6</label>
+                        </div>
+                    </fieldset>
 
-                        <fieldset id="config-upstream">
-                            <legend data-i18n="config.upstream.legend">Upstream</legend>
-                            <div class="form-group">
-                                <label for="upstream.servers" data-i18n="config.upstream.servers">Upstream Servers</label>
-                                <textarea id="upstream.servers" name="upstream.servers"></textarea>
-                                <small data-i18n="config.upstream.serversHelp">One server per line.</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="upstream.bootstrap_dns" data-i18n="config.upstream.bootstrapDns">Bootstrap DNS</label>
-                                <textarea id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"></textarea>
-                                <small data-i18n="config.upstream.bootstrapDnsHelp">Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names. One server per line.</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="upstream.strategy" data-i18n="config.upstream.strategy">Strategy</label>
-                                <select id="upstream.strategy" name="upstream.strategy">
-                                    <option value="random">Random</option>
-                                    <option value="parallel">Parallel</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="upstream.timeout_ms" data-i18n="config.upstream.timeout">Timeout (ms)</label>
-                                <input type="number" id="upstream.timeout_ms" name="upstream.timeout_ms">
-                            </div>
-                            <div class="form-group">
-                                <label for="upstream.concurrency" data-i18n="config.upstream.concurrency">Concurrency</label>
-                                <input type="number" id="upstream.concurrency" name="upstream.concurrency">
-                            </div>
-                        </fieldset>
+                    <fieldset id="config-upstream">
+                        <legend data-i18n="config.upstream.legend">Upstream</legend>
+                        <div class="form-group">
+                            <label for="upstream.servers" data-i18n="config.upstream.servers">Upstream Servers</label>
+                            <textarea id="upstream.servers" name="upstream.servers"></textarea>
+                            <small data-i18n="config.upstream.serversHelp">One server per line.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="upstream.bootstrap_dns" data-i18n="config.upstream.bootstrapDns">Bootstrap
+                                DNS</label>
+                            <textarea id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"></textarea>
+                            <small data-i18n="config.upstream.bootstrapDnsHelp">Bootstrap DNS servers (must be IP
+                                addresses) for resolving DoH/DoT domain names. One server per line.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="upstream.strategy" data-i18n="config.upstream.strategy">Strategy</label>
+                            <select id="upstream.strategy" name="upstream.strategy">
+                                <option value="random">Random</option>
+                                <option value="parallel">Parallel</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="upstream.timeout_ms" data-i18n="config.upstream.timeout">Timeout (ms)</label>
+                            <input type="number" id="upstream.timeout_ms" name="upstream.timeout_ms">
+                        </div>
+                        <div class="form-group">
+                            <label for="upstream.concurrency"
+                                data-i18n="config.upstream.concurrency">Concurrency</label>
+                            <input type="number" id="upstream.concurrency" name="upstream.concurrency">
+                        </div>
+                    </fieldset>
 
-                        <fieldset id="config-ping">
-                            <legend data-i18n="config.ping.legend">Ping</legend>
-                            <div class="form-group">
-                                <label for="ping.count" data-i18n="config.ping.count">Count</label>
-                                <input type="number" id="ping.count" name="ping.count">
-                            </div>
-                            <div class="form-group">
-                                <label for="ping.timeout_ms" data-i18n="config.ping.timeout">Timeout (ms)</label>
-                                <input type="number" id="ping.timeout_ms" name="ping.timeout_ms">
-                            </div>
-                            <div class="form-group">
-                                <label for="ping.concurrency" data-i18n="config.ping.concurrency">Concurrency</label>
-                                <input type="number" id="ping.concurrency" name="ping.concurrency">
-                            </div>
-                            <div class="form-group">
-                                <label for="ping.strategy" data-i18n="config.ping.strategy">Strategy</label>
-                                <select id="ping.strategy" name="ping.strategy">
-                                    <option value="min">Min</option>
-                                    <option value="avg">Avg</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="ping.max_test_ips" data-i18n="config.ping.maxTestIps">Max Test IPs</label>
-                                <input type="number" id="ping.max_test_ips" name="ping.max_test_ips">
-                                <small data-i18n="config.ping.maxTestIpsHelp">Maximum number of IPs to test per sort (0 = unlimited).</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="ping.rtt_cache_ttl_seconds" data-i18n="config.ping.rttCacheTtl">RTT Cache TTL (s)</label>
-                                <input type="number" id="ping.rtt_cache_ttl_seconds" name="ping.rtt_cache_ttl_seconds">
-                                <small data-i18n="config.ping.rttCacheTtlHelp">Cache duration for RTT results (0 = disabled).</small>
-                            </div>
-                        </fieldset>
+                    <fieldset id="config-ping">
+                        <legend data-i18n="config.ping.legend">Ping</legend>
+                        <div class="form-group">
+                            <label for="ping.count" data-i18n="config.ping.count">Count</label>
+                            <input type="number" id="ping.count" name="ping.count">
+                        </div>
+                        <div class="form-group">
+                            <label for="ping.timeout_ms" data-i18n="config.ping.timeout">Timeout (ms)</label>
+                            <input type="number" id="ping.timeout_ms" name="ping.timeout_ms">
+                        </div>
+                        <div class="form-group">
+                            <label for="ping.concurrency" data-i18n="config.ping.concurrency">Concurrency</label>
+                            <input type="number" id="ping.concurrency" name="ping.concurrency">
+                        </div>
+                        <div class="form-group">
+                            <label for="ping.strategy" data-i18n="config.ping.strategy">Strategy</label>
+                            <select id="ping.strategy" name="ping.strategy">
+                                <option value="min">Min</option>
+                                <option value="avg">Avg</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ping.max_test_ips" data-i18n="config.ping.maxTestIps">Max Test IPs</label>
+                            <input type="number" id="ping.max_test_ips" name="ping.max_test_ips">
+                            <small data-i18n="config.ping.maxTestIpsHelp">Maximum number of IPs to test per sort (0 =
+                                unlimited).</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="ping.rtt_cache_ttl_seconds" data-i18n="config.ping.rttCacheTtl">RTT Cache TTL
+                                (s)</label>
+                            <input type="number" id="ping.rtt_cache_ttl_seconds" name="ping.rtt_cache_ttl_seconds">
+                            <small data-i18n="config.ping.rttCacheTtlHelp">Cache duration for RTT results (0 =
+                                disabled).</small>
+                        </div>
+                    </fieldset>
 
-                        <fieldset id="config-cache">
-                            <legend data-i18n="config.cache.legend">Cache</legend>
-                            <div class="form-group">
-                                <label for="cache.fast_response_ttl" data-i18n="config.cache.fastResponseTtl">Fast Response TTL (s)</label>
-                                <input type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl">
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.user_return_ttl" data-i18n="config.cache.userReturnTtl">User Return TTL (s)</label>
-                                <input type="number" id="cache.user_return_ttl" name="cache.user_return_ttl">
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.min_ttl_seconds" data-i18n="config.cache.minTtl">Min TTL (s)</label>
-                                <input type="number" id="cache.min_ttl_seconds" name="cache.min_ttl_seconds">
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.max_ttl_seconds" data-i18n="config.cache.maxTtl">Max TTL (s)</label>
-                                <input type="number" id="cache.max_ttl_seconds" name="cache.max_ttl_seconds">
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.negative_ttl_seconds" data-i18n="config.cache.negativeTtl">Negative Cache TTL (s)</label>
-                                <input type="number" id="cache.negative_ttl_seconds" name="cache.negative_ttl_seconds">
-                                <small data-i18n="config.cache.negativeTtlHelp">TTL for NXDOMAIN/NODATA responses.</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.error_cache_ttl_seconds" data-i18n="config.cache.errorCacheTtl">Error Cache TTL (s)</label>
-                                <input type="number" id="cache.error_cache_ttl_seconds" name="cache.error_cache_ttl_seconds">
-                                <small data-i18n="config.cache.errorCacheTtlHelp">TTL for SERVFAIL/REFUSED responses.</small>
-                            </div>
+                    <fieldset id="config-cache">
+                        <legend data-i18n="config.cache.legend">Cache</legend>
+                        <div class="form-group">
+                            <label for="cache.fast_response_ttl" data-i18n="config.cache.fastResponseTtl">Fast Response
+                                TTL (s)</label>
+                            <input type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl">
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.user_return_ttl" data-i18n="config.cache.userReturnTtl">User Return TTL
+                                (s)</label>
+                            <input type="number" id="cache.user_return_ttl" name="cache.user_return_ttl">
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.min_ttl_seconds" data-i18n="config.cache.minTtl">Min TTL (s)</label>
+                            <input type="number" id="cache.min_ttl_seconds" name="cache.min_ttl_seconds">
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.max_ttl_seconds" data-i18n="config.cache.maxTtl">Max TTL (s)</label>
+                            <input type="number" id="cache.max_ttl_seconds" name="cache.max_ttl_seconds">
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.negative_ttl_seconds" data-i18n="config.cache.negativeTtl">Negative Cache
+                                TTL (s)</label>
+                            <input type="number" id="cache.negative_ttl_seconds" name="cache.negative_ttl_seconds">
+                            <small data-i18n="config.cache.negativeTtlHelp">TTL for NXDOMAIN/NODATA responses.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.error_cache_ttl_seconds" data-i18n="config.cache.errorCacheTtl">Error
+                                Cache TTL (s)</label>
+                            <input type="number" id="cache.error_cache_ttl_seconds"
+                                name="cache.error_cache_ttl_seconds">
+                            <small data-i18n="config.cache.errorCacheTtlHelp">TTL for SERVFAIL/REFUSED
+                                responses.</small>
+                        </div>
 
-                            <hr>
-                            <legend data-i18n="config.cache.memoryLegend">Memory Cache Management</legend>
+                        <hr>
+                        <legend data-i18n="config.cache.memoryLegend">Memory Cache Management</legend>
 
-                            <div class="form-group">
-                                <label for="cache.max_memory_mb" data-i18n="config.cache.maxMemory">Max Memory (MB)</label>
-                                <input type="number" id="cache.max_memory_mb" name="cache.max_memory_mb">
-                                <small data-i18n="config.cache.maxMemoryHelp">Max memory usage for the cache. Eviction is triggered beyond this limit. 0 for unlimited.</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.eviction_threshold" data-i18n="config.cache.evictionThreshold">Eviction Threshold</label>
-                                <input type="number" id="cache.eviction_threshold" name="cache.eviction_threshold" step="0.01">
-                                <small data-i18n="config.cache.evictionThresholdHelp">Memory usage percentage (0.7-0.95) that triggers eviction.</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="cache.eviction_batch_percent" data-i18n="config.cache.evictionBatchPercent">Eviction Batch Percent</label>
-                                <input type="number" id="cache.eviction_batch_percent" name="cache.eviction_batch_percent" step="0.01">
-                                <small data-i18n="config.cache.evictionBatchPercentHelp">Percentage of total cache to evict in a single batch (0.05-0.2).</small>
-                            </div>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="cache.keep_expired_entries" name="cache.keep_expired_entries">
-                                <label for="cache.keep_expired_entries" data-i18n="config.cache.keepExpired">Keep Expired Entries</label>
-                                <small data-i18n="config.cache.keepExpiredHelp">Keep expired entries in memory if space is available to speed up subsequent queries.</small>
-                            </div>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="cache.protect_prefetch_domains" name="cache.protect_prefetch_domains">
-                                <label for="cache.protect_prefetch_domains" data-i18n="config.cache.protectPrefetch">Protect Prefetched Domains</label>
-                                <small data-i18n="config.cache.protectPrefetchHelp">Prevent domains in the prefetch list from being evicted during LRU cleanup.</small>
-                            </div>
-                        </fieldset>
+                        <div class="form-group">
+                            <label for="cache.max_memory_mb" data-i18n="config.cache.maxMemory">Max Memory (MB)</label>
+                            <input type="number" id="cache.max_memory_mb" name="cache.max_memory_mb">
+                            <small data-i18n="config.cache.maxMemoryHelp">Max memory usage for the cache. Eviction is
+                                triggered beyond this limit. 0 for unlimited.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.eviction_threshold" data-i18n="config.cache.evictionThreshold">Eviction
+                                Threshold</label>
+                            <input type="number" id="cache.eviction_threshold" name="cache.eviction_threshold"
+                                step="0.01">
+                            <small data-i18n="config.cache.evictionThresholdHelp">Memory usage percentage (0.7-0.95)
+                                that triggers eviction.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="cache.eviction_batch_percent"
+                                data-i18n="config.cache.evictionBatchPercent">Eviction Batch Percent</label>
+                            <input type="number" id="cache.eviction_batch_percent" name="cache.eviction_batch_percent"
+                                step="0.01">
+                            <small data-i18n="config.cache.evictionBatchPercentHelp">Percentage of total cache to evict
+                                in a single batch (0.05-0.2).</small>
+                        </div>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="cache.keep_expired_entries" name="cache.keep_expired_entries">
+                            <label for="cache.keep_expired_entries" data-i18n="config.cache.keepExpired">Keep Expired
+                                Entries</label>
+                            <small data-i18n="config.cache.keepExpiredHelp">Keep expired entries in memory if space is
+                                available to speed up subsequent queries.</small>
+                        </div>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="cache.protect_prefetch_domains"
+                                name="cache.protect_prefetch_domains">
+                            <label for="cache.protect_prefetch_domains" data-i18n="config.cache.protectPrefetch">Protect
+                                Prefetched Domains</label>
+                            <small data-i18n="config.cache.protectPrefetchHelp">Prevent domains in the prefetch list
+                                from being evicted during LRU cleanup.</small>
+                        </div>
+                    </fieldset>
 
-                        <fieldset id="config-prefetch">
-                            <legend data-i18n="config.prefetch.legend">Prefetch</legend>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="prefetch.enabled" name="prefetch.enabled">
-                                <label for="prefetch.enabled" data-i18n="config.prefetch.enable">Enable Prefetch</label>
-                            </div>
-                            <div class="form-group">
-                                <label for="prefetch.top_domains_limit" data-i18n="config.prefetch.topDomainsLimit">Top Domains Limit</label>
-                                <input type="number" id="prefetch.top_domains_limit" name="prefetch.top_domains_limit">
-                            </div>
-                            <div class="form-group">
-                                <label for="prefetch.refresh_before_expire_seconds" data-i18n="config.prefetch.refreshBeforeExpire">Refresh Before Expire (s)</label>
-                                <input type="number" id="prefetch.refresh_before_expire_seconds" name="prefetch.refresh_before_expire_seconds">
-                            </div>
-                        </fieldset>
+                    <fieldset id="config-prefetch">
+                        <legend data-i18n="config.prefetch.legend">Prefetch</legend>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="prefetch.enabled" name="prefetch.enabled">
+                            <label for="prefetch.enabled" data-i18n="config.prefetch.enable">Enable Prefetch</label>
+                        </div>
+                        <div class="form-group">
+                            <label for="prefetch.top_domains_limit" data-i18n="config.prefetch.topDomainsLimit">Top
+                                Domains Limit</label>
+                            <input type="number" id="prefetch.top_domains_limit" name="prefetch.top_domains_limit">
+                        </div>
+                        <div class="form-group">
+                            <label for="prefetch.refresh_before_expire_seconds"
+                                data-i18n="config.prefetch.refreshBeforeExpire">Refresh Before Expire (s)</label>
+                            <input type="number" id="prefetch.refresh_before_expire_seconds"
+                                name="prefetch.refresh_before_expire_seconds">
+                        </div>
+                    </fieldset>
 
-                        <fieldset id="config-adblock">
-                            <legend data-i18n="tabs.adblock">AdBlock</legend>
-                            <div class="card card-full-width">
-                                <h2 data-i18n="adblock.ruleSources">Rule Sources</h2>
-                                <table id="adblock_sources_table">
-                                    <thead>
-                                        <tr>
-                                            <th data-i18n="adblock.url">URL</th>
-                                            <th data-i18n="adblock.status">Status</th>
-                                            <th class="value" data-i18n="adblock.rules">Rules</th>
-                                            <th data-i18n="adblock.lastUpdate">Last Update</th>
-                                            <th data-i18n="adblock.enabled">Enabled</th>
-                                            <th data-i18n="adblock.actions">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <!-- Rows will be added dynamically -->
-                                    </tbody>
-                                </table>
-                                <div class="card-footer">
-                                    <h3 data-i18n="adblock.addNew">Add New Source</h3>
-                                    <div class="form-group-inline">
-                                        <input type="text" id="adblock_new_source_url" data-i18n-ph="adblock.placeholderUrl" placeholder="https://example.com/rules.txt" class="form-control">
-                                        <button id="adblockAddSourceButton" type="button" class="btn btn-success" data-i18n="adblock.add">Add</button>
-                                    </div>
-                                </div>
-                            </div>
-            
-                            <div class="card">
-                                <h2 data-i18n="adblock.blockMode">Block Mode</h2>
+                    <fieldset id="config-adblock">
+                        <legend data-i18n="tabs.adblock">AdBlock</legend>
+                        <div class="card card-full-width">
+                            <h2 data-i18n="adblock.ruleSources">Rule Sources</h2>
+                            <table id="adblock_sources_table">
+                                <thead>
+                                    <tr>
+                                        <th data-i18n="adblock.url">URL</th>
+                                        <th data-i18n="adblock.status">Status</th>
+                                        <th class="value" data-i18n="adblock.rules">Rules</th>
+                                        <th data-i18n="adblock.lastUpdate">Last Update</th>
+                                        <th data-i18n="adblock.enabled">Enabled</th>
+                                        <th data-i18n="adblock.actions">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rows will be added dynamically -->
+                                </tbody>
+                            </table>
+                            <div class="card-footer">
+                                <h3 data-i18n="adblock.addNew">Add New Source</h3>
                                 <div class="form-group-inline">
-                                    <select id="adblock_block_mode" class="form-control">
-                                        <option value="nxdomain">NXDOMAIN</option>
-                                        <option value="refused">REFUSED</option>
-                                        <option value="zero_ip">Zero IP (0.0.0.0)</option>
-                                    </select>
-                                    <button id="adblockSaveBlockModeButton" type="button" class="btn btn-primary" data-i18n="adblock.saveBlockMode">Save</button>
-                                </div>
-                                <small style="display: block; margin-top: 0.5rem; color: #6c757d;" data-i18n="adblock.blockModeHelp">
-                                    Select how blocked domains should be handled
-                                </small>
-                            </div>
-            
-                            <div class="card">
-                                <h2 data-i18n="adblock.testDomain">Test Domain</h2>
-                                <div class="form-group-inline">
-                                    <input type="text" id="adblock_test_domain" data-i18n-ph="adblock.placeholderDomain" placeholder="example.com" class="form-control">
-                                    <button id="adblockTestDomainButton" type="button" class="btn btn-secondary" data-i18n="adblock.test">Test</button>
-                                </div>
-                                <div id="adblock_test_result" class="test-result"></div>
-                            </div>
-            
-                            <div class="card">
-                                <h2 data-i18n="adblock.settings">AdBlock Settings</h2>
-                                <div id="adblockSettingsContainer">
-                                    <div class="form-group">
-                                        <label for="adblock_update_interval_hours" data-i18n="adblock.updateInterval">Update Interval (Hours)</label>
-                                        <input type="number" id="adblock_update_interval_hours" name="update_interval_hours" class="form-control">
-                                        <small data-i18n="adblock.updateIntervalHelp">How often to automatically update rule lists. 0 to disable.</small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="adblock_max_cache_age_hours" data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label>
-                                        <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours" class="form-control">
-                                        <small data-i18n="adblock.maxCacheAgeHelp">Maximum age of cached rule files before forcing a re-download. 0 to disable.</small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="adblock_max_cache_size_mb" data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label>
-                                        <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb" class="form-control">
-                                        <small data-i18n="adblock.maxCacheSizeHelp">Total size limit for all cached rule files.</small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="adblock_blocked_ttl" data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label>
-                                        <input type="number" id="adblock_blocked_ttl" name="blocked_ttl" class="form-control">
-                                        <small data-i18n="adblock.blockedTtlHelp">TTL for the response to a blocked domain query.</small>
-                                    </div>
-                                    <div class="form-group">
-                                        <button type="button" id="adblockSaveSettingsButton" class="btn btn-primary" data-i18n="adblock.saveSettings">Save Settings</button>
-                                    </div>
+                                    <input type="text" id="adblock_new_source_url" data-i18n-ph="adblock.placeholderUrl"
+                                        placeholder="https://example.com/rules.txt" class="form-control">
+                                    <button id="adblockAddSourceButton" type="button" class="btn btn-success"
+                                        data-i18n="adblock.add">Add</button>
                                 </div>
                             </div>
-                        </fieldset>
+                        </div>
 
-                        <fieldset id="config-webui">
-                            <legend data-i18n="config.webui.legend">Web UI</legend>
-                            <div class="form-group form-group-inline">
-                                <input type="checkbox" id="webui.enabled" name="webui.enabled">
-                                <label for="webui.enabled" data-i18n="config.webui.enable">Enable Web UI</label>
+                        <div class="card">
+                            <h2 data-i18n="adblock.blockMode">Block Mode</h2>
+                            <div class="form-group-inline">
+                                <select id="adblock_block_mode" class="form-control">
+                                    <option value="nxdomain">NXDOMAIN</option>
+                                    <option value="refused">REFUSED</option>
+                                    <option value="zero_ip">Zero IP (0.0.0.0)</option>
+                                </select>
+                                <button id="adblockSaveBlockModeButton" type="button" class="btn btn-primary"
+                                    data-i18n="adblock.saveBlockMode">Save</button>
                             </div>
-                            <div class="form-group">
-                                <label for="webui.listen_port" data-i18n="config.webui.listenPort">Listen Port</label>
-                                <input type="number" id="webui.listen_port" name="webui.listen_port">
-                            </div>
-                        </fieldset>
+                            <small style="display: block; margin-top: 0.5rem; color: #6c757d;"
+                                data-i18n="adblock.blockModeHelp">
+                                Select how blocked domains should be handled
+                            </small>
+                        </div>
 
-                        <fieldset id="config-system">
-                            <legend data-i18n="config.system.legend">System</legend>
-                            <div class="form-group">
-                                <label for="system.max_cpu_cores" data-i18n="config.system.maxCpuCores">Max CPU Cores</label>
-                                <input type="number" id="system.max_cpu_cores" name="system.max_cpu_cores">
-                                <small data-i18n="config.system.maxCpuCoresHelp">Set to 0 to use all available cores.</small>
+                        <div class="card">
+                            <h2 data-i18n="adblock.testDomain">Test Domain</h2>
+                            <div class="form-group-inline">
+                                <input type="text" id="adblock_test_domain" data-i18n-ph="adblock.placeholderDomain"
+                                    placeholder="example.com" class="form-control">
+                                <button id="adblockTestDomainButton" type="button" class="btn btn-secondary"
+                                    data-i18n="adblock.test">Test</button>
                             </div>
-                            <div class="form-group">
-                                <label for="system.sort_queue_workers" data-i18n="config.system.sortQueueWorkers">Sort Queue Workers</label>
-                                <input type="number" id="system.sort_queue_workers" name="system.sort_queue_workers">
-                                <small data-i18n="config.system.sortQueueWorkersHelp">Number of parallel sorting tasks.</small>
+                            <div id="adblock_test_result" class="test-result"></div>
+                        </div>
+
+                        <div class="card">
+                            <h2 data-i18n="adblock.settings">AdBlock Settings</h2>
+                            <div id="adblockSettingsContainer">
+                                <div class="form-group">
+                                    <label for="adblock_update_interval_hours" data-i18n="adblock.updateInterval">Update
+                                        Interval (Hours)</label>
+                                    <input type="number" id="adblock_update_interval_hours" name="update_interval_hours"
+                                        class="form-control">
+                                    <small data-i18n="adblock.updateIntervalHelp">How often to automatically update rule
+                                        lists. 0 to disable.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="adblock_max_cache_age_hours" data-i18n="adblock.maxCacheAge">Max Cache
+                                        Age (Hours)</label>
+                                    <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours"
+                                        class="form-control">
+                                    <small data-i18n="adblock.maxCacheAgeHelp">Maximum age of cached rule files before
+                                        forcing a re-download. 0 to disable.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="adblock_max_cache_size_mb" data-i18n="adblock.maxCacheSize">Max Cache
+                                        Size (MB)</label>
+                                    <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb"
+                                        class="form-control">
+                                    <small data-i18n="adblock.maxCacheSizeHelp">Total size limit for all cached rule
+                                        files.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="adblock_blocked_ttl" data-i18n="adblock.blockedTtl">Blocked Response TTL
+                                        (Seconds)</label>
+                                    <input type="number" id="adblock_blocked_ttl" name="blocked_ttl"
+                                        class="form-control">
+                                    <small data-i18n="adblock.blockedTtlHelp">TTL for the response to a blocked domain
+                                        query.</small>
+                                </div>
+                                <div class="form-group">
+                                    <button type="button" id="adblockSaveSettingsButton" class="btn btn-primary"
+                                        data-i18n="adblock.saveSettings">Save Settings</button>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="system.refresh_workers" data-i18n="config.system.refreshWorkers">Refresh Workers</label>
-                                <input type="number" id="system.refresh_workers" name="system.refresh_workers">
-                                <small data-i18n="config.system.refreshWorkersHelp">Number of async cache refresh workers.</small>
-                            </div>
-                        </fieldset>
-                    </form>
-                </div>
-            </div>
-            <div class="save-button-container">
-                <button class="save-button" onclick="saveConfig()" data-i18n="config.save">Save & Apply</button>
+                        </div>
+                    </fieldset>
+
+                    <fieldset id="config-webui">
+                        <legend data-i18n="config.webui.legend">Web UI</legend>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="webui.enabled" name="webui.enabled">
+                            <label for="webui.enabled" data-i18n="config.webui.enable">Enable Web UI</label>
+                        </div>
+                        <div class="form-group">
+                            <label for="webui.listen_port" data-i18n="config.webui.listenPort">Listen Port</label>
+                            <input type="number" id="webui.listen_port" name="webui.listen_port">
+                        </div>
+                    </fieldset>
+
+                    <fieldset id="config-system">
+                        <legend data-i18n="config.system.legend">System</legend>
+                        <div class="form-group">
+                            <label for="system.max_cpu_cores" data-i18n="config.system.maxCpuCores">Max CPU
+                                Cores</label>
+                            <input type="number" id="system.max_cpu_cores" name="system.max_cpu_cores">
+                            <small data-i18n="config.system.maxCpuCoresHelp">Set to 0 to use all available
+                                cores.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="system.sort_queue_workers" data-i18n="config.system.sortQueueWorkers">Sort Queue
+                                Workers</label>
+                            <input type="number" id="system.sort_queue_workers" name="system.sort_queue_workers">
+                            <small data-i18n="config.system.sortQueueWorkersHelp">Number of parallel sorting
+                                tasks.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="system.refresh_workers" data-i18n="config.system.refreshWorkers">Refresh
+                                Workers</label>
+                            <input type="number" id="system.refresh_workers" name="system.refresh_workers">
+                            <small data-i18n="config.system.refreshWorkersHelp">Number of async cache refresh
+                                workers.</small>
+                        </div>
+                    </fieldset>
+                </form>
             </div>
         </div>
+        <div class="save-button-container">
+            <button class="save-button" onclick="saveConfig()" data-i18n="config.save">Save & Apply</button>
+        </div>
+    </div>
 
 
+    </div>
+
+    <!-- Custom Setting Tab -->
+    <div id="custom-setting" class="tab-content">
+        <div class="config-container">
+            <div class="config-content" style="width: 100%;">
+                <fieldset>
+                    <legend data-i18n="custom.blockedDomains">Blocked Domains</legend>
+                    <p class="help-text" data-i18n="custom.blockedDomainsHelp">One domain per line. These domains will
+                        be blocked by AdBlock.</p>
+                    <textarea id="custom-blocked-content" class="code-editor" rows="15"
+                        placeholder="example.com"></textarea>
+                    <div class="form-actions">
+                        <button class="primary-btn" onclick="saveCustomBlocked()" data-i18n="custom.saveBlocked">Save
+                            Block List</button>
+                    </div>
+                </fieldset>
+
+                <fieldset style="margin-top: 20px;">
+                    <legend data-i18n="custom.customResponses">Custom Responses</legend>
+                    <p class="help-text" data-i18n="custom.customResponsesHelp">Format: domain type value ttl</p>
+                    <div class="alert info" data-i18n="custom.customResponsesExample">Example: example.com A 1.2.3.4 300
+                    </div>
+                    <textarea id="custom-response-content" class="code-editor" rows="15"
+                        placeholder="example.com A 1.2.3.4 300"></textarea>
+                    <div class="form-actions">
+                        <button class="primary-btn" onclick="saveCustomResponse()" data-i18n="custom.saveResponse">Save
+                            Response Rules</button>
+                    </div>
+                </fieldset>
+            </div>
+        </div>
     </div>
 
     <script src="js/i18n.js"></script>
     <script src="js/app.js"></script>
     <footer class="footer">
-        <p data-i18n="footer.copyright">© 2025 SmartDNSSort. <a href="https://github.com/lee-alone/SmartDNSSort" target="_blank">GitHub</a></p>
+        <p data-i18n="footer.copyright">© 2025 SmartDNSSort. <a href="https://github.com/lee-alone/SmartDNSSort"
+                target="_blank">GitHub</a></p>
     </footer>
 </body>
 

@@ -362,6 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('languageChanged', (e) => {
     updateDashboard();
     updateAdBlockTab();
+    loadCustomSettings();
     // loadConfig doesn't need i18n for the form values themselves, but if we had dynamic labels it would.
     // The labels are static HTML handled by applyTranslations().
     // So loadConfig is fine to run whenever.
@@ -675,3 +676,73 @@ document.getElementById('adblockSaveBlockModeButton').addEventListener('click', 
             console.error('Save block mode error:', error);
         });
 });
+
+// ========== Custom Settings Logic ==========
+
+function loadCustomSettings() {
+    // Load Blocked Domains
+    fetch('/api/custom/blocked')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('custom-blocked-content').value = data.data.content;
+            } else {
+                console.error('Failed to load blocked domains:', data.message);
+            }
+        })
+        .catch(err => console.error('Error loading blocked domains:', err));
+
+    // Load Custom Responses
+    fetch('/api/custom/response')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('custom-response-content').value = data.data.content;
+            } else {
+                console.error('Failed to load custom responses:', data.message);
+            }
+        })
+        .catch(err => console.error('Error loading custom responses:', err));
+}
+
+function saveCustomBlocked() {
+    const content = document.getElementById('custom-blocked-content').value;
+
+    fetch('/api/custom/blocked', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(i18n.t('messages.customBlockedSaved'));
+            } else {
+                alert(i18n.t('messages.customBlockedSaveError', { error: data.message }));
+            }
+        })
+        .catch(error => {
+            alert(i18n.t('messages.customBlockedSaveError', { error: error.message }));
+        });
+}
+
+function saveCustomResponse() {
+    const content = document.getElementById('custom-response-content').value;
+
+    fetch('/api/custom/response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(i18n.t('messages.customResponseSaved'));
+            } else {
+                alert(i18n.t('messages.customResponseSaveError', { error: data.message }));
+            }
+        })
+        .catch(error => {
+            alert(i18n.t('messages.customResponseSaveError', { error: error.message }));
+        });
+}

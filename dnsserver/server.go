@@ -40,6 +40,7 @@ type Server struct {
 	udpServer          *dns.Server
 	tcpServer          *dns.Server
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
+	customRespManager  *CustomResponseManager  // 自定义回复管理器
 	requestGroup       singleflight.Group      // 用于合并并发请求
 }
 
@@ -101,6 +102,16 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		}
 	}
 
+	// Initialize Custom Response Manager
+	logger.Info("[Ref] Initializing Custom Response Manager...")
+	customRespMgr := NewCustomResponseManager(cfg.AdBlock.CustomResponseFile)
+	if err := customRespMgr.Load(); err != nil {
+		logger.Errorf("[Ref] Failed to load custom response rules: %v", err)
+	} else {
+		logger.Info("[Ref] Custom response rules loaded.")
+	}
+	server.customRespManager = customRespMgr
+
 	// 设置刷新队列的工作函数
 	refreshQueue.SetWorkFunc(server.refreshCacheAsync)
 
@@ -149,6 +160,11 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 			logger.Debugf("[CacheUpdateCallback] IP数量未增加 (%d)，保持现有排序", len(ips))
 		}
 	})
+}
+
+// GetCustomResponseManager returns the custom response manager instance
+func (s *Server) GetCustomResponseManager() *CustomResponseManager {
+	return s.customRespManager
 }
 
 // performPingSort 执行 ping 排序操作
@@ -310,6 +326,54 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Compress = false
+
+	// ========== 自定义回复规则检查 ==========
+	if s.customRespManager != nil {
+		if rules, matched := s.customRespManager.Match(domain, qtype); matched {
+			logger.Debugf("[CustomResponse] Matched: %s (type=%s), rules=%d", domain, dns.TypeToString[qtype], len(rules))
+
+			// Check for CNAME
+			var cnameRule *CustomRule
+			var aRules []CustomRule
+
+			for _, rule := range rules {
+				if rule.Type == dns.TypeCNAME {
+					cnameRule = &rule
+					break // CNAME priority
+				}
+				if rule.Type == qtype {
+					aRules = append(aRules, rule)
+				}
+			}
+
+			if cnameRule != nil {
+				// CNAME Response
+				rr := new(dns.CNAME)
+				rr.Hdr = dns.RR_Header{Name: question.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: cnameRule.TTL}
+				rr.Target = dns.Fqdn(cnameRule.Value)
+				msg.Answer = append(msg.Answer, rr)
+				w.WriteMsg(msg)
+				return
+			} else if len(aRules) > 0 {
+				// A/AAAA Response
+				for _, rule := range aRules {
+					var rr dns.RR
+					header := dns.RR_Header{Name: question.Name, Rrtype: rule.Type, Class: dns.ClassINET, Ttl: rule.TTL}
+					switch rule.Type {
+					case dns.TypeA:
+						rr = &dns.A{Hdr: header, A: net.ParseIP(rule.Value)}
+					case dns.TypeAAAA:
+						rr = &dns.AAAA{Hdr: header, AAAA: net.ParseIP(rule.Value)}
+					}
+					if rr != nil {
+						msg.Answer = append(msg.Answer, rr)
+					}
+				}
+				w.WriteMsg(msg)
+				return
+			}
+		}
+	}
 
 	// ========== 规则过滤 ==========
 	// 在处理任何逻辑之前，首先应用本地规则
