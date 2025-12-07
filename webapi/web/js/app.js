@@ -392,8 +392,8 @@ function loadAdBlockSettings() {
         .catch(error => console.error('Error fetching AdBlock settings:', error));
 }
 
-document.getElementById('adblockSettingsForm').addEventListener('submit', function (e) {
-    e.preventDefault(); // Prevent form from submitting the traditional way
+document.getElementById('adblockSaveSettingsButton').addEventListener('click', function (e) {
+    e.preventDefault();
 
     const payload = {
         update_interval_hours: parseInt(document.getElementById('adblock_update_interval_hours').value, 10),

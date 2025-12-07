@@ -14,7 +14,7 @@
         <div class="tabs">
             <button class="tab-button active" onclick="showTab('dashboard')" data-i18n="tabs.dashboard">Dashboard</button>
             <button class="tab-button" onclick="showTab('config')" data-i18n="tabs.config">Configuration</button>
-            <button class="tab-button" onclick="showTab('adblock')" data-i18n="tabs.adblock">AdBlock</button>
+
 
             <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
 
@@ -186,6 +186,7 @@
                         <li><a href="#config-ping" data-i18n="config.nav.ping">Ping</a></li>
                         <li><a href="#config-cache" data-i18n="config.nav.cache">Cache</a></li>
                         <li><a href="#config-prefetch" data-i18n="config.nav.prefetch">Prefetch</a></li>
+                        <li><a href="#config-adblock" data-i18n="tabs.adblock">AdBlock</a></li>
                         <li><a href="#config-webui" data-i18n="config.nav.webui">Web UI</a></li>
                         <li><a href="#config-system" data-i18n="config.nav.system">System</a></li>
                     </ul>
@@ -345,6 +346,88 @@
                             </div>
                         </fieldset>
 
+                        <fieldset id="config-adblock">
+                            <legend data-i18n="tabs.adblock">AdBlock</legend>
+                            <div class="card card-full-width">
+                                <h2 data-i18n="adblock.ruleSources">Rule Sources</h2>
+                                <table id="adblock_sources_table">
+                                    <thead>
+                                        <tr>
+                                            <th data-i18n="adblock.url">URL</th>
+                                            <th data-i18n="adblock.status">Status</th>
+                                            <th class="value" data-i18n="adblock.rules">Rules</th>
+                                            <th data-i18n="adblock.lastUpdate">Last Update</th>
+                                            <th data-i18n="adblock.enabled">Enabled</th>
+                                            <th data-i18n="adblock.actions">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Rows will be added dynamically -->
+                                    </tbody>
+                                </table>
+                                <div class="card-footer">
+                                    <h3 data-i18n="adblock.addNew">Add New Source</h3>
+                                    <div class="form-group-inline">
+                                        <input type="text" id="adblock_new_source_url" data-i18n-ph="adblock.placeholderUrl" placeholder="https://example.com/rules.txt" class="form-control">
+                                        <button id="adblockAddSourceButton" type="button" class="btn btn-success" data-i18n="adblock.add">Add</button>
+                                    </div>
+                                </div>
+                            </div>
+            
+                            <div class="card">
+                                <h2 data-i18n="adblock.blockMode">Block Mode</h2>
+                                <div class="form-group-inline">
+                                    <select id="adblock_block_mode" class="form-control">
+                                        <option value="nxdomain">NXDOMAIN</option>
+                                        <option value="refused">REFUSED</option>
+                                        <option value="zero_ip">Zero IP (0.0.0.0)</option>
+                                    </select>
+                                    <button id="adblockSaveBlockModeButton" type="button" class="btn btn-primary" data-i18n="adblock.saveBlockMode">Save</button>
+                                </div>
+                                <small style="display: block; margin-top: 0.5rem; color: #6c757d;" data-i18n="adblock.blockModeHelp">
+                                    Select how blocked domains should be handled
+                                </small>
+                            </div>
+            
+                            <div class="card">
+                                <h2 data-i18n="adblock.testDomain">Test Domain</h2>
+                                <div class="form-group-inline">
+                                    <input type="text" id="adblock_test_domain" data-i18n-ph="adblock.placeholderDomain" placeholder="example.com" class="form-control">
+                                    <button id="adblockTestDomainButton" type="button" class="btn btn-secondary" data-i18n="adblock.test">Test</button>
+                                </div>
+                                <div id="adblock_test_result" class="test-result"></div>
+                            </div>
+            
+                            <div class="card">
+                                <h2 data-i18n="adblock.settings">AdBlock Settings</h2>
+                                <div id="adblockSettingsContainer">
+                                    <div class="form-group">
+                                        <label for="adblock_update_interval_hours" data-i18n="adblock.updateInterval">Update Interval (Hours)</label>
+                                        <input type="number" id="adblock_update_interval_hours" name="update_interval_hours" class="form-control">
+                                        <small data-i18n="adblock.updateIntervalHelp">How often to automatically update rule lists. 0 to disable.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="adblock_max_cache_age_hours" data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label>
+                                        <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours" class="form-control">
+                                        <small data-i18n="adblock.maxCacheAgeHelp">Maximum age of cached rule files before forcing a re-download. 0 to disable.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="adblock_max_cache_size_mb" data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label>
+                                        <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb" class="form-control">
+                                        <small data-i18n="adblock.maxCacheSizeHelp">Total size limit for all cached rule files.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="adblock_blocked_ttl" data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label>
+                                        <input type="number" id="adblock_blocked_ttl" name="blocked_ttl" class="form-control">
+                                        <small data-i18n="adblock.blockedTtlHelp">TTL for the response to a blocked domain query.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="button" id="adblockSaveSettingsButton" class="btn btn-primary" data-i18n="adblock.saveSettings">Save Settings</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </fieldset>
+
                         <fieldset id="config-webui">
                             <legend data-i18n="config.webui.legend">Web UI</legend>
                             <div class="form-group form-group-inline">
@@ -383,86 +466,7 @@
             </div>
         </div>
 
-        <!-- AdBlock Tab -->
-        <div id="adblock" class="tab-content">
-            <div class="container">
-                <div class="card card-full-width">
-                    <h2 data-i18n="adblock.ruleSources">Rule Sources</h2>
-                    <table id="adblock_sources_table">
-                        <thead>
-                            <tr>
-                                <th data-i18n="adblock.url">URL</th>
-                                <th data-i18n="adblock.status">Status</th>
-                                <th class="value" data-i18n="adblock.rules">Rules</th>
-                                <th data-i18n="adblock.lastUpdate">Last Update</th>
-                                <th data-i18n="adblock.enabled">Enabled</th>
-                                <th data-i18n="adblock.actions">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Rows will be added dynamically -->
-                        </tbody>
-                    </table>
-                    <div class="card-footer">
-                        <h3 data-i18n="adblock.addNew">Add New Source</h3>
-                        <div class="form-group-inline">
-                            <input type="text" id="adblock_new_source_url" data-i18n-ph="adblock.placeholderUrl" placeholder="https://example.com/rules.txt" class="form-control">
-                            <button id="adblockAddSourceButton" class="btn btn-success" data-i18n="adblock.add">Add</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="card">
-                    <h2 data-i18n="adblock.blockMode">Block Mode</h2>
-                    <div class="form-group-inline">
-                        <select id="adblock_block_mode" class="form-control">
-                            <option value="nxdomain">NXDOMAIN</option>
-                            <option value="refused">REFUSED</option>
-                            <option value="zero_ip">Zero IP (0.0.0.0)</option>
-                        </select>
-                        <button id="adblockSaveBlockModeButton" class="btn btn-primary" data-i18n="adblock.saveBlockMode">Save</button>
-                    </div>
-                    <small style="display: block; margin-top: 0.5rem; color: #6c757d;" data-i18n="adblock.blockModeHelp">
-                        Select how blocked domains should be handled
-                    </small>
-                </div>
-                <div class="card">
-                    <h2 data-i18n="adblock.testDomain">Test Domain</h2>
-                    <div class="form-group-inline">
-                        <input type="text" id="adblock_test_domain" data-i18n-ph="adblock.placeholderDomain" placeholder="example.com" class="form-control">
-                        <button id="adblockTestDomainButton" class="btn btn-secondary" data-i18n="adblock.test">Test</button>
-                    </div>
-                    <div id="adblock_test_result" class="test-result"></div>
-                </div>
-                <div class="card">
-                    <h2 data-i18n="adblock.settings">AdBlock Settings</h2>
-                    <form id="adblockSettingsForm">
-                        <div class="form-group">
-                            <label for="adblock_update_interval_hours" data-i18n="adblock.updateInterval">Update Interval (Hours)</label>
-                            <input type="number" id="adblock_update_interval_hours" name="update_interval_hours" class="form-control">
-                            <small data-i18n="adblock.updateIntervalHelp">How often to automatically update rule lists. 0 to disable.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="adblock_max_cache_age_hours" data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label>
-                            <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours" class="form-control">
-                            <small data-i18n="adblock.maxCacheAgeHelp">Maximum age of cached rule files before forcing a re-download. 0 to disable.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="adblock_max_cache_size_mb" data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label>
-                            <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb" class="form-control">
-                            <small data-i18n="adblock.maxCacheSizeHelp">Total size limit for all cached rule files.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="adblock_blocked_ttl" data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label>
-                            <input type="number" id="adblock_blocked_ttl" name="blocked_ttl" class="form-control">
-                            <small data-i18n="adblock.blockedTtlHelp">TTL for the response to a blocked domain query.</small>
-                        </div>
-                        <div class="form-group">
-                            <button type="submit" id="adblockSaveSettingsButton" class="btn btn-primary" data-i18n="adblock.saveSettings">Save Settings</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+
     </div>
 
     <script src="js/i18n.js"></script>
