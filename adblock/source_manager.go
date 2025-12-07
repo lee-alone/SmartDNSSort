@@ -13,25 +13,25 @@ import (
 )
 
 type SourceStatus struct {
-    URL        string    `json:"url"`
-    Status     string    `json:"status"` // "active", "failed", "bad"
-    Enabled    bool      `json:"enabled"`
-    RuleCount  int       `json:"rule_count"`
-    LastUpdate time.Time `json:"last_update"`
-    LastError  string    `json:"last_error"`
+	URL        string    `json:"url"`
+	Status     string    `json:"status"` // "active", "failed", "bad"
+	Enabled    bool      `json:"enabled"`
+	RuleCount  int       `json:"rule_count"`
+	LastUpdate time.Time `json:"last_update"`
+	LastError  string    `json:"last_error"`
 }
 
 type SourceInfo struct {
-    URL          string    `json:"url"`
-    ETag         string    `json:"etag"`
-    LastModified string    `json:"last_modified"`
-    CacheFile    string    `json:"cache_file"`
-    RuleCount    int       `json:"rule_count"`
-    LastUpdate   time.Time `json:"last_update"`
-    LastError    string    `json:"last_error"`
-    FailCount    int       `json:"fail_count"`
-    Status       string    `json:"status"` // active | failed | bad
-    Enabled      bool      `json:"enabled"`
+	URL          string    `json:"url"`
+	ETag         string    `json:"etag"`
+	LastModified string    `json:"last_modified"`
+	CacheFile    string    `json:"cache_file"`
+	RuleCount    int       `json:"rule_count"`
+	LastUpdate   time.Time `json:"last_update"`
+	LastError    string    `json:"last_error"`
+	FailCount    int       `json:"fail_count"`
+	Status       string    `json:"status"` // active | failed | bad
+	Enabled      bool      `json:"enabled"`
 }
 
 type SourceManager struct {
@@ -61,10 +61,55 @@ func NewSourceManager(cfg *config.AdBlockConfig) (*SourceManager, error) {
 		sm.AddSource(url)
 	}
 	if cfg.CustomRulesFile != "" {
+		// Ensure custom rules file exists and is properly initialized
+		if err := sm.ensureCustomRulesFile(cfg.CustomRulesFile); err != nil {
+			// Log error but don't fail - we can still use other sources
+			// The file will be created on first write
+		}
 		sm.AddSource(cfg.CustomRulesFile)
 	}
 
 	return sm, nil
+}
+
+// ensureCustomRulesFile creates the custom rules file if it doesn't exist
+func (sm *SourceManager) ensureCustomRulesFile(path string) error {
+	// Check if file already exists
+	if _, err := os.Stat(path); err == nil {
+		// File exists, nothing to do
+		return nil
+	} else if !os.IsNotExist(err) {
+		// Some other error occurred
+		return err
+	}
+
+	// File doesn't exist, create it with a helpful template
+	template := `# SmartDNSSort 自定义广告屏蔽规则文件
+# 
+# 在此文件中添加您自己的广告屏蔽规则
+# 每行一条规则，支持以下格式：
+#
+# 1. 域名匹配（推荐）：
+#    ||example.com^         - 屏蔽 example.com 及其所有子域名
+#    ||ads.example.com^     - 仅屏蔽 ads.example.com
+#
+# 2. 通配符匹配：
+#    *ads.*                 - 屏蔽包含 'ads.' 的所有域名
+#
+# 3. 正则表达式（高级）：
+#    /^ad[s]?\./            - 使用正则表达式匹配
+#
+# 以 # 开头的行为注释，将被忽略
+# 空行也会被忽略
+#
+# 示例规则（取消注释以启用）：
+# ||doubleclick.net^
+# ||googleadservices.com^
+# ||googlesyndication.com^
+# ||advertising.com^
+
+`
+	return os.WriteFile(path, []byte(template), 0644)
 }
 
 func (sm *SourceManager) loadMeta() error {
@@ -113,7 +158,12 @@ func (sm *SourceManager) AddSource(url string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if _, exists := sm.sources[url]; !exists {
+	if source, exists := sm.sources[url]; exists {
+		// Source already exists (loaded from meta), ensure it's enabled
+		// since it's specified in the config
+		source.Enabled = true
+	} else {
+		// Create new source
 		h := sha256.Sum256([]byte(url))
 		cacheFile := "rules_" + hex.EncodeToString(h[:16]) + ".txt"
 

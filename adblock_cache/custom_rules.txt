@@ -22,3 +22,15 @@
 # ||googlesyndication.com^
 # ||advertising.com^
 
+# === 以下是测试规则，您可以根据需要修改或删除 ===
+
+# 常见广告和跟踪域名
+||doubleclick.net^
+||googleadservices.com^
+||googlesyndication.com^
+||advertising.com^
+||adservice.google.com^
+
+# 测试域名（用于验证功能）
+||test-ads.example.com^
+||blocked-domain.test^
