@@ -12,32 +12,39 @@
 
 <body>
     <div class="main-container">
-        <div class="tabs">
-            <button class="tab-button active" onclick="showTab('dashboard')"
-                data-i18n="tabs.dashboard">Dashboard</button>
-            <button class="tab-button" onclick="showTab('config')" data-i18n="tabs.config">Configuration</button>
-            <button class="tab-button" onclick="showTab('custom-setting')" data-i18n="tabs.custom">Custom
-                Setting</button>
+        <!-- 第一行：标题 + 标签页 + 状态 -->
+        <div class="header-top">
+            <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
+
+            <div class="tabs">
+                <button class="tab-button active" onclick="showTab('dashboard')"
+                    data-i18n="tabs.dashboard">Dashboard</button>
+                <button class="tab-button" onclick="showTab('config')" data-i18n="tabs.config">Configuration</button>
+                <button class="tab-button" onclick="showTab('custom-setting')" data-i18n="tabs.custom">Custom
+                    Setting</button>
+            </div>
+
+            <div id="status" class="status-indicator" data-i18n="status.connecting">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
+            </div>
         </div>
 
-        <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
-
-        <div class="header-actions" style="display: flex; align-items: center; gap: 10px; padding-right: 10px;">
+        <!-- 第二行：语言选择 + 操作按钮 -->
+        <div class="header-actions">
             <select id="langSwitch" class="lang-select">
                 <option value="en">English</option>
                 <option value="zh-CN">中文 (简体)</option>
             </select>
+            <button id="refreshButton" class="btn btn-success btn-sm" data-i18n="actions.refresh">Refresh</button>
             <button id="clearCacheButton" class="btn btn-warning btn-sm" data-i18n="actions.clearCache">Clear DNS
                 Cache</button>
             <button id="clearStatsButton" class="btn btn-danger btn-sm" data-i18n="actions.clearStats">Clear All
                 Stats</button>
-            <button id="refreshButton" class="btn btn-success btn-sm" data-i18n="actions.refresh">Refresh</button>
             <button id="restartButton" class="btn btn-secondary btn-sm" data-i18n="actions.restart">Restart
                 Service</button>
         </div>
     </div>
-
-    <div id="status" class="status" data-i18n="status.connecting">Connecting...</div>
 
     <!-- Dashboard Tab -->
     <div id="dashboard" class="tab-content active">

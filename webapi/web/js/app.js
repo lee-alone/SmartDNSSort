@@ -64,14 +64,18 @@ function updateDashboard() {
             } else {
                 hotDomainsTable.innerHTML = `<tr><td colspan="2" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
             }
-            document.getElementById('status').textContent = i18n.t('status.connected');
-            document.getElementById('status').className = 'status connected';
+            // Update status indicator
+            const statusEl = document.getElementById('status');
+            const statusText = statusEl.querySelector('.status-text');
+            if (statusText) statusText.textContent = i18n.t('status.connected');
+            statusEl.className = 'status-indicator connected';
         })
         .catch(error => {
             console.error('Error fetching stats:', error);
             const statusEl = document.getElementById('status');
-            statusEl.textContent = i18n.t('status.error');
-            statusEl.className = 'status error';
+            const statusText = statusEl.querySelector('.status-text');
+            if (statusText) statusText.textContent = i18n.t('status.error');
+            statusEl.className = 'status-indicator error';
         });
 
     // Fetch recent queries
