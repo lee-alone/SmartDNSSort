@@ -201,8 +201,6 @@ function populateForm(config) {
         setChecked('cache.protect_prefetch_domains', config.cache.protect_prefetch_domains);
 
         setChecked('prefetch.enabled', config.prefetch.enabled);
-        setValue('prefetch.top_domains_limit', config.prefetch.top_domains_limit);
-        setValue('prefetch.refresh_before_expire_seconds', config.prefetch.refresh_before_expire_seconds);
         setChecked('webui.enabled', config.webui.enabled);
         setValue('webui.listen_port', config.webui.listen_port);
         setValue('system.max_cpu_cores', config.system.max_cpu_cores);
@@ -281,8 +279,6 @@ function saveConfig() {
     };
     data.prefetch = {
         enabled: form.elements['prefetch.enabled'].checked,
-        top_domains_limit: parseInt(form.elements['prefetch.top_domains_limit'].value),
-        refresh_before_expire_seconds: parseInt(form.elements['prefetch.refresh_before_expire_seconds'].value),
     };
     data.webui = {
         enabled: form.elements['webui.enabled'].checked,
