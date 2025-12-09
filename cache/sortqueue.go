@@ -37,7 +37,7 @@ type SortQueue struct {
 	stopWg sync.WaitGroup
 
 	// 排序函数（由调用者提供）
-	sortFunc func(ctx context.Context, ips []string) ([]string, []int, error)
+	sortFunc func(ctx context.Context, domain string, ips []string) ([]string, []int, error)
 
 	// 排序上下文超时时间
 	sortTimeout time.Duration
@@ -80,7 +80,7 @@ func NewSortQueue(workers int, queueSize int, sortTimeout time.Duration) *SortQu
 
 // SetSortFunc 设置排序函数
 // 排序函数接收 IP 列表，返回排序后的 IP、对应的 RTT 和错误信息
-func (sq *SortQueue) SetSortFunc(fn func(ctx context.Context, ips []string) ([]string, []int, error)) {
+func (sq *SortQueue) SetSortFunc(fn func(ctx context.Context, domain string, ips []string) ([]string, []int, error)) {
 	sq.mu.Lock()
 	defer sq.mu.Unlock()
 	sq.sortFunc = fn
@@ -150,7 +150,7 @@ func (sq *SortQueue) processTask(task *SortTask, workerID int) {
 	defer cancel()
 
 	// 调用排序函数
-	sortedIPs, rtts, err := sortFunc(ctx, task.IPs)
+	sortedIPs, rtts, err := sortFunc(ctx, task.Domain, task.IPs)
 	if err != nil {
 		logger.Warnf("[SortQueue Worker #%d] 排序失败: %s, 错误: %v\n", workerID, task.Domain, err)
 		if task.Callback != nil {

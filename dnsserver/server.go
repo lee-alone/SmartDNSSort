@@ -120,8 +120,8 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	server.cache.SetPrefetcher(server.prefetcher)
 
 	// 设置排序函数：使用 ping 进行 IP 排序
-	sortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
-		return server.performPingSort(ctx, ips)
+	sortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
+		return server.performPingSort(ctx, domain, ips)
 	})
 
 	// 设置上游管理器的缓存更新回调
@@ -168,7 +168,7 @@ func (s *Server) GetCustomResponseManager() *CustomResponseManager {
 }
 
 // performPingSort 执行 ping 排序操作
-func (s *Server) performPingSort(ctx context.Context, ips []string) ([]string, []int, error) {
+func (s *Server) performPingSort(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 	logger.Debugf("[performPingSort] 对 %d 个 IP 进行 ping 排序", len(ips))
 
 	s.mu.RLock()
@@ -190,6 +190,9 @@ func (s *Server) performPingSort(ctx context.Context, ips []string) ([]string, [
 		rtts = append(rtts, result.RTT)
 		s.stats.IncPingSuccesses()
 	}
+
+	// Report results to prefetcher for blacklist/stat updates
+	s.prefetcher.ReportPingResultWithDomain(domain, pingResults)
 
 	return sortedIPs, rtts, nil
 }
@@ -408,7 +411,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 阶段二：排序完成后缓存命中 ==========
 	// 优先检查排序缓存（排序完成后的结果）
 	if sorted, ok := s.cache.GetSorted(domain, question.Qtype); ok {
-		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
+		s.cache.RecordAccess(domain, question.Qtype)          // 记录访问
+		s.prefetcher.RecordAccess(domain, uint32(sorted.TTL)) // Prefetcher Math Model Update
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 
@@ -456,7 +460,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 阶段三:缓存过期后再次访问 ==========
 	// 检查原始缓存(上游 DNS 响应缓存)
 	if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok {
-		s.cache.RecordAccess(domain, question.Qtype) // 记录访问
+		s.cache.RecordAccess(domain, question.Qtype)       // 记录访问
+		s.prefetcher.RecordAccess(domain, raw.UpstreamTTL) // Prefetcher Math Model Update
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 		logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)",
@@ -464,10 +469,13 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
+		// 使用历史数据进行兜底排序 (Fallback Rank)
+		fallbackIPs := s.prefetcher.GetFallbackRank(domain, raw.IPs)
+
 		if raw.CNAME != "" {
-			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAME, raw.IPs, question.Qtype, fastTTL)
+			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAME, fallbackIPs, question.Qtype, fastTTL)
 		} else {
-			s.buildDNSResponse(msg, domain, raw.IPs, question.Qtype, fastTTL)
+			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, fastTTL)
 		}
 		w.WriteMsg(msg)
 
@@ -573,12 +581,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
 		go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
 
+		// 使用历史数据进行兜底排序 (Fallback Rank)
+		fallbackIPs := s.prefetcher.GetFallbackRank(domain, ips)
+
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		if cname != "" {
 			logger.Debugf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs", domain, cname)
-			s.buildDNSResponseWithCNAME(msg, domain, cname, ips, question.Qtype, fastTTL)
+			s.buildDNSResponseWithCNAME(msg, domain, cname, fallbackIPs, question.Qtype, fastTTL)
 		} else {
-			s.buildDNSResponse(msg, domain, ips, question.Qtype, fastTTL)
+			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, fastTTL)
 		}
 		w.WriteMsg(msg)
 		return
@@ -602,7 +613,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		currentStats.RecordDomainQuery(domain)
-		s.buildDNSResponseWithCNAME(msg, domain, cname, finalResult.IPs, question.Qtype, fastTTL)
+
+		// Fallback Rank for CNAME results
+		fallbackIPs := s.prefetcher.GetFallbackRank(cnameTargetDomain, finalResult.IPs)
+
+		s.buildDNSResponseWithCNAME(msg, domain, cname, fallbackIPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
 		go s.sortIPsAsync(cnameTargetDomain, question.Qtype, finalResult.IPs, finalResult.TTL, time.Now())
@@ -1094,8 +1109,8 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
 		logger.Infof("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
 		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
-		newSortQueue.SetSortFunc(func(ctx context.Context, ips []string) ([]string, []int, error) {
-			return s.performPingSort(ctx, ips)
+		newSortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
+			return s.performPingSort(ctx, domain, ips)
 		})
 	}
 
