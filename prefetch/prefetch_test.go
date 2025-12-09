@@ -68,9 +68,7 @@ func (m *mockRefresher) wasRefreshed(domain string) bool {
 
 func TestRunPrefetch(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled:                    true,
-		TopDomainsLimit:            10,
-		RefreshBeforeExpireSeconds: 30, // Refresh if expires within 30s
+		Enabled: true,
 	}
 
 	domainToRefresh := "expiring.com"

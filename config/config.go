@@ -122,10 +122,6 @@ cache:
 prefetch:
   # 是否启用预取功能
   enabled: false
-  # 记录访问频率最高的 N 个域名
-  top_domains_limit: 100
-  # 在缓存即将过期前指定的时间进行后台异步刷新
-  refresh_before_expire_seconds: 10
 
 # Web UI 管理界面配置
 webui:
@@ -230,9 +226,7 @@ type CacheConfig struct {
 }
 
 type PrefetchConfig struct {
-	Enabled                    bool `yaml:"enabled" json:"enabled"`
-	TopDomainsLimit            int  `yaml:"top_domains_limit,omitempty" json:"top_domains_limit"`
-	RefreshBeforeExpireSeconds int  `yaml:"refresh_before_expire_seconds,omitempty" json:"refresh_before_expire_seconds"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 type WebUIConfig struct {
@@ -417,12 +411,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		cfg.Cache.SaveToDiskIntervalMinutes = 60
 	}
 
-	if cfg.Prefetch.TopDomainsLimit == 0 {
-		cfg.Prefetch.TopDomainsLimit = 100 // 与 DefaultConfigContent 保持一致
-	}
-	if cfg.Prefetch.RefreshBeforeExpireSeconds == 0 {
-		cfg.Prefetch.RefreshBeforeExpireSeconds = 10
-	}
+	// Prefetch 配置不需要设置默认值，只有 enabled 开关
 
 	// AdBlock defaults
 	if cfg.AdBlock.Engine == "" {

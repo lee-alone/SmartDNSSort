@@ -123,8 +123,7 @@ const resources = {
             "prefetch": {
                 "legend": "Prefetch",
                 "enable": "Enable Prefetch",
-                "topDomainsLimit": "Top Domains Limit",
-                "refreshBeforeExpire": "Refresh Before Expire (s)"
+                "help": "Prefetch uses an advanced mathematical model to automatically refresh popular domains before their cache expires."
             },
             "webui": {
                 "legend": "Web UI",
@@ -355,8 +354,7 @@ const resources = {
             "prefetch": {
                 "legend": "预取",
                 "enable": "启用预取",
-                "topDomainsLimit": "热门域名限制",
-                "refreshBeforeExpire": "过期前刷新 (s)"
+                "help": "预取功能使用先进的数学模型,在热门域名缓存过期前自动刷新。"
             },
             "webui": {
                 "legend": "Web 界面",
