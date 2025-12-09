@@ -236,8 +236,13 @@ function loadConfig() {
 function saveConfig() {
     const form = document.getElementById('configForm');
 
-    // Start with the original config to preserve uneditable fields like adblock
-    const data = originalConfig;
+    // Deep copy the original config to preserve uneditable fields like adblock
+    const data = JSON.parse(JSON.stringify(originalConfig));
+
+    // Log the values being sent for debugging
+    console.log('[DEBUG] Form values before sending:');
+    console.log('  fast_response_ttl:', form.elements['cache.fast_response_ttl'].value);
+    console.log('  user_return_ttl:', form.elements['cache.user_return_ttl'].value);
 
     // Overwrite with form values
     data.dns = {
@@ -288,6 +293,10 @@ function saveConfig() {
         sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value),
         refresh_workers: parseInt(form.elements['system.refresh_workers'].value),
     };
+
+    // Log the data being sent to the server
+    console.log('[DEBUG] Data being sent to server:', JSON.stringify(data, null, 2));
+    console.log('[DEBUG] Cache config being sent:', data.cache);
 
     fetch(CONFIG_API_URL, {
         method: 'POST',

@@ -1,10 +1,12 @@
 package webapi
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -395,18 +397,32 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 }
 
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
-	// 先加载现有配置，以保留 Web UI 中未包含的字段
+	// 先加载现有配置,以保留 Web UI 中未包含的字段
 	existingCfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
 		s.writeJSONError(w, "Failed to load existing config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// 解码新配置到现有配置上（覆盖）
+	// 读取请求体以便记录日志
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	log.Printf("[DEBUG] Received config update request body: %s", string(bodyBytes))
+
+	// 重新创建 reader 用于解码
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// 解码新配置到现有配置上(覆盖)
 	if err := json.NewDecoder(r.Body).Decode(existingCfg); err != nil {
 		s.writeJSONError(w, "Failed to decode new config: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	log.Printf("[DEBUG] Decoded cache config - FastResponseTTL: %d, UserReturnTTL: %d",
+		existingCfg.Cache.FastResponseTTL, existingCfg.Cache.UserReturnTTL)
 
 	if err := s.validateConfig(existingCfg); err != nil {
 		s.writeJSONError(w, "Configuration validation failed: "+err.Error(), http.StatusBadRequest)
