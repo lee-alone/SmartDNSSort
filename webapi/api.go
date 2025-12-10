@@ -331,9 +331,27 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// 清空内存缓存
 	s.dnsCache.Clear()
-	log.Println("DNS cache cleared via API request.")
-	s.writeJSONSuccess(w, "Cache cleared successfully", nil)
+	log.Println("DNS cache (memory) cleared via API request.")
+
+	// 删除磁盘缓存文件
+	cacheFile := "dns_cache.json"
+	if err := os.Remove(cacheFile); err != nil {
+		if !os.IsNotExist(err) {
+			// 文件存在但删除失败
+			log.Printf("Warning: Failed to delete cache file %s: %v", cacheFile, err)
+			s.writeJSONError(w, fmt.Sprintf("Memory cache cleared, but failed to delete disk cache file: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// 文件不存在,这是正常的
+		log.Printf("Disk cache file %s does not exist, skipping deletion.", cacheFile)
+	} else {
+		log.Printf("Disk cache file %s deleted successfully.", cacheFile)
+	}
+
+	s.writeJSONSuccess(w, "Cache cleared successfully (memory and disk)", nil)
 }
 
 func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
