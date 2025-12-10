@@ -242,7 +242,8 @@ func (p *Pinger) pingIP(ctx context.Context, ip string) *Result {
 // tcpPing TCP Ping 测试（模拟真实网络环境）
 func (p *Pinger) tcpPing(ctx context.Context, ip string) int {
 	// 尝试连接常见的 HTTP/HTTPS 端口
-	ports := []string{"80", "443"}
+	// 优先检测 443，因为现代 Web 应用主要基于 HTTPS
+	ports := []string{"443", "80"}
 	for _, port := range ports {
 		addr := net.JoinHostPort(ip, port)
 		dialer := &net.Dialer{Timeout: time.Duration(p.timeoutMs) * time.Millisecond}
@@ -267,9 +268,10 @@ func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
 		a, b := results[i], results[j]
 
-		// 1. 完全不通的永远靠后（核心修复点）
-		if (a.Loss == 100.0) != (b.Loss == 100.0) {
-			return b.Loss == 100.0 // 只有 b 是 100% 时返回 true → b 排后面
+		// 1. 优先按照丢包率排序 (丢包率低的优先)
+		// 使得 0% 丢包的节点总是排在有丢包的节点前面
+		if a.Loss != b.Loss {
+			return a.Loss < b.Loss
 		}
 
 		// 2. 同类节点比综合 RTT
