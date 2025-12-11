@@ -206,6 +206,7 @@ type PingConfig struct {
 	Strategy           string `yaml:"strategy,omitempty" json:"strategy"`
 	MaxTestIPs         int    `yaml:"max_test_ips,omitempty" json:"max_test_ips"`
 	RttCacheTtlSeconds int    `yaml:"rtt_cache_ttl_seconds,omitempty" json:"rtt_cache_ttl_seconds"`
+	EnableHttpFallback bool   `yaml:"enable_http_fallback,omitempty" json:"enable_http_fallback"`
 }
 
 type CacheConfig struct {

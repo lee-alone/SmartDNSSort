@@ -19,7 +19,7 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	s.mu.RUnlock()
 
 	// 使用现有的 Pinger 进行 ping 测试和排序
-	pingResults := pinger.PingAndSort(ctx, ips)
+	pingResults := pinger.PingAndSort(ctx, ips, domain)
 
 	if len(pingResults) == 0 {
 		return nil, nil, fmt.Errorf("ping sort returned no results")

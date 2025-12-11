@@ -6,7 +6,7 @@ import (
 )
 
 func TestPinger(t *testing.T) {
-	p := NewPinger(2, 1000, 4, 0, 0, "min")
+	p := NewPinger(2, 1000, 4, 0, 0, false)
 	if p == nil {
 		t.Fatal("NewPinger returned nil")
 	}
@@ -17,13 +17,13 @@ func TestPinger(t *testing.T) {
 }
 
 func TestPingAndSort(t *testing.T) {
-	p := NewPinger(1, 500, 2, 0, 0, "min")
+	p := NewPinger(1, 500, 2, 0, 0, false)
 
 	// 测试 ping 本地 IP（需要网络连接）
 	ctx := context.Background()
 	ips := []string{"127.0.0.1"}
 
-	results := p.PingAndSort(ctx, ips)
+	results := p.PingAndSort(ctx, ips, "localhost")
 	if len(results) == 0 {
 		t.Log("No ping results (expected if no network or ping fails)")
 	}

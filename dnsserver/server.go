@@ -69,7 +69,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
 		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s, convertHealthCheckConfig(&cfg.Upstream.HealthCheck)),
-		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.Strategy),
+		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
 	}
@@ -299,7 +299,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newPinger *ping.Pinger
 	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
 		log.Println("Reloading Pinger due to configuration changes.")
-		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.Strategy)
+		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.EnableHttpFallback)
 	}
 
 	var newSortQueue *cache.SortQueue

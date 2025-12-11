@@ -28,7 +28,7 @@ type Pinger struct {
 	strategy           string // 保留，但我们现在用 smart 策略
 	maxTestIPs         int
 	rttCacheTtlSeconds int
-	enableHttpFallback bool // 是否对纯 HTTP(80) 做补充探测，默认关闭
+	enableHttpFallback bool  // 是否对纯 HTTP(80) 做补充探测，默认关闭
 
 	rttCache   map[string]*rttCacheEntry
 	rttCacheMu sync.RWMutex
@@ -151,7 +151,7 @@ func (p *Pinger) udpDnsPing(ctx context.Context, ip string) int {
 
 // 单个 IP 多次测试 + 惩罚机制
 func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
-	var totalRTT int64 = 0
+	var totalRTT := int64(0)
 	minRTT := 999999
 	successCount := 0
 
@@ -283,27 +283,6 @@ func (p *Pinger) sortResults(results []Result) {
 	})
 }
 
-func (p *Pinger) startRttCacheCleaner() {
-	ticker := time.NewTicker(time.Duration(p.rttCacheTtlSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			p.rttCacheMu.Lock()
-			for ip, entry := range p.rttCache {
-				if time.Now().After(entry.expiresAt) {
-					delete(p.rttCache, ip)
-				}
-			}
-			p.rttCacheMu.Unlock()
-		case <-p.stopChan:
-			return
-		}
-	}
-}
-
-// Stop 停止 Pinger 的后台任务
-func (p *Pinger) Stop() {
-	close(p.stopChan)
-}
+// 其他原有函数（Stop、缓存清理）保持不变...
+//使用方法：pinger := ping.NewPinger(3, 800, 8, 12, 300, false) // 最后 false = 不测 80，如需可改为 true
+// 注意：第二个参数传入用户实际查询的域名！例如best := pinger.PingAndSort(ctx, ipList, "www.example.com")   // 或 "dns.google" / "httpbin.org" 等
