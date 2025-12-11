@@ -189,30 +189,66 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 
-		// 计算剩余 TTL
-		elapsed := time.Since(sorted.Timestamp).Seconds()
-		remaining := int(sorted.TTL) - int(elapsed)
-		if remaining < 0 {
-			remaining = 0
-		}
+		// [优化] Stale-While-Revalidate 模式
+		// 使用 s.cfg.Ping.RttCacheTtlSeconds 作为 "新鲜度" 阈值
+		// 如果上次排序时间在阈值内，说明数据还很新鲜，无需刷新，返回正常 TTL
+		// 否则，说明数据稍微旧了，返回快速 TTL，并触发后台刷新
 
-		// 计算返回给用户的 TTL
+		elapsed := time.Since(sorted.Timestamp)
+		isFresh := elapsed.Seconds() < float64(s.cfg.Ping.RttCacheTtlSeconds)
+
 		var userTTL uint32
-		if currentCfg.Cache.UserReturnTTL > 0 {
-			cycleOffset := int(elapsed) % currentCfg.Cache.UserReturnTTL
-			cappedTTL := currentCfg.Cache.UserReturnTTL - cycleOffset
 
-			if remaining < cappedTTL {
-				userTTL = uint32(remaining)
-			} else {
-				userTTL = uint32(cappedTTL)
+		if isFresh {
+			// === 场景 1: 数据新鲜 ===
+			// 计算剩余 TTL (复用原有的逻辑)
+			remaining := int(sorted.TTL) - int(elapsed.Seconds())
+			if remaining < 0 {
+				remaining = 0
 			}
-		} else {
-			userTTL = uint32(remaining)
-		}
 
-		logger.Debugf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v (原始TTL=%d, 剩余=%d, 返回=%d)",
-			domain, dns.TypeToString[question.Qtype], sorted.IPs, sorted.TTL, remaining, userTTL)
+			// 应用 UserReturnTTL 配置
+			if currentCfg.Cache.UserReturnTTL > 0 {
+				cycleOffset := int(elapsed.Seconds()) % currentCfg.Cache.UserReturnTTL
+				cappedTTL := currentCfg.Cache.UserReturnTTL - cycleOffset
+				if remaining < cappedTTL {
+					userTTL = uint32(remaining)
+				} else {
+					userTTL = uint32(cappedTTL)
+				}
+			} else {
+				userTTL = uint32(remaining)
+			}
+
+			logger.Debugf("[handleQuery] 排序缓存命中 (Fresh): %s (type=%s) -> %v (TTL=%d)",
+				domain, dns.TypeToString[question.Qtype], sorted.IPs, userTTL)
+		} else {
+			// === 场景 2: 数据陈旧 (SWR) ===
+			// 返回 FastResponseTTL 促使客户端尽快回来
+			userTTL = uint32(currentCfg.Cache.FastResponseTTL)
+
+			logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (强制TTL=%d)",
+				domain, dns.TypeToString[question.Qtype], sorted.IPs, userTTL)
+
+			// 尝试触发后台刷新
+			// 获取原始缓存以支持刷新逻辑
+			raw, rawExists := s.cache.GetRaw(domain, question.Qtype)
+			if rawExists && !raw.IsExpired() {
+				go func() {
+					sfKey := fmt.Sprintf("refresh:%s:%d", domain, question.Qtype)
+					s.requestGroup.Do(sfKey, func() (interface{}, error) {
+						// 双重检查防抖: 10秒内不重复刷新
+						if latest, ok := s.cache.GetSorted(domain, question.Qtype); ok {
+							if time.Since(latest.Timestamp) < 10*time.Second {
+								return nil, nil
+							}
+						}
+						s.sortIPsAsync(domain, question.Qtype, raw.IPs, raw.UpstreamTTL, raw.AcquisitionTime)
+						return nil, nil
+					})
+				}()
+			}
+		}
 
 		// 检查是否有 CNAME（从原始缓存获取）
 		var cname string
