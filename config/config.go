@@ -85,7 +85,7 @@ ping:
   # 每个域名测试的 IP 数量，0 表示不限制
   max_test_ips: 0
   # 缓存 IP 的 RTT (延迟) 结果的时间（秒）
-  rtt_cache_ttl_seconds: 60
+  rtt_cache_ttl_seconds: 300
 
 # DNS 缓存配置
 cache:
