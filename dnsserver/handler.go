@@ -124,6 +124,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 			if cnameRule != nil {
 				// CNAME Response
+				// Custom response rules typicaly imply a single CNAME target
 				rr := new(dns.CNAME)
 				rr.Hdr = dns.RR_Header{Name: question.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: cnameRule.TTL}
 				rr.Target = dns.Fqdn(cnameRule.Value)
@@ -251,14 +252,14 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		// 检查是否有 CNAME（从原始缓存获取）
-		var cname string
-		if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok && raw.CNAME != "" {
-			cname = raw.CNAME
+		var cnames []string
+		if raw, ok := s.cache.GetRaw(domain, question.Qtype); ok && len(raw.CNAMEs) > 0 {
+			cnames = raw.CNAMEs
 		}
 
 		// 构造响应
-		if cname != "" {
-			s.buildDNSResponseWithCNAME(msg, domain, cname, sorted.IPs, question.Qtype, userTTL)
+		if len(cnames) > 0 {
+			s.buildDNSResponseWithCNAME(msg, domain, cnames, sorted.IPs, question.Qtype, userTTL)
 		} else {
 			s.buildDNSResponse(msg, domain, sorted.IPs, question.Qtype, userTTL)
 		}
@@ -273,16 +274,16 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.prefetcher.RecordAccess(domain, raw.UpstreamTTL) // Prefetcher Math Model Update
 		currentStats.IncCacheHits()
 		currentStats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
-		logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAME=%s (过期:%v)",
-			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAME, raw.IsExpired())
+		logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAMEs=%v (过期:%v)",
+			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAMEs, raw.IsExpired())
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
 		// 使用历史数据进行兜底排序 (Fallback Rank)
 		fallbackIPs := s.prefetcher.GetFallbackRank(domain, raw.IPs)
 
-		if raw.CNAME != "" {
-			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAME, fallbackIPs, question.Qtype, fastTTL)
+		if len(raw.CNAMEs) > 0 {
+			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAMEs, fallbackIPs, question.Qtype, fastTTL)
 		} else {
 			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, fastTTL)
 		}
@@ -352,7 +353,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	var ips []string
-	var cname string
+	var cnames []string
 	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
 
 	if err != nil {
@@ -378,23 +379,60 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	if result != nil {
 		ips = result.IPs
-		cname = result.CNAME
+		cnames = result.CNAMEs
 		upstreamTTL = result.TTL
+	}
+
+	// [AdBlock] CNAME 链路检查
+	// 无论结果来自缓存还是上游，都需要确保整个 CNAME 链通过 AdBlock 检查
+	if adblockMgr != nil && currentCfg.AdBlock.Enable && len(cnames) > 0 {
+		for _, cnameToCheck := range cnames {
+			cnameDomain := strings.TrimRight(cnameToCheck, ".")
+			if blocked, rule := adblockMgr.CheckHost(cnameDomain); blocked {
+				logger.Debugf("[AdBlock] CNAME Blocked: %s found in chain for %s (rule: %s)", cnameDomain, domain, rule)
+				adblockMgr.RecordBlock(domain, rule) // 记录主域名被拦截
+
+				// 写入拦截缓存 (针对主域名)
+				s.cache.SetBlocked(domain, &cache.BlockedCacheEntry{
+					BlockType: currentCfg.AdBlock.BlockMode,
+					Rule:      rule,
+					ExpiredAt: time.Now().Add(time.Duration(currentCfg.AdBlock.BlockedTTL) * time.Second),
+				})
+
+				// 返回拦截响应
+				switch currentCfg.AdBlock.BlockMode {
+				case "nxdomain":
+					buildNXDomainResponse(w, r)
+				case "zero_ip":
+					buildZeroIPResponse(w, r, currentCfg.AdBlock.BlockedResponseIP, currentCfg.AdBlock.BlockedTTL)
+				case "refuse":
+					buildRefuseResponse(w, r)
+				default:
+					buildNXDomainResponse(w, r)
+				}
+				return
+			}
+		}
 	}
 
 	if len(ips) > 0 {
 		currentStats.RecordDomainQuery(domain)
-		logger.Debugf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAME=%s (TTL=%d秒): %v",
-			domain, dns.TypeToString[question.Qtype], len(ips), cname, upstreamTTL, ips)
+		logger.Debugf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
+			domain, dns.TypeToString[question.Qtype], len(ips), cnames, upstreamTTL, ips)
 
-		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
+		s.cache.SetRaw(domain, question.Qtype, ips, cnames, upstreamTTL)
 		go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
 
 		// [Fix] 若存在 CNAME，同时也缓存 CNAME 目标域名的结果
 		// 这样可以确保 CNAME 链中的中间域名也被缓存，加速后续查询
-		if cname != "" {
-			cnameTargetDomain := strings.TrimRight(dns.Fqdn(cname), ".")
-			s.cache.SetRaw(cnameTargetDomain, question.Qtype, ips, "", upstreamTTL)
+		// TODO: 对于多级 CNAME，最好是能递归缓存。当前简单处理：将最后一个 CNAME 指向 IPs。
+		if len(cnames) > 0 {
+			// 通常最后一个 CNAME 是直接指向 IPs 的别名
+			lastCNAME := cnames[len(cnames)-1]
+			cnameTargetDomain := strings.TrimRight(dns.Fqdn(lastCNAME), ".")
+			// 注意：这里我们只缓存最后一个 CNAME -> IPs 的关系。
+			// 如果需要完整的链路缓存，需要更复杂的逻辑，但这能解决最常见的 "www.a.com -> cdn.a.com -> IP" 中 cdn.a.com 的缓存问题。
+			s.cache.SetRaw(cnameTargetDomain, question.Qtype, ips, nil, upstreamTTL)
 			go s.sortIPsAsync(cnameTargetDomain, question.Qtype, ips, upstreamTTL, time.Now())
 		}
 
@@ -402,9 +440,9 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		fallbackIPs := s.prefetcher.GetFallbackRank(domain, ips)
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-		if cname != "" {
-			logger.Debugf("[handleQuery] 构造 CNAME 响应链: %s -> %s -> IPs", domain, cname)
-			s.buildDNSResponseWithCNAME(msg, domain, cname, fallbackIPs, question.Qtype, fastTTL)
+		if len(cnames) > 0 {
+			logger.Debugf("[handleQuery] 构造 CNAME 响应链: %s -> %v -> IPs", domain, cnames)
+			s.buildDNSResponseWithCNAME(msg, domain, cnames, fallbackIPs, question.Qtype, fastTTL)
 		} else {
 			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, fastTTL)
 		}
@@ -412,10 +450,17 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	if cname != "" {
-		logger.Debugf("[handleQuery] 上游查询返回 CNAME，开始递归解析: %s -> %s", domain, cname)
+	if len(cnames) > 0 {
+		// 只有 CNAME 没有 IP (可能是 CNAME 到另一个还没解析的域名，或者 CNAME loop，或者上游只返回了 CNAME)
+		// 如果只有一个 CNAME 且没有 IP，我们尝试递归解析它（复用旧逻辑，但要注意多 CNAME 情况）
+		// 如果上游返回了多个 CNAME，说明链条已经部分解析了？
 
-		finalResult, err := s.resolveCNAME(ctx, cname, question.Qtype)
+		// 简单起见，如果上游返回了 CNAME 但没 IP，我们取出最后一个 CNAME 进行递归
+		lastCNAME := cnames[len(cnames)-1]
+
+		logger.Debugf("[handleQuery] 上游查询返回 CNAMEs=%v，开始递归解析最后一个: %s -> %s", cnames, domain, lastCNAME)
+
+		finalResult, err := s.resolveCNAME(ctx, lastCNAME, question.Qtype)
 		if err != nil {
 			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", err)
 			msg.SetRcode(r, dns.RcodeServerFailure)
@@ -423,21 +468,30 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
-		s.cache.SetRaw(domain, qtype, nil, cname, upstreamTTL)
+		// 合并结果
+		fullCNAMEs := append(cnames, finalResult.CNAMEs...)
+		finalIPs := finalResult.IPs
+		finalTTL := finalResult.TTL
 
-		cnameTargetDomain := strings.TrimRight(dns.Fqdn(cname), ".")
-		s.cache.SetRaw(cnameTargetDomain, question.Qtype, finalResult.IPs, "", finalResult.TTL)
+		// Update Cache
+		s.cache.SetRaw(domain, qtype, nil, cnames, upstreamTTL) // Cache partial chain? or full?
+		// Actually, we should cache the full resolution for the original domain
+		s.cache.SetRaw(domain, question.Qtype, finalIPs, fullCNAMEs, finalTTL)
+
+		// Cache target
+		cnameTargetDomain := strings.TrimRight(dns.Fqdn(lastCNAME), ".")
+		s.cache.SetRaw(cnameTargetDomain, question.Qtype, finalIPs, finalResult.CNAMEs, finalTTL)
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 		currentStats.RecordDomainQuery(domain)
 
-		// Fallback Rank for CNAME results
-		fallbackIPs := s.prefetcher.GetFallbackRank(cnameTargetDomain, finalResult.IPs)
+		// Fallback Rank
+		fallbackIPs := s.prefetcher.GetFallbackRank(cnameTargetDomain, finalIPs)
 
-		s.buildDNSResponseWithCNAME(msg, domain, cname, fallbackIPs, question.Qtype, fastTTL)
+		s.buildDNSResponseWithCNAME(msg, domain, fullCNAMEs, fallbackIPs, question.Qtype, fastTTL)
 		w.WriteMsg(msg)
 
-		go s.sortIPsAsync(cnameTargetDomain, question.Qtype, finalResult.IPs, finalResult.TTL, time.Now())
+		go s.sortIPsAsync(cnameTargetDomain, question.Qtype, finalIPs, finalTTL, time.Now())
 		return
 	}
 
@@ -532,14 +586,15 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 		if len(result.IPs) > 0 {
 			logger.Debugf("[resolveCNAME] 成功解析到 IP: %v for domain %s", result.IPs, queryDomain)
 			// CNAME链的最终结果的CNAME字段应为空
-			result.CNAME = ""
+			result.CNAMEs = nil
 			return result, nil
 		}
 
 		// 如果没有 IP 但有 CNAME，继续重定向
-		if result.CNAME != "" {
-			logger.Debugf("[resolveCNAME] 发现下一跳 CNAME: %s -> %s", queryDomain, result.CNAME)
-			currentDomain = result.CNAME
+		if len(result.CNAMEs) > 0 {
+			lastCNAME := result.CNAMEs[len(result.CNAMEs)-1]
+			logger.Debugf("[resolveCNAME] 发现下一跳 CNAME: %s -> %s", queryDomain, lastCNAME)
+			currentDomain = lastCNAME
 			continue
 		}
 
@@ -598,24 +653,33 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 //
 //	www.example.com.  300  IN  CNAME  cdn.example.com.
 //	cdn.example.com.  300  IN  A      1.2.3.4
-func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname string, ips []string, qtype uint16, ttl uint32) {
-	fqdn := dns.Fqdn(domain)
-	target := dns.Fqdn(cname)
+func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cnames []string, ips []string, qtype uint16, ttl uint32) {
+	if len(cnames) == 0 {
+		return
+	}
 
-	logger.Debugf("[buildDNSResponseWithCNAME] 构造 CNAME 响应链: %s -> %s, 包含 %d 个IP, TTL=%d\n",
-		domain, cname, len(ips), ttl)
+	// We need to chain the CNAMEs.
+	// domain -> cnames[0]
+	// cnames[0] -> cnames[1] ...
+	// cnames[n] -> ips
 
-	// 1. 首先添加 CNAME 记录
-	msg.Answer = append(msg.Answer, &dns.CNAME{
-		Hdr: dns.RR_Header{
-			Name:   fqdn,
-			Rrtype: dns.TypeCNAME,
-			Class:  dns.ClassINET,
-			Ttl:    ttl,
-		},
-		Target: target,
-	})
+	currentName := dns.Fqdn(domain)
 
+	for _, target := range cnames {
+		targetFqdn := dns.Fqdn(target)
+		msg.Answer = append(msg.Answer, &dns.CNAME{
+			Hdr: dns.RR_Header{
+				Name:   currentName,
+				Rrtype: dns.TypeCNAME,
+				Class:  dns.ClassINET,
+				Ttl:    ttl,
+			},
+			Target: targetFqdn,
+		})
+		currentName = targetFqdn
+	}
+
+	// The IPs belong to the LAST CNAME target
 	// 2. 然后添加目标域名的 A/AAAA 记录
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)
@@ -629,7 +693,7 @@ func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname st
 			if parsedIP.To4() != nil {
 				msg.Answer = append(msg.Answer, &dns.A{
 					Hdr: dns.RR_Header{
-						Name:   target, // 使用 CNAME 目标作为记录名
+						Name:   currentName, // 使用最后一个 CNAME 目标作为记录名
 						Rrtype: dns.TypeA,
 						Class:  dns.ClassINET,
 						Ttl:    ttl,
@@ -642,7 +706,7 @@ func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cname st
 			if parsedIP.To4() == nil && parsedIP.To16() != nil {
 				msg.Answer = append(msg.Answer, &dns.AAAA{
 					Hdr: dns.RR_Header{
-						Name:   target, // 使用 CNAME 目标作为记录名
+						Name:   currentName, // 使用最后一个 CNAME 目标作为记录名
 						Rrtype: dns.TypeAAAA,
 						Class:  dns.ClassINET,
 						Ttl:    ttl,

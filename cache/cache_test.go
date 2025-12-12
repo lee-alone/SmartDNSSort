@@ -60,7 +60,7 @@ func TestRawCache(t *testing.T) {
 	ips := []string{"2001:4860:4860::8888"}
 	upstreamTTL := uint32(60)
 
-	c.SetRaw(domain, qtype, ips, "", upstreamTTL)
+	c.SetRaw(domain, qtype, ips, nil, upstreamTTL)
 
 	retrieved, ok := c.GetRaw(domain, qtype)
 	assert.True(t, ok, "Expected to find raw cache entry")

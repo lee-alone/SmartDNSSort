@@ -14,7 +14,7 @@ import (
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
 	IPs             []string  // 原始 IP 列表
-	CNAME           string    // CNAME 记录（如果有）
+	CNAMEs          []string  // CNAME 记录列表（支持多级 CNAME）
 	UpstreamTTL     uint32    // 上游 DNS 返回的原始 TTL（秒）
 	AcquisitionTime time.Time // 从上游获取的时间
 
@@ -130,14 +130,14 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 }
 
 // SetRaw 设置原始缓存（上游 DNS 响应）
-func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cname string, upstreamTTL uint32) {
+func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cnames []string, upstreamTTL uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	key := cacheKey(domain, qtype)
 	c.rawCache[key] = &RawCacheEntry{
 		IPs:             ips,
-		CNAME:           cname,
+		CNAMEs:          cnames,
 		UpstreamTTL:     upstreamTTL,
 		AcquisitionTime: time.Now(),
 		LastAccessTime:  time.Now(), // 初始化访问时间
@@ -479,7 +479,8 @@ type PersistentCacheEntry struct {
 	Domain string   `json:"domain"`
 	QType  uint16   `json:"qtype"`
 	IPs    []string `json:"ips"`
-	CNAME  string   `json:"cname,omitempty"`
+	CNAME  string   `json:"cname,omitempty"`  // 旧版本兼容
+	CNAMEs []string `json:"cnames,omitempty"` // 新版本字段
 }
 
 // SaveToDisk 将缓存保存到磁盘
@@ -501,11 +502,19 @@ func (c *Cache) SaveToDisk(filename string) error {
 		// Convert string back to rune then to uint16
 		qtype := uint16([]rune(parts[1])[0])
 
+		// 优先写入 CNAMEs
+		entryCNAMEs := entry.CNAMEs
+		var legacyCNAME string
+		if len(entryCNAMEs) > 0 {
+			legacyCNAME = entryCNAMEs[0]
+		}
+
 		entries = append(entries, PersistentCacheEntry{
 			Domain: domain,
 			QType:  qtype,
 			IPs:    entry.IPs,
-			CNAME:  entry.CNAME,
+			CNAME:  legacyCNAME, // 写入旧字段以保持兼容性
+			CNAMEs: entryCNAMEs,
 		})
 	}
 	c.mu.RUnlock() // 数据收集完成，释放锁
@@ -545,9 +554,16 @@ func (c *Cache) LoadFromDisk(filename string) error {
 
 	for _, entry := range entries {
 		key := cacheKey(entry.Domain, entry.QType)
+
+		// 迁移逻辑：如果 CNAMEs 为空但 CNAME 不为空，则转换
+		cnames := entry.CNAMEs
+		if len(cnames) == 0 && entry.CNAME != "" {
+			cnames = []string{entry.CNAME}
+		}
+
 		c.rawCache[key] = &RawCacheEntry{
 			IPs:             entry.IPs,
-			CNAME:           entry.CNAME,
+			CNAMEs:          cnames,
 			UpstreamTTL:     300, // Default 5 minutes as we don't persist TTL
 			AcquisitionTime: time.Now(),
 			LastAccessTime:  time.Now(),

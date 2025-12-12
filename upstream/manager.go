@@ -15,8 +15,8 @@ import (
 // QueryResult 查询结果
 type QueryResult struct {
 	IPs    []string
-	CNAME  string // 添加 CNAME 字段
-	TTL    uint32 // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
+	CNAMEs []string // 支持多 CNAME 记录
+	TTL    uint32   // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
 	Error  error
 	Server string // 添加服务器字段
 	Rcode  int    // DNS 响应代码
@@ -24,9 +24,9 @@ type QueryResult struct {
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
 type QueryResultWithTTL struct {
-	IPs   []string
-	CNAME string // 添加 CNAME 字段
-	TTL   uint32 // 上游 DNS 返回的 TTL
+	IPs    []string
+	CNAMEs []string // 支持多 CNAME 记录
+	TTL    uint32   // 上游 DNS 返回的 TTL
 }
 
 // Manager 上游 DNS 查询管理器
@@ -37,7 +37,8 @@ type Manager struct {
 	concurrency int // 并行查询时的并发数
 	stats       *stats.Stats
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
-	cacheUpdateCallback func(domain string, qtype uint16, ips []string, cname string, ttl uint32)
+	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
+	cacheUpdateCallback func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32)
 }
 
 // NewManager 创建上游 DNS 管理器
@@ -69,7 +70,9 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 
 // SetCacheUpdateCallback 设置缓存更新回调函数
 // 用于在 parallel 模式下后台收集完所有响应后更新缓存
-func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, ips []string, cname string, ttl uint32)) {
+// SetCacheUpdateCallback 设置缓存更新回调函数
+// 用于在 parallel 模式下后台收集完所有响应后更新缓存
+func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32)) {
 	u.cacheUpdateCallback = callback
 }
 
@@ -159,10 +162,10 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 						Rcode:  reply.Rcode,
 					}
 				} else {
-					ips, cname, ttl := extractIPs(reply)
+					ips, cnames, ttl := extractIPs(reply)
 					result = &QueryResult{
 						IPs:    ips,
-						CNAME:  cname,
+						CNAMEs: cnames,
 						TTL:    ttl,
 						Server: srv.Address(),
 						Rcode:  reply.Rcode,
@@ -203,8 +206,8 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	select {
 	case fastResponse = <-fastResponseChan:
 		if fastResponse != nil {
-			logger.Debugf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
-				fastResponse.Server, len(fastResponse.IPs), fastResponse.CNAME, fastResponse.TTL, fastResponse.IPs)
+			logger.Debugf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
+				fastResponse.Server, len(fastResponse.IPs), fastResponse.CNAMEs, fastResponse.TTL, fastResponse.IPs)
 		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -235,9 +238,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 	// 立即返回第一个成功的响应
 	return &QueryResultWithTTL{
-		IPs:   fastResponse.IPs,
-		CNAME: fastResponse.CNAME,
-		TTL:   fastResponse.TTL,
+		IPs:    fastResponse.IPs,
+		CNAMEs: fastResponse.CNAMEs,
+		TTL:    fastResponse.TTL,
 	}, nil
 }
 
@@ -273,8 +276,8 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(result.Server)
 		}
-		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
-			result.Server, successCount, len(result.IPs), result.CNAME, result.TTL, result.IPs)
+		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
+			result.Server, successCount, len(result.IPs), result.CNAMEs, result.TTL, result.IPs)
 
 		// 收集所有成功的结果
 		allSuccessResults = append(allSuccessResults, result)
@@ -291,14 +294,14 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		}
 	}
 
-	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAME=%s, TTL=%d秒",
-		successCount, len(mergedIPs), len(fastResponse.IPs), len(mergedIPs), fastResponse.CNAME, minTTL)
+	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAMEs=%v, TTL=%d秒",
+		successCount, len(mergedIPs), len(fastResponse.IPs), len(mergedIPs), fastResponse.CNAMEs, minTTL)
 	logger.Debugf("[collectRemainingResponses] 完整IP池: %v", mergedIPs)
 
 	// 如果设置了缓存更新回调，则调用它来更新缓存
 	if u.cacheUpdateCallback != nil {
 		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整IP池到缓存")
-		u.cacheUpdateCallback(domain, qtype, mergedIPs, fastResponse.CNAME, minTTL)
+		u.cacheUpdateCallback(domain, qtype, mergedIPs, fastResponse.CNAMEs, minTTL)
 	} else {
 		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存")
 	}
@@ -402,7 +405,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			}
 			logger.Debugf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒",
 				attemptNum+1, server.Address(), ttl)
-			return &QueryResultWithTTL{IPs: nil, CNAME: "", TTL: ttl}, nil
+			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}, nil
 		}
 
 		// 处理其他 DNS 错误响应码
@@ -418,16 +421,16 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		}
 
 		// 提取结果
-		ips, cname, ttl := extractIPs(reply)
+		ips, cnames, ttl := extractIPs(reply)
 
 		// 验证结果是否有效
-		if len(ips) == 0 && cname == "" {
+		if len(ips) == 0 && len(cnames) == 0 {
 			failureCount++
 			lastErr = fmt.Errorf("empty response: no IPs or CNAME found")
 			logger.Warnf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果",
 				attemptNum+1, server.Address())
 			// 保存这个空结果,但继续尝试其他服务器
-			lastResult = &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}
+			lastResult = &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
 			continue
 		}
 
@@ -437,10 +440,10 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 			u.stats.IncUpstreamSuccess(server.Address())
 		}
 
-		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAME=%s (TTL=%d秒): %v",
-			attemptNum+1, server.Address(), len(ips), cname, ttl, ips)
+		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
+			attemptNum+1, server.Address(), len(ips), cnames, ttl, ips)
 
-		return &QueryResultWithTTL{IPs: ips, CNAME: cname, TTL: ttl}, nil
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}, nil
 	}
 
 	// 所有服务器都失败了
@@ -449,18 +452,18 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 
 	// 返回最后一次的结果(即使是空的),这比返回 nil 更友好
 	if lastResult != nil {
-		logger.Warnf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAME=%s",
-			len(lastResult.IPs), lastResult.CNAME)
+		logger.Warnf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAMEs=%v",
+			len(lastResult.IPs), lastResult.CNAMEs)
 	}
 
 	return lastResult, lastErr
 }
 
-// extractIPs 从 DNS 响应中提取 IP 地址、CNAME 和最小 TTL
-// 返回值：IP 列表、CNAME、最小 TTL（秒）
-func extractIPs(msg *dns.Msg) ([]string, string, uint32) {
+// extractIPs 从 DNS 响应中提取 IP 地址、CNAMEs 和最小 TTL
+// 返回值：IP 列表、CNAME 列表、最小 TTL（秒）
+func extractIPs(msg *dns.Msg) ([]string, []string, uint32) {
 	var ips []string
-	var cname string
+	var cnames []string
 	var minTTL uint32 = 0 // 0 表示未设置
 
 	for _, answer := range msg.Answer {
@@ -478,9 +481,7 @@ func extractIPs(msg *dns.Msg) ([]string, string, uint32) {
 				minTTL = rr.Hdr.Ttl
 			}
 		case *dns.CNAME:
-			if cname == "" {
-				cname = rr.Target
-			}
+			cnames = append(cnames, rr.Target)
 			if minTTL == 0 || rr.Hdr.Ttl < minTTL {
 				minTTL = rr.Hdr.Ttl
 			}
@@ -492,7 +493,7 @@ func extractIPs(msg *dns.Msg) ([]string, string, uint32) {
 		minTTL = 60
 	}
 
-	return ips, cname, minTTL
+	return ips, cnames, minTTL
 }
 
 // extractNegativeTTL 从 NXDOMAIN 响应的 SOA 记录中提取否定缓存 TTL

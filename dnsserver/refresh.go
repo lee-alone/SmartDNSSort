@@ -36,7 +36,7 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	logger.Debugf("[refreshCacheAsync] 刷新缓存成功，获得 %d 个IP: %v", len(result.IPs), result.IPs)
 
 	// 更新原始缓存
-	s.cache.SetRaw(domain, qtype, result.IPs, result.CNAME, result.TTL)
+	s.cache.SetRaw(domain, qtype, result.IPs, result.CNAMEs, result.TTL)
 
 	// 异步排序更新
 	go s.sortIPsAsync(domain, qtype, result.IPs, result.TTL, time.Now())

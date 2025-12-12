@@ -130,9 +130,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 // setupUpstreamCallback 设置上游管理器的缓存更新回调
 func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
-	u.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cname string, ttl uint32) {
-		logger.Debugf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAME=%s, TTL=%d秒",
-			domain, dns.TypeToString[qtype], len(ips), cname, ttl)
+	u.SetCacheUpdateCallback(func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32) {
+		logger.Debugf("[CacheUpdateCallback] 更新缓存: %s (type=%s), IP数量=%d, CNAMEs=%v, TTL=%d秒",
+			domain, dns.TypeToString[qtype], len(ips), cnames, ttl)
 
 		// 获取当前原始缓存中的 IP 数量
 		var oldIPCount int
@@ -142,7 +142,7 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 
 		// 更新原始缓存中的IP列表
 		// 注意：这里使用 time.Now() 作为获取时间，因为这是后台收集完成的时间
-		s.cache.SetRaw(domain, qtype, ips, cname, ttl)
+		s.cache.SetRaw(domain, qtype, ips, cnames, ttl)
 
 		// 如果后台收集的 IP 数量比之前多，需要重新排序
 		if len(ips) > oldIPCount {

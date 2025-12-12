@@ -41,7 +41,7 @@ func TestHandleQuery_CacheStats(t *testing.T) {
 
 	// Scenario 1: Raw Cache Hit
 	// Pre-populate raw cache
-	server.cache.SetRaw(domain, qtype, []string{ip}, "", 300)
+	server.cache.SetRaw(domain, qtype, []string{ip}, nil, 300)
 
 	// Perform query
 	req := new(dns.Msg)
