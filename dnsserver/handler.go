@@ -390,6 +390,14 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		s.cache.SetRaw(domain, question.Qtype, ips, cname, upstreamTTL)
 		go s.sortIPsAsync(domain, question.Qtype, ips, upstreamTTL, time.Now())
 
+		// [Fix] 若存在 CNAME，同时也缓存 CNAME 目标域名的结果
+		// 这样可以确保 CNAME 链中的中间域名也被缓存，加速后续查询
+		if cname != "" {
+			cnameTargetDomain := strings.TrimRight(dns.Fqdn(cname), ".")
+			s.cache.SetRaw(cnameTargetDomain, question.Qtype, ips, "", upstreamTTL)
+			go s.sortIPsAsync(cnameTargetDomain, question.Qtype, ips, upstreamTTL, time.Now())
+		}
+
 		// 使用历史数据进行兜底排序 (Fallback Rank)
 		fallbackIPs := s.prefetcher.GetFallbackRank(domain, ips)
 
