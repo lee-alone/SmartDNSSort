@@ -200,35 +200,43 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		var userTTL uint32
 
-		if isFresh {
-			// === 场景 1: 数据新鲜 ===
-			// 计算剩余 TTL (复用原有的逻辑)
-			remaining := int(sorted.TTL) - int(elapsed.Seconds())
-			if remaining < 0 {
-				remaining = 0
-			}
+		// 计算剩余 TTL (通用逻辑)
+		remaining := int(sorted.TTL) - int(elapsed.Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
 
-			// 应用 UserReturnTTL 配置
+		// 计算目标 TTL: 如果上游 TTL 未过期，使用 UserReturnTTL 逻辑；否则使用 FastResponseTTL
+		var calculatedUserTTL uint32
+		if remaining > 0 {
 			if currentCfg.Cache.UserReturnTTL > 0 {
 				cycleOffset := int(elapsed.Seconds()) % currentCfg.Cache.UserReturnTTL
 				cappedTTL := currentCfg.Cache.UserReturnTTL - cycleOffset
 				if remaining < cappedTTL {
-					userTTL = uint32(remaining)
+					calculatedUserTTL = uint32(remaining)
 				} else {
-					userTTL = uint32(cappedTTL)
+					calculatedUserTTL = uint32(cappedTTL)
 				}
 			} else {
-				userTTL = uint32(remaining)
+				calculatedUserTTL = uint32(remaining)
 			}
+		} else {
+			calculatedUserTTL = uint32(currentCfg.Cache.FastResponseTTL)
+		}
+
+		if isFresh {
+			// === 场景 1: 数据新鲜 ===
+			userTTL = calculatedUserTTL
 
 			logger.Debugf("[handleQuery] 排序缓存命中 (Fresh): %s (type=%s) -> %v (TTL=%d)",
 				domain, dns.TypeToString[question.Qtype], sorted.IPs, userTTL)
 		} else {
 			// === 场景 2: 数据陈旧 (SWR) ===
-			// 返回 FastResponseTTL 促使客户端尽快回来
-			userTTL = uint32(currentCfg.Cache.FastResponseTTL)
+			// [Modified] 就算数据陈旧（需要重新测速），如果上游 TTL 还有效，也返回长 TTL，以减少客户端查询压力。
+			// 后台依然会触发刷新。
+			userTTL = calculatedUserTTL
 
-			logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (强制TTL=%d)",
+			logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (TTL=%d)",
 				domain, dns.TypeToString[question.Qtype], sorted.IPs, userTTL)
 
 			// 尝试触发后台刷新
@@ -277,15 +285,35 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAMEs=%v (过期:%v)",
 			domain, dns.TypeToString[question.Qtype], raw.IPs, raw.CNAMEs, raw.IsExpired())
 
-		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
+		// [Modified] 如果原始缓存未过期，使用 UserReturnTTL；否则使用 FastResponseTTL
+		var userTTL uint32 = uint32(currentCfg.Cache.FastResponseTTL)
+
+		if !raw.IsExpired() {
+			elapsedRaw := time.Since(raw.AcquisitionTime)
+			remainingRaw := int(raw.UpstreamTTL) - int(elapsedRaw.Seconds())
+
+			if remainingRaw > 0 {
+				if currentCfg.Cache.UserReturnTTL > 0 {
+					cycleOffset := int(elapsedRaw.Seconds()) % currentCfg.Cache.UserReturnTTL
+					cappedTTL := currentCfg.Cache.UserReturnTTL - cycleOffset
+					if remainingRaw < cappedTTL {
+						userTTL = uint32(remainingRaw)
+					} else {
+						userTTL = uint32(cappedTTL)
+					}
+				} else {
+					userTTL = uint32(remainingRaw)
+				}
+			}
+		}
 
 		// 使用历史数据进行兜底排序 (Fallback Rank)
 		fallbackIPs := s.prefetcher.GetFallbackRank(domain, raw.IPs)
 
 		if len(raw.CNAMEs) > 0 {
-			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAMEs, fallbackIPs, question.Qtype, fastTTL)
+			s.buildDNSResponseWithCNAME(msg, domain, raw.CNAMEs, fallbackIPs, question.Qtype, userTTL)
 		} else {
-			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, fastTTL)
+			s.buildDNSResponse(msg, domain, fallbackIPs, question.Qtype, userTTL)
 		}
 		w.WriteMsg(msg)
 
