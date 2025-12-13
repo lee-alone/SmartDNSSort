@@ -180,12 +180,27 @@ function populateForm(config) {
         setValue('upstream.strategy', config.upstream.strategy);
         setValue('upstream.timeout_ms', config.upstream.timeout_ms);
         setValue('upstream.concurrency', config.upstream.concurrency);
+        setValue('upstream.sequential_timeout', config.upstream.sequential_timeout || 300);
+        setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
+        setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
+        setChecked('upstream.nxdomain_for_errors', config.upstream.nxdomain_for_errors);
+        
+        // Health Check settings
+        if (config.upstream.health_check) {
+            setChecked('upstream.health_check.enabled', config.upstream.health_check.enabled);
+            setValue('upstream.health_check.failure_threshold', config.upstream.health_check.failure_threshold || 3);
+            setValue('upstream.health_check.circuit_breaker_threshold', config.upstream.health_check.circuit_breaker_threshold || 5);
+            setValue('upstream.health_check.circuit_breaker_timeout', config.upstream.health_check.circuit_breaker_timeout || 30);
+            setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
+        }
+        
         setValue('ping.count', config.ping.count);
         setValue('ping.timeout_ms', config.ping.timeout_ms);
         setValue('ping.concurrency', config.ping.concurrency);
         setValue('ping.strategy', config.ping.strategy);
         setValue('ping.max_test_ips', config.ping.max_test_ips);
         setValue('ping.rtt_cache_ttl_seconds', config.ping.rtt_cache_ttl_seconds);
+        setChecked('ping.enable_http_fallback', config.ping.enable_http_fallback);
         setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
         setValue('cache.user_return_ttl', config.cache.user_return_ttl);
         setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
@@ -199,6 +214,7 @@ function populateForm(config) {
         setValue('cache.eviction_batch_percent', config.cache.eviction_batch_percent);
         setChecked('cache.keep_expired_entries', config.cache.keep_expired_entries);
         setChecked('cache.protect_prefetch_domains', config.cache.protect_prefetch_domains);
+        setValue('cache.save_to_disk_interval_minutes', config.cache.save_to_disk_interval_minutes || 60);
 
         setChecked('prefetch.enabled', config.prefetch.enabled);
         setChecked('webui.enabled', config.webui.enabled);
@@ -254,6 +270,17 @@ function saveConfig() {
         strategy: form.elements['upstream.strategy'].value,
         timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value),
         concurrency: parseInt(form.elements['upstream.concurrency'].value),
+        sequential_timeout: parseInt(form.elements['upstream.sequential_timeout'].value) || 300,
+        racing_delay: parseInt(form.elements['upstream.racing_delay'].value) || 100,
+        racing_max_concurrent: parseInt(form.elements['upstream.racing_max_concurrent'].value) || 2,
+        nxdomain_for_errors: form.elements['upstream.nxdomain_for_errors'].checked,
+        health_check: {
+            enabled: form.elements['upstream.health_check.enabled'].checked,
+            failure_threshold: parseInt(form.elements['upstream.health_check.failure_threshold'].value) || 3,
+            circuit_breaker_threshold: parseInt(form.elements['upstream.health_check.circuit_breaker_threshold'].value) || 5,
+            circuit_breaker_timeout: parseInt(form.elements['upstream.health_check.circuit_breaker_timeout'].value) || 30,
+            success_threshold: parseInt(form.elements['upstream.health_check.success_threshold'].value) || 2
+        }
     };
     data.ping = {
         count: parseInt(form.elements['ping.count'].value),
@@ -262,6 +289,7 @@ function saveConfig() {
         strategy: form.elements['ping.strategy'].value,
         max_test_ips: parseInt(form.elements['ping.max_test_ips'].value),
         rtt_cache_ttl_seconds: parseInt(form.elements['ping.rtt_cache_ttl_seconds'].value),
+        enable_http_fallback: form.elements['ping.enable_http_fallback'].checked,
     };
     data.cache = {
         fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value),
@@ -276,6 +304,7 @@ function saveConfig() {
         eviction_batch_percent: parseFloat(form.elements['cache.eviction_batch_percent'].value),
         keep_expired_entries: form.elements['cache.keep_expired_entries'].checked,
         protect_prefetch_domains: form.elements['cache.protect_prefetch_domains'].checked,
+        save_to_disk_interval_minutes: parseInt(form.elements['cache.save_to_disk_interval_minutes'].value) || 60
     };
     data.prefetch = {
         enabled: form.elements['prefetch.enabled'].checked,
@@ -387,6 +416,36 @@ window.addEventListener('languageChanged', (e) => {
 // and instead put them in the event listener.
 
 loadConfig(); // This is safe to run immediately as it just fetches values.
+
+// --- Strategy Selection UI Logic ---
+function updateStrategyUI() {
+    const strategySelect = document.getElementById('upstream.strategy');
+    const sequentialParams = document.getElementById('sequential-params');
+    const racingParams = document.getElementById('racing-params');
+    const racingParamsConcurrent = document.getElementById('racing-params-concurrent');
+    
+    const strategy = strategySelect.value;
+    
+    // Show/hide params based on selected strategy
+    if (sequentialParams) sequentialParams.style.display = strategy === 'sequential' ? 'block' : 'none';
+    if (racingParams) racingParams.style.display = strategy === 'racing' ? 'block' : 'none';
+    if (racingParamsConcurrent) racingParamsConcurrent.style.display = strategy === 'racing' ? 'block' : 'none';
+}
+
+// Add event listener for strategy selection
+document.addEventListener('DOMContentLoaded', () => {
+    const strategySelect = document.getElementById('upstream.strategy');
+    if (strategySelect) {
+        strategySelect.addEventListener('change', updateStrategyUI);
+        // Initial call to set the UI state
+        setTimeout(() => {
+            updateStrategyUI();
+        }, 100);
+    }
+});
+
+// Also update when config is loaded
+window.addEventListener('languageChanged', updateStrategyUI, false);
 
 // --- AdBlock Tab Logic ---
 

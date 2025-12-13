@@ -77,8 +77,18 @@
             "bootstrapDns": "Bootstrap DNS",
             "bootstrapDnsHelp": "Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names. One server per line.",
             "strategy": "Strategy",
+            "strategy.random": "Random",
+            "strategy.parallel": "Parallel",
+            "strategy.sequential": "Sequential",
+            "strategy.racing": "Racing",
             "timeout": "Timeout (ms)",
-            "concurrency": "Concurrency"
+            "concurrency": "Concurrency",
+            "sequentialTimeout": "Sequential Timeout (ms)",
+            "sequentialTimeoutHelp": "Single attempt timeout for sequential strategy (100-2000ms).",
+            "racingDelay": "Racing Delay (ms)",
+            "racingDelayHelp": "Initial delay for racing strategy (50-500ms).",
+            "racingMaxConcurrent": "Racing Max Concurrent",
+            "racingMaxConcurrentHelp": "Maximum concurrent requests for racing strategy (2-5)."
         },
         "ping": {
             "legend": "Ping",

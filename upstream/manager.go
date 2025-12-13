@@ -2,10 +2,12 @@ package upstream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"smartdnssort/logger"
 	"smartdnssort/stats"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,10 +97,16 @@ func (u *Manager) GetTotalServerCount() int {
 
 // Query 查询域名，返回 IP 列表和 TTL
 func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
-	if u.strategy == "parallel" {
+	switch u.strategy {
+	case "parallel":
 		return u.queryParallel(ctx, domain, qtype)
+	case "sequential":
+		return u.querySequential(ctx, domain, qtype)
+	case "racing":
+		return u.queryRacing(ctx, domain, qtype)
+	default:
+		return u.queryRandom(ctx, domain, qtype)
 	}
-	return u.queryRandom(ctx, domain, qtype)
 }
 
 // queryParallel 并行查询多个上游 DNS 服务器
@@ -514,4 +522,397 @@ func extractNegativeTTL(msg *dns.Msg) uint32 {
 
 	// 如果没有找到 SOA 记录，使用默认的否定缓存 TTL（300 秒 = 5 分钟）
 	return 300
+}
+
+// querySequential 顺序查询策略：从健康度最好的服务器开始依次尝试
+func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+	if len(u.servers) == 0 {
+		return nil, fmt.Errorf("no upstream servers configured")
+	}
+
+	logger.Debugf("[querySequential] 开始顺序查询 %s (type=%s)，可用服务器数=%d",
+		domain, dns.TypeToString[qtype], len(u.servers))
+
+	// 获取单次尝试的超时时间（默认 300ms）
+	attemptTimeout := time.Duration(u.timeoutMs) * time.Millisecond
+	if u.timeoutMs <= 0 {
+		attemptTimeout = 300 * time.Millisecond
+	}
+
+	var primaryError error
+	var lastDNSError error
+
+	// 按健康度排序服务器（优先使用健康度最好的）
+	sortedServers := u.getSortedHealthyServers()
+	if len(sortedServers) == 0 {
+		sortedServers = u.servers // 降级使用全部服务器
+	}
+
+	for i, server := range sortedServers {
+		// 检查总体上下文是否已超时
+		select {
+		case <-ctx.Done():
+			logger.Warnf("[querySequential] 总体超时，停止尝试 (已尝试 %d/%d 个服务器)",
+				i, len(sortedServers))
+			if primaryError == nil {
+				primaryError = ctx.Err()
+			}
+			if lastDNSError != nil {
+				return nil, lastDNSError
+			}
+			return nil, primaryError
+		default:
+		}
+
+		// 跳过临时不可用的服务器
+		if server.ShouldSkipTemporarily() {
+			logger.Debugf("[querySequential] 跳过熔断状态的服务器: %s", server.Address())
+			continue
+		}
+
+		logger.Debugf("[querySequential] 第 %d 次尝试: %s，超时=%v", i+1, server.Address(), attemptTimeout)
+
+		// 为本次尝试创建短超时的上下文
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+
+		// 执行查询
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(domain), qtype)
+
+		reply, err := server.Exchange(attemptCtx, msg)
+		cancel() // 立即释放资源
+
+		// 处理查询错误
+		if err != nil {
+			if primaryError == nil {
+				primaryError = err
+			}
+
+			// 区分错误类型
+			if errors.Is(err, context.DeadlineExceeded) {
+				// 网络超时（疑似丢包或服务器响应慢）
+				logger.Debugf("[querySequential] 服务器 %s 超时，尝试下一个", server.Address())
+				server.RecordTimeout()
+				continue
+			} else {
+				// 网络层错误，记录并继续
+				logger.Debugf("[querySequential] 服务器 %s 错误: %v，尝试下一个", server.Address(), err)
+				server.RecordError()
+				continue
+			}
+		}
+
+		// 处理 NXDOMAIN - 这是确定性错误，直接返回
+		if reply.Rcode == dns.RcodeNameError {
+			ttl := extractNegativeTTL(reply)
+			if u.stats != nil {
+				u.stats.IncUpstreamSuccess(server.Address())
+			}
+			logger.Debugf("[querySequential] 服务器 %s 返回 NXDOMAIN，立即返回", server.Address())
+			server.RecordSuccess()
+			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}, nil
+		}
+
+		// 处理其他 DNS 错误响应码
+		if reply.Rcode != dns.RcodeSuccess {
+			lastDNSError = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+			logger.Debugf("[querySequential] 服务器 %s 返回错误码 %d，尝试下一个",
+				server.Address(), reply.Rcode)
+			server.RecordError()
+			continue
+		}
+
+		// 提取结果
+		ips, cnames, ttl := extractIPs(reply)
+
+		// 验证结果
+		if len(ips) == 0 && len(cnames) == 0 {
+			logger.Debugf("[querySequential] 服务器 %s 返回空结果，尝试下一个",
+				server.Address())
+			server.RecordError()
+			continue
+		}
+
+		// 成功!
+		if u.stats != nil {
+			u.stats.IncUpstreamSuccess(server.Address())
+		}
+		logger.Debugf("[querySequential] ✅ 服务器 %s 成功，返回 %d 个IP: %v",
+			server.Address(), len(ips), ips)
+		server.RecordSuccess()
+
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}, nil
+	}
+
+	// 所有服务器都尝试失败
+	logger.Errorf("[querySequential] 所有服务器都失败")
+	if lastDNSError != nil {
+		return nil, lastDNSError
+	}
+	if primaryError != nil {
+		return nil, primaryError
+	}
+	return nil, fmt.Errorf("all upstream servers failed")
+}
+
+// queryRacing 竞争查询策略：通过微小延迟为第一个服务器争取时间，同时为可靠性保留备选方案
+func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+	if len(u.servers) == 0 {
+		return nil, fmt.Errorf("no upstream servers configured")
+	}
+
+	logger.Debugf("[queryRacing] 开始竞争查询 %s (type=%s)，可用服务器数=%d",
+		domain, dns.TypeToString[qtype], len(u.servers))
+
+	// 获取参数
+	raceDelay := time.Duration(100) * time.Millisecond // 默认 100ms
+	maxConcurrent := 2                                 // 默认 2
+
+	// 从配置中获取参数（如果在 Manager 结构体中添加了这些字段）
+	// 这里假设会在后续的改进中添加
+
+	sortedServers := u.getSortedHealthyServers()
+	if len(sortedServers) == 0 {
+		sortedServers = u.servers // 降级使用全部服务器
+	}
+
+	if len(sortedServers) > maxConcurrent {
+		sortedServers = sortedServers[:maxConcurrent]
+	}
+
+	// 创建用于接收结果的通道
+	resultChan := make(chan *QueryResultWithTTL, 1)
+	errorChan := make(chan error, maxConcurrent)
+
+	// 创建可取消的上下文
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var activeTasks int
+	var mu sync.Mutex
+
+	// 1. 立即向最佳的上游服务器发起查询
+	activeTasks = 1
+	go func(server *HealthAwareUpstream, index int) {
+		logger.Debugf("[queryRacing] 主请求发起: 服务器 %d (%s)", index, server.Address())
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(domain), dns.StringToType[dns.TypeToString[qtype]])
+
+		reply, err := server.Exchange(raceCtx, msg)
+
+		if err != nil {
+			select {
+			case errorChan <- err:
+			case <-raceCtx.Done():
+			}
+			return
+		}
+
+		// 处理查询成功
+		if reply.Rcode == dns.RcodeSuccess {
+			ips, cnames, ttl := extractIPs(reply)
+			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
+			select {
+			case resultChan <- result:
+				logger.Debugf("[queryRacing] 主请求成功: %s", server.Address())
+				server.RecordSuccess()
+				if u.stats != nil {
+					u.stats.IncUpstreamSuccess(server.Address())
+				}
+			case <-raceCtx.Done():
+			}
+			return
+		}
+
+		// 处理 NXDOMAIN - 确定性错误，立即返回
+		if reply.Rcode == dns.RcodeNameError {
+			ttl := extractNegativeTTL(reply)
+			result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}
+			select {
+			case resultChan <- result:
+				server.RecordSuccess()
+				if u.stats != nil {
+					u.stats.IncUpstreamSuccess(server.Address())
+				}
+			case <-raceCtx.Done():
+			}
+			return
+		}
+
+		// 其他错误
+		err = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+		select {
+		case errorChan <- err:
+		case <-raceCtx.Done():
+		}
+		server.RecordError()
+	}(sortedServers[0], 0)
+
+	// 2. 设置延迟计时器
+	timer := time.NewTimer(raceDelay)
+
+	select {
+	case result := <-resultChan:
+		// 主请求在延迟内返回了结果
+		timer.Stop()
+		logger.Debugf("[queryRacing] 主请求在延迟内返回结果")
+		return result, nil
+
+	case err := <-errorChan:
+		// 主请求在延迟内返回了错误
+		if isDNSError(err) && isDNSNXDomain(err) {
+			// NXDOMAIN 是确定性错误，直接返回
+			timer.Stop()
+			return nil, err
+		}
+		// 其他错误，记录但继续等待备选方案
+		logger.Debugf("[queryRacing] 主请求出错，等待备选方案")
+
+	case <-timer.C:
+		// 延迟超时，主请求尚未返回，立即发起竞争请求
+		logger.Debugf("[queryRacing] 主请求延迟超时，发起备选竞争请求")
+
+	case <-raceCtx.Done():
+		// 总查询超时
+		timer.Stop()
+		return nil, raceCtx.Err()
+	}
+
+	// 3. 延迟后，发起备选竞争请求
+	for i := 1; i < len(sortedServers) && i < maxConcurrent; i++ {
+		mu.Lock()
+		if activeTasks >= maxConcurrent {
+			mu.Unlock()
+			break
+		}
+		activeTasks++
+		mu.Unlock()
+
+		idx := i
+		go func(server *HealthAwareUpstream, index int) {
+			logger.Debugf("[queryRacing] 备选请求发起: 服务器 %d (%s)", index, server.Address())
+			msg := new(dns.Msg)
+			msg.SetQuestion(dns.Fqdn(domain), dns.StringToType[dns.TypeToString[qtype]])
+
+			reply, err := server.Exchange(raceCtx, msg)
+
+			if err != nil {
+				select {
+				case errorChan <- err:
+				case <-raceCtx.Done():
+				}
+				return
+			}
+
+			if reply.Rcode == dns.RcodeSuccess {
+				ips, cnames, ttl := extractIPs(reply)
+				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
+				select {
+				case resultChan <- result:
+					logger.Debugf("[queryRacing] 备选请求成功: %s", server.Address())
+					server.RecordSuccess()
+					if u.stats != nil {
+						u.stats.IncUpstreamSuccess(server.Address())
+					}
+				default:
+				}
+				return
+			}
+
+			if reply.Rcode == dns.RcodeNameError {
+				ttl := extractNegativeTTL(reply)
+				result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}
+				select {
+				case resultChan <- result:
+					server.RecordSuccess()
+					if u.stats != nil {
+						u.stats.IncUpstreamSuccess(server.Address())
+					}
+				default:
+				}
+				return
+			}
+
+			err = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
+			select {
+			case errorChan <- err:
+			case <-raceCtx.Done():
+			}
+			server.RecordError()
+		}(sortedServers[idx], idx)
+	}
+
+	// 4. 等待最先到达的有效结果，或所有请求都失败
+	successCount := 0
+	errCount := 0
+	var lastErr error
+
+	for successCount == 0 && errCount < activeTasks {
+		select {
+		case result := <-resultChan:
+			// 收到了一个有效结果
+			logger.Debugf("[queryRacing] ✅ 收到结果")
+			return result, nil
+
+		case err := <-errorChan:
+			errCount++
+			lastErr = err
+
+			// 检查是否是确定性错误
+			if isDNSError(err) && isDNSNXDomain(err) {
+				logger.Debugf("[queryRacing] 得到 NXDOMAIN，立即返回")
+				return nil, err
+			}
+
+			logger.Debugf("[queryRacing] 备选错误 %d/%d: %v", errCount, activeTasks, err)
+			// 继续等待其他请求
+
+		case <-raceCtx.Done():
+			// 总查询超时
+			logger.Debugf("[queryRacing] 总体超时")
+			return nil, raceCtx.Err()
+		}
+	}
+
+	// 所有任务都返回了错误
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("racing query failed: all upstream servers returned errors")
+}
+
+// getSortedHealthyServers 按健康度排序服务器
+func (u *Manager) getSortedHealthyServers() []*HealthAwareUpstream {
+	// 简单实现：优先使用未熔断的服务器，然后按健康度排序
+	// 更复杂的实现可以基于响应时间、成功率等因素
+	healthy := make([]*HealthAwareUpstream, 0, len(u.servers))
+	unhealthy := make([]*HealthAwareUpstream, 0)
+
+	for _, server := range u.servers {
+		if !server.ShouldSkipTemporarily() {
+			healthy = append(healthy, server)
+		} else {
+			unhealthy = append(unhealthy, server)
+		}
+	}
+
+	// 健康的服务器优先，然后是不健康的
+	return append(healthy, unhealthy...)
+}
+
+// isDNSError 检查是否是 DNS 错误
+func isDNSError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// 简单的检查：DNS 错误通常包含 "dns" 字样或是特定的 DNS 库错误类型
+	return strings.Contains(err.Error(), "dns") || strings.Contains(err.Error(), "rcode")
+}
+
+// isDNSNXDomain 检查是否是 NXDOMAIN 错误
+func isDNSNXDomain(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "rcode=3") || strings.Contains(err.Error(), "NXDOMAIN")
 }

@@ -488,11 +488,24 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.TimeoutMs <= 0 {
 		return fmt.Errorf("upstream timeout must be positive")
 	}
-	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" {
-		return fmt.Errorf("invalid upstream strategy: %s (must be 'random' or 'parallel')", cfg.Upstream.Strategy)
+	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" && cfg.Upstream.Strategy != "sequential" && cfg.Upstream.Strategy != "racing" {
+		return fmt.Errorf("invalid upstream strategy: %s (must be 'random', 'parallel', 'sequential', or 'racing')", cfg.Upstream.Strategy)
 	}
 	if cfg.Upstream.Concurrency <= 0 {
 		return fmt.Errorf("upstream concurrency must be positive")
+	}
+
+	// 验证 sequential 策略参数
+	if cfg.Upstream.SequentialTimeout < 100 || cfg.Upstream.SequentialTimeout > 2000 {
+		return fmt.Errorf("sequential timeout must be between 100ms and 2000ms, got %dms", cfg.Upstream.SequentialTimeout)
+	}
+
+	// 验证 racing 策略参数
+	if cfg.Upstream.RacingDelay < 50 || cfg.Upstream.RacingDelay > 500 {
+		return fmt.Errorf("racing delay must be between 50ms and 500ms, got %dms", cfg.Upstream.RacingDelay)
+	}
+	if cfg.Upstream.RacingMaxConcurrent < 2 || cfg.Upstream.RacingMaxConcurrent > 5 {
+		return fmt.Errorf("racing max concurrent must be between 2 and 5, got %d", cfg.Upstream.RacingMaxConcurrent)
 	}
 	if cfg.Cache.MinTTLSeconds < 0 {
 		return fmt.Errorf("cache min TTL cannot be negative")

@@ -47,12 +47,18 @@ upstream:
     - "192.168.1.11"
     - "8.8.8.8:53"
 
-  # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器）
-  strategy: "random"
+  # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器），sequential（顺序查询），racing（竞争查询）
+  strategy: "sequential"
   # 上游服务器响应超时时间（毫秒）
   timeout_ms: 5000
   # 并行查询时的并发数（仅在 strategy 为 parallel 时有效）
   concurrency: 3
+  # sequential 策略的单次尝试超时时间（毫秒，默认 300）
+  sequential_timeout: 300
+  # racing 策略的赛跑起始延迟（毫秒，默认 100）
+  racing_delay: 100
+  # racing 策略中同时发起的最大竞争请求数（默认 2）
+  racing_max_concurrent: 2
 
   # 是否将未处理的 SERVFAIL, timeout 转换为 NXDOMAIN 响应给客户端，默认 true
   # 这可以减少客户端的失败重试行为，但可能会隐藏上游服务器的真实错误
@@ -183,6 +189,15 @@ type UpstreamConfig struct {
 	Strategy    string `yaml:"strategy,omitempty" json:"strategy"`
 	TimeoutMs   int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
 	Concurrency int    `yaml:"concurrency,omitempty" json:"concurrency"` // 并行查询时的并发数
+
+	// sequential 策略的单次尝试超时时间（默认 300ms）
+	SequentialTimeout int `yaml:"sequential_timeout,omitempty" json:"sequential_timeout"`
+
+	// racing 策略的赛跑起始延迟（默认 100ms）
+	RacingDelay int `yaml:"racing_delay,omitempty" json:"racing_delay"`
+
+	// racing 策略中同时发起的最大竞争请求数（默认 2）
+	RacingMaxConcurrent int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
 

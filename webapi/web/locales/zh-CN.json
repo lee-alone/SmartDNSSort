@@ -77,8 +77,18 @@
             "bootstrapDns": "引导 DNS",
             "bootstrapDnsHelp": "用于解析 DoH/DoT 域名的引导 DNS 服务器（必须是 IP 地址）。每行一个服务器。",
             "strategy": "策略",
+            "strategy.random": "随机",
+            "strategy.parallel": "并行",
+            "strategy.sequential": "顺序查询",
+            "strategy.racing": "竞争查询",
             "timeout": "超时 (ms)",
-            "concurrency": "并发数"
+            "concurrency": "并发数",
+            "sequentialTimeout": "顺序查询超时 (ms)",
+            "sequentialTimeoutHelp": "顺序查询策略的单次尝试超时时间 (100-2000ms)。",
+            "racingDelay": "竞争延迟 (ms)",
+            "racingDelayHelp": "竞争查询策略的初始延迟时间 (50-500ms)。",
+            "racingMaxConcurrent": "竞争最大并发数",
+            "racingMaxConcurrentHelp": "竞争查询策略的最大并发请求数 (2-5)。"
         },
         "ping": {
             "legend": "Ping",

@@ -83,9 +83,33 @@ const resources = {
                 "serversHelp": "One server per line.",
                 "bootstrapDns": "Bootstrap DNS",
                 "bootstrapDnsHelp": "Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names. One server per line.",
-                "strategy": "Strategy",
+                "strategy": {
+                    "_label": "Strategy",
+                    "random": "Random",
+                    "parallel": "Parallel",
+                    "sequential": "Sequential",
+                    "racing": "Racing"
+                },
                 "timeout": "Timeout (ms)",
-                "concurrency": "Concurrency"
+                "concurrency": "Concurrency",
+                "sequentialTimeout": "Sequential Timeout (ms)",
+                "sequentialTimeoutHelp": "Single attempt timeout for sequential strategy (100-2000ms).",
+                "racingDelay": "Racing Delay (ms)",
+                "racingDelayHelp": "Initial delay for racing strategy (50-500ms).",
+                "racingMaxConcurrent": "Racing Max Concurrent",
+                "racingMaxConcurrentHelp": "Maximum concurrent requests for racing strategy (2-5).",
+                "errorHandling": "Error Handling & Health Check",
+                "nxdomainForErrors": "Convert Errors to NXDOMAIN",
+                "nxdomainForErrorsHelp": "Convert unhandled SERVFAIL and timeout errors to NXDOMAIN responses to clients.",
+                "healthCheckEnabled": "Enable Health Check",
+                "failureThreshold": "Failure Threshold",
+                "failureThresholdHelp": "Number of consecutive failures before degrading upstream server.",
+                "circuitBreakerThreshold": "Circuit Breaker Threshold",
+                "circuitBreakerThresholdHelp": "Number of consecutive failures before stopping use of upstream server.",
+                "circuitBreakerTimeout": "Circuit Breaker Timeout (s)",
+                "circuitBreakerTimeoutHelp": "Duration in seconds before retrying a broken circuit.",
+                "successThreshold": "Success Threshold",
+                "successThresholdHelp": "Number of consecutive successes to recover from degraded/broken state."
             },
             "ping": {
                 "legend": "Ping",
@@ -96,7 +120,9 @@ const resources = {
                 "maxTestIps": "Max Test IPs",
                 "maxTestIpsHelp": "Maximum number of IPs to test per sort (0 = unlimited).",
                 "rttCacheTtl": "RTT Cache TTL (s)",
-                "rttCacheTtlHelp": "Cache duration for RTT results (0 = disabled)."
+                "rttCacheTtlHelp": "Cache duration for RTT results (0 = disabled).",
+                "enableHttpFallback": "Enable HTTP Fallback",
+                "enableHttpFallbackHelp": "Fall back to HTTP-based ping if ICMP fails."
             },
             "cache": {
                 "legend": "Cache",
@@ -118,7 +144,9 @@ const resources = {
                 "keepExpired": "Keep Expired Entries",
                 "keepExpiredHelp": "Keep expired entries in memory if space is available to speed up subsequent queries.",
                 "protectPrefetch": "Protect Prefetched Domains",
-                "protectPrefetchHelp": "Prevent domains in the prefetch list from being evicted during LRU cleanup."
+                "protectPrefetchHelp": "Prevent domains in the prefetch list from being evicted during LRU cleanup.",
+                "saveToDiskInterval": "Save to Disk Interval (Minutes)",
+                "saveToDiskIntervalHelp": "How often to persist cache to disk (0 to disable). Set to 0 to disable periodic saves."
             },
             "prefetch": {
                 "legend": "Prefetch",
@@ -314,9 +342,33 @@ const resources = {
                 "serversHelp": "每行一个服务器。",
                 "bootstrapDns": "引导 DNS",
                 "bootstrapDnsHelp": "用于解析 DoH/DoT 域名的引导 DNS 服务器（必须是 IP 地址）。每行一个服务器。",
-                "strategy": "策略",
+                "strategy": {
+                    "_label": "策略",
+                    "random": "随机",
+                    "parallel": "并行",
+                    "sequential": "顺序",
+                    "racing": "竞争"
+                },
                 "timeout": "超时 (ms)",
-                "concurrency": "并发数"
+                "concurrency": "并发数",
+                "sequentialTimeout": "顺序超时 (ms)",
+                "sequentialTimeoutHelp": "顺序策略的单次尝试超时时间 (100-2000ms)。",
+                "racingDelay": "竞争延迟 (ms)",
+                "racingDelayHelp": "竞争策略的初始延迟 (50-500ms)。",
+                "racingMaxConcurrent": "竞争最大并发数",
+                "racingMaxConcurrentHelp": "竞争策略的最大并发请求数 (2-5)。",
+                "errorHandling": "错误处理与健康检查",
+                "nxdomainForErrors": "错误转换为 NXDOMAIN",
+                "nxdomainForErrorsHelp": "将未处理的 SERVFAIL 和超时错误转换为 NXDOMAIN 响应返回给客户端。",
+                "healthCheckEnabled": "启用健康检查",
+                "failureThreshold": "失败阈值",
+                "failureThresholdHelp": "连续失败次数达到此值后，将上游服务器标记为降级。",
+                "circuitBreakerThreshold": "熔断器阈值",
+                "circuitBreakerThresholdHelp": "连续失败次数达到此值后，停止使用该上游服务器。",
+                "circuitBreakerTimeout": "熔断器超时 (秒)",
+                "circuitBreakerTimeoutHelp": "熔断器在此秒数后允许重试已损坏的电路。",
+                "successThreshold": "成功阈值",
+                "successThresholdHelp": "连续成功次数达到此值后，从降级/损坏状态恢复。"
             },
             "ping": {
                 "legend": "Ping",
@@ -327,7 +379,9 @@ const resources = {
                 "maxTestIps": "最大测试 IP 数",
                 "maxTestIpsHelp": "每次排序测试的最大 IP 数 (0 = 不限制)。",
                 "rttCacheTtl": "RTT 缓存 TTL (s)",
-                "rttCacheTtlHelp": "RTT 结果的缓存时间 (0 = 禁用)。"
+                "rttCacheTtlHelp": "RTT 结果的缓存时间 (0 = 禁用)。",
+                "enableHttpFallback": "启用 HTTP 回退",
+                "enableHttpFallbackHelp": "当 ICMP 失败时回退到基于 HTTP 的 ping。"
             },
             "cache": {
                 "legend": "缓存",
@@ -349,7 +403,9 @@ const resources = {
                 "keepExpired": "保留过期条目",
                 "keepExpiredHelp": "如果空间允许，将过期条目保留在内存中以加速后续查询。",
                 "protectPrefetch": "保护预取域名",
-                "protectPrefetchHelp": "防止预取列表中的域名在 LRU 清理期间被驱逐。"
+                "protectPrefetchHelp": "防止预取列表中的域名在 LRU 清理期间被驱逐。",
+                "saveToDiskInterval": "落盘间隔 (分钟)",
+                "saveToDiskIntervalHelp": "缓存持久化落盘的频率（0 表示禁用）。设置为 0 以禁用定期保存。"
             },
             "prefetch": {
                 "legend": "预取",
@@ -541,6 +597,16 @@ const i18n = {
                 value = value[k];
             } else {
                 console.warn(`Missing translation: ${key}`);
+                return key;
+            }
+        }
+
+        // If value is an object, try to get the _label property
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            if (value._label && typeof value._label === 'string') {
+                value = value._label;
+            } else {
+                console.warn(`Missing translation or _label for: ${key}`);
                 return key;
             }
         }

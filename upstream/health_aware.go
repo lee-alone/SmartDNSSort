@@ -74,3 +74,30 @@ func (h *HealthAwareUpstream) MarkSuccess() {
 func (h *HealthAwareUpstream) MarkFailure() {
 	h.health.MarkFailure()
 }
+
+// RecordSuccess 记录一次成功的查询
+func (h *HealthAwareUpstream) RecordSuccess() {
+	h.health.MarkSuccess()
+}
+
+// RecordError 记录一次通用错误
+func (h *HealthAwareUpstream) RecordError() {
+	h.health.MarkFailure()
+}
+
+// RecordTimeout 记录一次超时（暂时视为失败）
+func (h *HealthAwareUpstream) RecordTimeout() {
+	h.health.MarkFailure()
+}
+
+// Name 返回服务器名称（地址）
+func (h *HealthAwareUpstream) Name() string {
+	return h.upstream.Address()
+}
+
+// Query 执行 DNS 查询并返回结果
+func (h *HealthAwareUpstream) Query(ctx context.Context) (interface{}, error) {
+	// 这个方法用于 sequential 和 racing 策略
+	// 返回 *dns.Msg 作为查询结果
+	return h.upstream.Exchange(ctx, &dns.Msg{})
+}
