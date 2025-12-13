@@ -11,16 +11,16 @@ import (
 // TestErrorCacheStorage 测试错误缓存存储
 func getDefaultCacheConfig() *config.CacheConfig {
 	return &config.CacheConfig{
-		MinTTLSeconds:        3600,
-		MaxTTLSeconds:        84600,
-		NegativeTTLSeconds:   300,
-		ErrorCacheTTL:        30,
-		FastResponseTTL:      15,
-		UserReturnTTL:        600,
-		MaxMemoryMB:          500, // Default value for tests
-		KeepExpiredEntries:   false,
-		EvictionThreshold:    0.9,
-		EvictionBatchPercent: 0.1,
+		MinTTLSeconds:          3600,
+		MaxTTLSeconds:          84600,
+		NegativeTTLSeconds:     300,
+		ErrorCacheTTL:          30,
+		FastResponseTTL:        15,
+		UserReturnTTL:          600,
+		MaxMemoryMB:            500, // Default value for tests
+		KeepExpiredEntries:     false,
+		EvictionThreshold:      0.9,
+		EvictionBatchPercent:   0.1,
 		ProtectPrefetchDomains: false,
 	}
 }
@@ -105,11 +105,8 @@ func TestErrorCacheCleanup(t *testing.T) {
 	// 执行清理
 	c.CleanExpired()
 
-	// 验证已被清理(内部检查)
-	c.mu.RLock()
-	key := cacheKey(domain, qtype)
-	_, exists := c.errorCache[key]
-	c.mu.RUnlock()
+	// 验证已被清理(通过 GetError 返回值)
+	_, exists := c.GetError(domain, qtype)
 
 	if exists {
 		t.Error("Expected expired error cache to be cleaned up")
@@ -194,4 +191,3 @@ func TestErrorCacheIsExpiredMethod(t *testing.T) {
 		t.Error("Expected entry to not be expired")
 	}
 }
-

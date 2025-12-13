@@ -78,11 +78,12 @@ func TestRawCacheExpiration(t *testing.T) {
 	// 直接设置过期的缓存条目（不通过 SetRaw，因为它会覆盖 AcquisitionTime）
 	c.mu.Lock()
 	key := cacheKey(domain, qtype)
-	c.rawCache[key] = &RawCacheEntry{
+	entry := &RawCacheEntry{
 		IPs:             []string{"1.2.3.4"},
 		UpstreamTTL:     60,
 		AcquisitionTime: time.Now().Add(-100 * time.Second), // 100秒前获取，TTL 60秒，已过期
 	}
+	c.rawCache.Set(key, entry)
 	c.mu.Unlock()
 
 	// GetRaw 应该返回过期的条目 (stale-while-revalidate)
