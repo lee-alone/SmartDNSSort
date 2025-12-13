@@ -3,6 +3,8 @@ package adblock
 import (
 	"strings"
 	"sync"
+
+	radix "github.com/hashicorp/go-immutable-radix"
 )
 
 // Matcher 定义规则匹配器接口
@@ -55,36 +57,41 @@ func (m *ExactMatcher) Count() int {
 }
 
 // SuffixMatcher 后缀匹配器 (用于 ||example.com^ 类型的规则)
-// 简单实现：检查域名是否以规则域名结尾
+// 使用 Radix Tree 实现：高效的后缀匹配
 type SuffixMatcher struct {
-	rules map[string]struct{}
-	mu    sync.RWMutex
+	tree *radix.Tree
+	mu   sync.Mutex // 仅用于保护写操作（更新 tree 指针）
 }
 
 // NewSuffixMatcher 创建一个新的后缀匹配器
 func NewSuffixMatcher() *SuffixMatcher {
 	return &SuffixMatcher{
-		rules: make(map[string]struct{}),
+		tree: radix.New(), // 初始化一个空的 Radix Tree
 	}
 }
 
 // Match 检查域名是否匹配后缀规则
 // 逻辑：如果规则是 example.com，那么 example.com 和 sub.example.com 都应该匹配
 func (m *SuffixMatcher) Match(domain string) (bool, string) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	// 转换为小写以确保大小写不敏感的匹配
+	domain = strings.ToLower(domain)
 
-	// 优化：直接遍历可能比较慢，但对于 map 查找，我们需要知道后缀
-	// 正确的做法是：从域名的末尾开始，逐级向上查找
-	// 例如查询 a.b.c.com，先查 a.b.c.com，再查 b.c.com，再查 c.com
-
+	// 1. 颠倒待查询的域名 (e.g., "sub.example.com" -> "com.example.sub")
 	parts := strings.Split(domain, ".")
-	for i := 0; i < len(parts); i++ {
-		suffix := strings.Join(parts[i:], ".")
-		if _, ok := m.rules[suffix]; ok {
-			// 构造匹配到的规则形式返回
-			return true, "||" + suffix + "^"
-		}
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	reversedDomain := strings.Join(parts, ".")
+
+	// 2. 使用 Radix Tree 的 LongestPrefix 方法进行高效查找
+	// LongestPrefix 会找到树中与 reversedDomain 拥有最长共同前缀的那个 key
+	// 这正是我们需要的后缀匹配逻辑
+	// 由于读取是并发安全的，这里不需要加锁
+	_, _, found := m.tree.Root().LongestPrefix([]byte(reversedDomain))
+
+	if found {
+		// 找到了匹配
+		return true, "||" + domain + "^"
 	}
 
 	return false, ""
@@ -93,16 +100,30 @@ func (m *SuffixMatcher) Match(domain string) (bool, string) {
 // AddRule 添加一条后缀匹配规则
 // 输入应该是纯域名部分，例如 "example.com" (来自 ||example.com^)
 func (m *SuffixMatcher) AddRule(domain string) {
+	// 转换为小写以确保统一处理
+	domain = strings.ToLower(domain)
+
+	// 1. 颠倒域名，以便进行前缀匹配 (e.g., "example.com" -> "com.example")
+	parts := strings.Split(domain, ".")
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	reversedDomain := strings.Join(parts, ".")
+
+	// 2. 锁定并更新 Radix 树
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rules[strings.ToLower(domain)] = struct{}{}
+
+	// Insert 操作返回一个新的树，这是实现不可变性的关键
+	// 为了简化存储，只存储 true 作为标记，避免不必要的字符串存储
+	newTree, _, _ := m.tree.Insert([]byte(reversedDomain), true)
+	m.tree = newTree // 原子地替换树的指针
 }
 
 // Count 返回规则数量
 func (m *SuffixMatcher) Count() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.rules)
+	// Radix Tree 的 Len() 方法是线程安全的，无需加锁
+	return m.tree.Len()
 }
 
 // HostsMatcher Hosts 文件匹配器

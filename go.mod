@@ -11,6 +11,8 @@ require (
 
 require (
 	github.com/c2h5oh/datasize v0.0.0-20231215233829-aa82cc1e6500 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 )
 
