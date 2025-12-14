@@ -113,6 +113,8 @@ const resources = {
             },
             "ping": {
                 "legend": "Ping",
+                "enabled": "Enable IP Optimization",
+                "enabledHelp": "Whether to test and sort IPs from DNS resolution results.",
                 "count": "Count",
                 "timeout": "Timeout (ms)",
                 "concurrency": "Concurrency",
@@ -372,6 +374,8 @@ const resources = {
             },
             "ping": {
                 "legend": "Ping",
+                "enabled": "启用 IP 优选",
+                "enabledHelp": "是否对 DNS 解析结果中的 IP 进行 Ping 测试和排序。",
                 "count": "次数",
                 "timeout": "超时 (ms)",
                 "concurrency": "并发数",
