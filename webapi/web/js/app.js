@@ -194,6 +194,7 @@ function populateForm(config) {
             setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
         }
         
+        setChecked('ping.enabled', config.ping.enabled); // Add this line
         setValue('ping.count', config.ping.count);
         setValue('ping.timeout_ms', config.ping.timeout_ms);
         setValue('ping.concurrency', config.ping.concurrency);
@@ -201,6 +202,10 @@ function populateForm(config) {
         setValue('ping.max_test_ips', config.ping.max_test_ips);
         setValue('ping.rtt_cache_ttl_seconds', config.ping.rtt_cache_ttl_seconds);
         setChecked('ping.enable_http_fallback', config.ping.enable_http_fallback);
+
+        // UI/UX logic: Toggle other ping settings based on ping.enabled switch
+        togglePingSettingsState();
+        document.getElementById('ping.enabled').addEventListener('change', togglePingSettingsState);
         setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
         setValue('cache.user_return_ttl', config.cache.user_return_ttl);
         setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
@@ -283,6 +288,7 @@ function saveConfig() {
         }
     };
     data.ping = {
+        enabled: form.elements['ping.enabled'].checked, // Add this line
         count: parseInt(form.elements['ping.count'].value),
         timeout_ms: parseInt(form.elements['ping.timeout_ms'].value),
         concurrency: parseInt(form.elements['ping.concurrency'].value),
@@ -885,4 +891,22 @@ function saveCustomResponse() {
         .finally(() => {
             button.disabled = false;
         });
+}
+
+// New function to enable/disable ping settings
+function togglePingSettingsState() {
+    const pingEnabled = document.getElementById('ping.enabled').checked;
+    const pingSettings = document.getElementById('config-ping'); // The fieldset
+    
+    // Get all input/select elements within the ping settings fieldset, excluding the enable checkbox itself
+    const elements = pingSettings.querySelectorAll('input:not(#ping\\.enabled), select');
+
+    elements.forEach(el => {
+        el.disabled = !pingEnabled;
+        if (!pingEnabled) {
+            el.classList.add('disabled-input'); // Add a class for styling
+        } else {
+            el.classList.remove('disabled-input');
+        }
+    });
 }

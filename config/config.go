@@ -3,6 +3,7 @@
 import (
 	"os"
 	"runtime"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -80,6 +81,8 @@ upstream:
 
 # Ping 检测配置，用于选择最优的 DNS 服务器
 ping:
+  # 是否启用 Ping 功能，默认 true
+  enabled: true
   # 每次 Ping 的数据包数量
   count: 3
   # Ping 响应超时时间（毫秒）
@@ -215,6 +218,7 @@ type HealthCheckConfig struct {
 }
 
 type PingConfig struct {
+	Enabled            bool   `yaml:"enabled" json:"enabled"`
 	Count              int    `yaml:"count,omitempty" json:"count"`
 	TimeoutMs          int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
 	Concurrency        int    `yaml:"concurrency,omitempty" json:"concurrency"`
@@ -394,6 +398,18 @@ func LoadConfig(filePath string) (*Config, error) {
 	// MaxTestIPs: 0 means unlimited, so we don't need to set a default if it's 0.
 	if cfg.Ping.RttCacheTtlSeconds == 0 {
 		cfg.Ping.RttCacheTtlSeconds = 60 // 与 DefaultConfigContent 保持一致
+	}
+	// Set default for Ping.Enabled.
+	// If the config file exists but doesn't specify 'ping.enabled',
+	// cfg.Ping.Enabled will be false after unmarshalling. We want it to be true.
+	// If the config file explicitly sets 'ping.enabled: false', it should remain false.
+	// If the config file explicitly sets 'ping.enabled: true', it should remain true.
+	//
+	// To distinguish between 'omitted' and 'explicitly false', we check the raw YAML data.
+	// This allows respecting explicit 'false' from users while defaulting omitted fields to 'true'.
+	// Note: This relies on 'data' (raw config bytes) still being available.
+	if !cfg.Ping.Enabled && !strings.Contains(string(data), "\nping:\n  enabled: false") {
+		cfg.Ping.Enabled = true
 	}
 	if cfg.Cache.FastResponseTTL == 0 {
 		cfg.Cache.FastResponseTTL = 15 // 与 DefaultConfigContent 保持一致

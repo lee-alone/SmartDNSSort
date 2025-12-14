@@ -12,6 +12,15 @@ import (
 
 // performPingSort 执行 ping 排序操作
 func (s *Server) performPingSort(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
+	// Add the check for Ping.Enabled
+	if !s.cfg.Ping.Enabled {
+		logger.Debugf("[performPingSort] Ping 功能已禁用，直接返回原始 IP 列表: %s, IP数量=%d", domain, len(ips))
+		// If ping is disabled, return the original IPs without sorting or RTTs.
+		// RTTs will be nil, which calling functions should handle (e.g., using 0 or ignoring).
+		// No error is returned as this is an intended bypass.
+		return ips, nil, nil
+	}
+
 	logger.Debugf("[performPingSort] 对 %d 个 IP 进行 ping 排序", len(ips))
 
 	s.mu.RLock()

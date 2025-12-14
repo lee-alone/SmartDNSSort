@@ -108,8 +108,10 @@ SmartDNSSort 使用 `config.yaml` 文件进行配置。项目提供了一个默�
     **`adblock.enable`**: 启用或禁用广告拦截器。
 *   **`adblock.rule_urls`**: A list of URLs for ad-blocking filter lists.
     **`adblock.rule_urls`**: 用于广告拦截过滤列表的 URL 列表。
-*   **`ping`**: Configuration for the ping utility (concurrency, timeout, etc.).
-    **`ping`**: ping 工具的配置（并发数、超时等）。
+*   **`ping`**: Configuration for the IP optimization (ping utility).
+    **`ping`**: IP 优选（ping 工具）的配置。
+    *   **`ping.enabled`**: (Boolean) Enables or disables the IP optimization feature. When disabled, DNS query results are returned without ping testing and sorting, which can reduce CPU usage. Default: `true`.
+        **`ping.enabled`**: (布尔值) 启用或禁用 IP 优选功能。禁用后，DNS 查询结果将不进行 ping 测试和排序，从而降低 CPU 使用。默认值：`true`。
 *   **`cache`**: TTL settings and memory limits for the different cache layers.
     **`cache`**: 不同缓存层的 TTL 设置和内存限制。
 

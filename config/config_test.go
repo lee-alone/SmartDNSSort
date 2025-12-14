@@ -110,3 +110,72 @@ upstream:
 
 	t.Logf("Custom Bootstrap DNS values preserved: %v", cfg.Upstream.BootstrapDNS)
 }
+
+func TestPingEnabledDefaultAndCustomValues(t *testing.T) {
+	tests := []struct {
+		name           string
+		configContent  string
+		expectedStatus bool
+	}{
+		{
+			name: "Default value when omitted within ping section",
+			configContent: `
+ping:
+  count: 1
+`,
+			expectedStatus: true, // Should default to true if omitted
+		},
+		{
+			name: "Explicitly set to true",
+			configContent: `
+ping:
+  enabled: true
+  count: 1
+`,
+			expectedStatus: true,
+		},
+		{
+			name: "Explicitly set to false",
+			configContent: `
+ping:
+  enabled: false
+  count: 1
+`,
+			expectedStatus: false,
+		},
+		{
+			name: "Ping section completely omitted", // This should also default to true
+			configContent: `
+dns:
+  listen_port: 53
+`,
+			expectedStatus: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp("", "test_config_ping_*.yaml")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.WriteString(tt.configContent); err != nil {
+				t.Fatalf("Failed to write temp file: %v", err)
+			}
+			tmpFile.Close()
+
+			cfg, err := LoadConfig(tmpFile.Name())
+			if err != nil {
+				t.Fatalf("Failed to load config: %v", err)
+			}
+
+			if cfg.Ping.Enabled != tt.expectedStatus {
+				t.Errorf("Expected Ping.Enabled to be %v, got %v for config:\n%s",
+					tt.expectedStatus, cfg.Ping.Enabled, tt.configContent)
+			}
+		})
+	}
+}
+

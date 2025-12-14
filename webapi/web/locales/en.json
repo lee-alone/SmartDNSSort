@@ -92,6 +92,8 @@
         },
         "ping": {
             "legend": "Ping",
+            "enabled": "Enable IP Optimization",
+            "enabledHelp": "Whether to test and sort IPs from DNS resolution results.",
             "count": "Count",
             "timeout": "Timeout (ms)",
             "concurrency": "Concurrency",
@@ -99,7 +101,9 @@
             "maxTestIps": "Max Test IPs",
             "maxTestIpsHelp": "Maximum number of IPs to test per sort (0 = unlimited).",
             "rttCacheTtl": "RTT Cache TTL (s)",
-            "rttCacheTtlHelp": "Cache duration for RTT results (0 = disabled)."
+            "rttCacheTtlHelp": "Cache duration for RTT results (0 = disabled).",
+            "enableHttpFallback": "Enable HTTP Fallback",
+            "enableHttpFallbackHelp": "Fall back to HTTP-based ping if ICMP fails."
         },
         "cache": {
             "legend": "Cache",

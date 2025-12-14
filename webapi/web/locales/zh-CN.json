@@ -92,6 +92,8 @@
         },
         "ping": {
             "legend": "Ping",
+            "enabled": "启用 IP 优选",
+            "enabledHelp": "是否对 DNS 解析结果中的 IP 进行 Ping 测试和排序。",
             "count": "次数",
             "timeout": "超时 (ms)",
             "concurrency": "并发数",
@@ -99,7 +101,9 @@
             "maxTestIps": "最大测试 IP 数",
             "maxTestIpsHelp": "每次排序测试的最大 IP 数 (0 = 不限制)。",
             "rttCacheTtl": "RTT 缓存 TTL (s)",
-            "rttCacheTtlHelp": "RTT 结果的缓存时间 (0 = 禁用)。"
+            "rttCacheTtlHelp": "RTT 结果的缓存时间 (0 = 禁用)。",
+            "enableHttpFallback": "启用 HTTP 回退",
+            "enableHttpFallbackHelp": "当 ICMP Ping 失败时，回退到基于 HTTP 的 Ping 方式。"
         },
         "cache": {
             "legend": "缓存",

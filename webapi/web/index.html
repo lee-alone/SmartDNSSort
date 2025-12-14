@@ -306,6 +306,11 @@
 
                     <fieldset id="config-ping">
                         <legend data-i18n="config.ping.legend">Ping</legend>
+                        <div class="form-group form-group-inline">
+                            <input type="checkbox" id="ping.enabled" name="ping.enabled">
+                            <label for="ping.enabled" data-i18n="config.ping.enabled">启用 IP 优选</label>
+                            <small data-i18n="config.ping.enabledHelp" style="margin-left: 10px;">是否对 DNS 解析结果中的 IP 进行 Ping 测试和排序</small>
+                        </div>
                         <div class="form-group">
                             <label for="ping.count" data-i18n="config.ping.count">Count</label>
                             <input type="number" id="ping.count" name="ping.count">
