@@ -153,7 +153,7 @@ const resources = {
             "prefetch": {
                 "legend": "Prefetch",
                 "enable": "Enable Prefetch",
-                "help": "Prefetch uses an advanced mathematical model to automatically refresh popular domains before their cache expires."
+                "help": "Prefetch uses an advanced mathematical model to automatically refresh popular domains before their cache expires. Suggested to enable only in high-traffic environments."
             },
             "webui": {
                 "legend": "Web UI",
@@ -414,7 +414,7 @@ const resources = {
             "prefetch": {
                 "legend": "预取",
                 "enable": "启用预取",
-                "help": "预取功能使用先进的数学模型,在热门域名缓存过期前自动刷新。"
+                "help": "预取功能使用先进的数学模型,在热门域名缓存过期前自动刷新。建议仅在高流量环境下启用此功能。"
             },
             "webui": {
                 "legend": "Web 界面",
