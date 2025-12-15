@@ -6,12 +6,12 @@
 const resources = {
     "en": {
         "app": {
-            "title": "SmartDNSsort"
+            "title": "SmartDNSSort"
         },
         "tabs": {
             "dashboard": "Dashboard",
             "config": "Configuration",
-            "custom": "Custom Setting",
+            "custom": "Custom Rules",
             "adblock": "AdBlock"
         },
         "actions": {
@@ -73,7 +73,7 @@ const resources = {
             },
             "dns": {
                 "legend": "DNS Service",
-                "listenPort": "Listen Port",
+                "listenPort": "DNS Listen Port",
                 "enableTcp": "Enable TCP",
                 "enableIpv6": "Enable IPv6"
             },
@@ -98,18 +98,19 @@ const resources = {
                 "racingDelayHelp": "Initial delay for racing strategy (50-500ms).",
                 "racingMaxConcurrent": "Racing Max Concurrent",
                 "racingMaxConcurrentHelp": "Maximum concurrent requests for racing strategy (2-5).",
-                "errorHandling": "Error Handling & Health Check",
-                "nxdomainForErrors": "Convert Errors to NXDOMAIN",
-                "nxdomainForErrorsHelp": "Convert unhandled SERVFAIL and timeout errors to NXDOMAIN responses to clients.",
-                "healthCheckEnabled": "Enable Health Check",
-                "failureThreshold": "Failure Threshold",
-                "failureThresholdHelp": "Number of consecutive failures before degrading upstream server.",
-                "circuitBreakerThreshold": "Circuit Breaker Threshold",
-                "circuitBreakerThresholdHelp": "Number of consecutive failures before stopping use of upstream server.",
-                "circuitBreakerTimeout": "Circuit Breaker Timeout (s)",
-                "circuitBreakerTimeoutHelp": "Duration in seconds before retrying a broken circuit.",
-                "successThreshold": "Success Threshold",
-                "successThresholdHelp": "Number of consecutive successes to recover from degraded/broken state."
+                "nxdomainForErrors": "Return NXDOMAIN for Upstream Errors",
+                "healthCheck": {
+                    "legend": "Health Check & Circuit Breaker",
+                    "enabled": "Enable Health Checks",
+                    "failureThreshold": "Failure Threshold",
+                    "failureThresholdHelp": "Number of consecutive failures before degrading upstream server.",
+                    "circuitBreakerThreshold": "Circuit Breaker Threshold",
+                    "circuitBreakerThresholdHelp": "Number of consecutive failures before stopping use of upstream server.",
+                    "circuitBreakerTimeout": "Circuit Breaker Timeout (s)",
+                    "circuitBreakerTimeoutHelp": "Duration in seconds before retrying a broken circuit.",
+                    "successThreshold": "Success Threshold to Restore",
+                    "successThresholdHelp": "Number of consecutive successes to recover from degraded/broken state."
+                }
             },
             "ping": {
                 "legend": "Ping",
@@ -158,7 +159,7 @@ const resources = {
             "webui": {
                 "legend": "Web UI",
                 "enable": "Enable Web UI",
-                "listenPort": "Listen Port"
+                "listenPort": "Web Listen Port"
             },
             "system": {
                 "legend": "System",
@@ -168,6 +169,9 @@ const resources = {
                 "sortQueueWorkersHelp": "Number of parallel sorting tasks.",
                 "refreshWorkers": "Refresh Workers",
                 "refreshWorkersHelp": "Number of async cache refresh workers."
+            },
+            "other": {
+                "legend": "System & Advanced Settings"
             },
             "save": "Save & Apply"
         },
@@ -256,6 +260,8 @@ const resources = {
             "customResponseSaveError": "Error saving response rules: {error}"
         },
         "custom": {
+            "title": "Custom Rules Management",
+            "description": "Manage your blocked domains and custom DNS reply rules.",
             "blockedDomains": "Blocked Domains",
             "blockedDomainsHelp": "One domain per line. These domains will be blocked by AdBlock.",
             "saveBlocked": "Save Block List",
@@ -267,7 +273,7 @@ const resources = {
     },
     "zh-CN": {
         "app": {
-            "title": "SmartDNSsort"
+            "title": "SmartDNSSort"
         },
         "tabs": {
             "dashboard": "仪表盘",
@@ -334,7 +340,7 @@ const resources = {
             },
             "dns": {
                 "legend": "DNS 服务",
-                "listenPort": "监听端口",
+                "listenPort": "DNS 监听端口",
                 "enableTcp": "启用 TCP",
                 "enableIpv6": "启用 IPv6"
             },
@@ -359,18 +365,19 @@ const resources = {
                 "racingDelayHelp": "竞争策略的初始延迟 (50-500ms)。",
                 "racingMaxConcurrent": "竞争最大并发数",
                 "racingMaxConcurrentHelp": "竞争策略的最大并发请求数 (2-5)。",
-                "errorHandling": "错误处理与健康检查",
-                "nxdomainForErrors": "错误转换为 NXDOMAIN",
-                "nxdomainForErrorsHelp": "将未处理的 SERVFAIL 和超时错误转换为 NXDOMAIN 响应返回给客户端。",
-                "healthCheckEnabled": "启用健康检查",
-                "failureThreshold": "失败阈值",
-                "failureThresholdHelp": "连续失败次数达到此值后，将上游服务器标记为降级。",
-                "circuitBreakerThreshold": "熔断器阈值",
-                "circuitBreakerThresholdHelp": "连续失败次数达到此值后，停止使用该上游服务器。",
-                "circuitBreakerTimeout": "熔断器超时 (秒)",
-                "circuitBreakerTimeoutHelp": "熔断器在此秒数后允许重试已损坏的电路。",
-                "successThreshold": "成功阈值",
-                "successThresholdHelp": "连续成功次数达到此值后，从降级/损坏状态恢复。"
+                "nxdomainForErrors": "上游错误返回 NXDOMAIN",
+                "healthCheck": {
+                    "legend": "健康检查与熔断器",
+                    "enabled": "启用健康检查",
+                    "failureThreshold": "失败阈值",
+                    "failureThresholdHelp": "连续失败次数达到此值后，将上游服务器标记为降级。",
+                    "circuitBreakerThreshold": "熔断器阈值",
+                    "circuitBreakerThresholdHelp": "连续失败次数达到此值后，停止使用该上游服务器。",
+                    "circuitBreakerTimeout": "熔断器超时 (秒)",
+                    "circuitBreakerTimeoutHelp": "熔断器在此秒数后允许重试已损坏的电路。",
+                    "successThreshold": "恢复成功阈值",
+                    "successThresholdHelp": "连续成功次数达到此值后，从降级/损坏状态恢复。"
+                }
             },
             "ping": {
                 "legend": "Ping",
@@ -419,7 +426,7 @@ const resources = {
             "webui": {
                 "legend": "Web 界面",
                 "enable": "启用 Web 界面",
-                "listenPort": "监听端口"
+                "listenPort": "Web 监听端口"
             },
             "system": {
                 "legend": "系统",
@@ -429,6 +436,9 @@ const resources = {
                 "sortQueueWorkersHelp": "并行排序任务的数量。",
                 "refreshWorkers": "刷新工作者",
                 "refreshWorkersHelp": "异步缓存刷新工作者的数量。"
+            },
+            "other": {
+                "legend": "系统与高级设置"
             },
             "save": "保存并应用"
         },
@@ -517,6 +527,8 @@ const resources = {
             "customResponseSaveError": "保存回复规则时出错：{error}"
         },
         "custom": {
+            "title": "自定义规则管理",
+            "description": "管理您的拦截域名和自定义 DNS 回复规则。",
             "blockedDomains": "拦截域名管理",
             "blockedDomainsHelp": "每行一个域名。这些域名将被广告拦截功能拦截。",
             "saveBlocked": "保存拦截列表",

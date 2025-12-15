@@ -1,648 +1,826 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="light" lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="app.title">SmartDNSSort Control Panel</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="app.title">SmartDNSSort Dashboard</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin href="https://fonts.gstatic.com" rel="preconnect" />
+    <link href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <!-- Material Symbols - Direct from Google Fonts (Most Stable) -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#f9f506",
+                        "background-light": "#f8f8f5",
+                        "background-dark": "#23220f",
+                        "card-light": "#ffffff",
+                        "card-dark": "#2d2c16",
+                        "text-main-light": "#1c1c0d",
+                        "text-main-dark": "#fcfcf8",
+                        "text-sub-light": "#6d6d4e",
+                        "text-sub-dark": "#bfbfad",
+                        "border-light": "#e9e8ce",
+                        "border-dark": "#3e3d24",
+                    },
+                    fontFamily: {
+                        "display": ["Spline Sans", "sans-serif"],
+                        "body": ["Noto Sans", "sans-serif"],
+                    },
+                    borderRadius: { "DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/custom-settings.css">
 </head>
 
-<body>
-    <div class="main-container">
-        <!-- 第一行：标题 + 标签页 + 状态 -->
-        <div class="header-top">
-            <div class="app-title" data-i18n="app.title">SmartDNSsort</div>
+<body
+    class="bg-background-light dark:bg-background-dark text-text-main-light dark:text-text-main-dark font-display antialiased transition-colors duration-200">
 
-            <div class="tabs">
-                <button class="tab-button active" onclick="showTab('dashboard')"
-                    data-i18n="tabs.dashboard">Dashboard</button>
-                <button class="tab-button" onclick="showTab('config')" data-i18n="tabs.config">Configuration</button>
-                <button class="tab-button" onclick="showTab('custom-setting')" data-i18n="tabs.custom">Custom
-                    Setting</button>
+    <div class="flex h-screen w-full overflow-hidden">
+        <!-- SideNavBar -->
+        <div
+            class="w-64 h-full hidden md:flex flex-col border-r border-[#e9e8ce] dark:border-[#3a3922] bg-background-light dark:bg-background-dark flex-shrink-0">
+            <div class="p-6 flex items-center gap-3">
+                <div class="bg-center bg-no-repeat bg-cover rounded-full size-10 shadow-sm"
+                    style='background-image: url("favicon.svg");'></div>
+                <h1 class="text-xl font-bold tracking-tight" data-i18n="app.title">SmartDNSSort</h1>
             </div>
-
-            <div id="status" class="status-indicator" data-i18n="status.connecting">
-                <span class="status-dot"></span>
-                <span class="status-text">Connecting...</span>
-            </div>
-        </div>
-
-        <!-- 第二行：语言选择 + 操作按钮 -->
-        <div class="header-actions">
-            <select id="langSwitch" class="lang-select">
-                <option value="en">English</option>
-                <option value="zh-CN">中文 (简体)</option>
-            </select>
-            <button id="refreshButton" class="btn btn-success btn-sm" data-i18n="actions.refresh">Refresh</button>
-            <button id="clearCacheButton" class="btn btn-warning btn-sm" data-i18n="actions.clearCache">Clear DNS
-                Cache</button>
-            <button id="clearStatsButton" class="btn btn-danger btn-sm" data-i18n="actions.clearStats">Clear All
-                Stats</button>
-            <button id="restartButton" class="btn btn-secondary btn-sm" data-i18n="actions.restart">Restart
-                Service</button>
-        </div>
-    </div>
-
-    <!-- Dashboard Tab -->
-    <div id="dashboard" class="tab-content active">
-        <div class="container">
-            <div class="card">
-                <h2 data-i18n="dashboard.generalStats">General Stats</h2>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.totalQueries">Total Queries</td>
-                            <td id="total_queries" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.cacheHits">Cache Hits</td>
-                            <td id="cache_hits" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.cacheMisses">Cache Misses</td>
-                            <td id="cache_misses" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.cacheHitRate">Cache Hit Rate</td>
-                            <td id="cache_hit_rate" class="value">0.00%</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.upstreamFailures">Upstream Failures</td>
-                            <td id="upstream_failures" class="value">0</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card">
-                <h2 data-i18n="dashboard.systemStatus">System Status</h2>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.cpuUsage">CPU Usage</td>
-                            <td id="cpu_usage_pct" class="value">0.0%</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.memoryUsage">Memory Usage</td>
-                            <td id="mem_usage_pct" class="value">0.0%</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.goroutines">Goroutines</td>
-                            <td id="goroutines" class="value">0</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card">
-                <h2 data-i18n="dashboard.adblockStatus">AdBlock Status</h2>
-                <div class="management-actions">
-                    <button id="adblockUpdateRulesButton" class="btn btn-primary"
-                        data-i18n="dashboard.updateRules">Update All Rules Now</button>
-                </div>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.enableAdblock">Enable AdBlock</td>
-                            <td class="value">
-                                <label class="switch">
-                                    <input type="checkbox" id="adblock_enable_toggle">
-                                    <span class="slider"></span>
-                                </label>
-                                <span id="adblock_status" style="margin-left: 10px;">N/A</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.engine">Engine</td>
-                            <td id="adblock_engine" class="value">N/A</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.totalRules">Total Rules</td>
-                            <td id="adblock_total_rules" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.blockedToday">Blocked Today</td>
-                            <td id="adblock_blocked_today" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.blockedTotal">Blocked Total</td>
-                            <td id="adblock_blocked_total" class="value">0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.lastUpdate">Last Update</td>
-                            <td id="adblock_last_update" class="value">N/A</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card">
-                <h2 data-i18n="dashboard.memoryUsageTitle">Memory Usage</h2>
-                <div class="memory-bar-container">
-                    <div id="memory_usage_bar" class="memory-bar"></div>
-                </div>
-                <div id="memory_usage_text" class="memory-text">0 MB / 0 MB</div>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.cacheEntries">Cache Entries</td>
-                            <td id="cache_entries" class="value">0 / 0</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.expiredEntries">Expired Entries</td>
-                            <td id="expired_entries" class="value">0 (0.0%)</td>
-                        </tr>
-                        <tr>
-                            <td class="label" data-i18n="dashboard.protectedEntries">Protected Entries</td>
-                            <td id="protected_entries" class="value">0</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card">
-                <h2 data-i18n="dashboard.upstreamServers">Upstream Servers</h2>
-                <table id="upstream_stats">
-                    <thead>
-                        <tr>
-                            <th data-i18n="dashboard.server">Server</th>
-                            <th class="value" data-i18n="dashboard.success">Success</th>
-                            <th class="value" data-i18n="dashboard.failure">Failure</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="card" id="hot_domains_card">
-                <h2 data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
-                <table id="hot_domains_table">
-                    <thead>
-                        <tr>
-                            <th data-i18n="dashboard.domain">Domain</th>
-                            <th class="value" data-i18n="dashboard.count">Count</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="card" id="recent_queries_card">
-                <h2 data-i18n="dashboard.recentQueries">Recent Queries</h2>
-                <div id="recent_queries_list" style="max-height: 200px; overflow-y: auto;"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Configuration Tab -->
-    <div id="config" class="tab-content">
-        <div class="config-container">
-            <nav class="config-nav">
-                <ul>
-                    <li><a href="#config-dns" data-i18n="config.nav.dns">DNS Service</a></li>
-                    <li><a href="#config-upstream" data-i18n="config.nav.upstream">Upstream</a></li>
-                    <li><a href="#config-ping" data-i18n="config.nav.ping">Ping</a></li>
-                    <li><a href="#config-cache" data-i18n="config.nav.cache">Cache</a></li>
-                    <li><a href="#config-prefetch" data-i18n="config.nav.prefetch">Prefetch</a></li>
-                    <li><a href="#config-adblock" data-i18n="tabs.adblock">AdBlock</a></li>
-                    <li><a href="#config-webui" data-i18n="config.nav.webui">Web UI</a></li>
-                    <li><a href="#config-system" data-i18n="config.nav.system">System</a></li>
-                </ul>
+            <nav class="flex-1 flex flex-col gap-2 px-4">
+                <a id="nav-dashboard" href="#"
+                    class="nav-button flex items-center gap-3 px-4 py-3 rounded-full bg-primary text-black transition-all shadow-sm hover:shadow-md">
+                    <span class="material-symbols-outlined fill-1">dashboard</span>
+                    <span class="font-medium" data-i18n="tabs.dashboard">Dashboard</span>
+                </a>
+                <a id="nav-config" href="#"
+                    class="nav-button flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <span class="material-symbols-outlined">settings</span>
+                    <span class="font-medium" data-i18n="tabs.config">Configuration</span>
+                </a>
+                <a id="nav-rules" href="#"
+                    class="nav-button flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <span class="material-symbols-outlined">shield</span>
+                    <span class="font-medium" data-i18n="tabs.custom">Custom Rules</span>
+                </a>
+                <div class="flex-1"></div>
+                <a href="https://github.com/lee-alone/SmartDNSSort" target="_blank"
+                    class="flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors mb-4">
+                    <span class="material-symbols-outlined">help</span>
+                    <span class="font-medium" data-i18n="footer.github">Help & Docs</span>
+                </a>
             </nav>
-            <div class="config-content">
-                <form id="configForm">
-                    <fieldset id="config-dns">
-                        <legend data-i18n="config.dns.legend">DNS Service</legend>
-                        <div class="form-group">
-                            <label for="dns.listen_port" data-i18n="config.dns.listenPort">Listen Port</label>
-                            <input type="number" id="dns.listen_port" name="dns.listen_port">
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="dns.enable_tcp" name="dns.enable_tcp">
-                            <label for="dns.enable_tcp" data-i18n="config.dns.enableTcp">Enable TCP</label>
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="dns.enable_ipv6" name="dns.enable_ipv6">
-                            <label for="dns.enable_ipv6" data-i18n="config.dns.enableIpv6">Enable IPv6</label>
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-upstream">
-                        <legend data-i18n="config.upstream.legend">Upstream</legend>
-                        <div class="form-group">
-                            <label for="upstream.servers" data-i18n="config.upstream.servers">Upstream Servers</label>
-                            <textarea id="upstream.servers" name="upstream.servers"></textarea>
-                            <small data-i18n="config.upstream.serversHelp">One server per line.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.bootstrap_dns" data-i18n="config.upstream.bootstrapDns">Bootstrap
-                                DNS</label>
-                            <textarea id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"></textarea>
-                            <small data-i18n="config.upstream.bootstrapDnsHelp">Bootstrap DNS servers (must be IP
-                                addresses) for resolving DoH/DoT domain names. One server per line.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.strategy" data-i18n="config.upstream.strategy._label">Strategy</label>
-                            <select id="upstream.strategy" name="upstream.strategy">
-                                <option value="random" data-i18n="config.upstream.strategy.random">Random</option>
-                                <option value="parallel" data-i18n="config.upstream.strategy.parallel">Parallel</option>
-                                <option value="sequential" data-i18n="config.upstream.strategy.sequential">Sequential</option>
-                                <option value="racing" data-i18n="config.upstream.strategy.racing">Racing</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.timeout_ms" data-i18n="config.upstream.timeout">Timeout (ms)</label>
-                            <input type="number" id="upstream.timeout_ms" name="upstream.timeout_ms">
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.concurrency"
-                                data-i18n="config.upstream.concurrency">Concurrency</label>
-                            <input type="number" id="upstream.concurrency" name="upstream.concurrency">
-                        </div>
-                        <div class="form-group" id="sequential-params">
-                            <label for="upstream.sequential_timeout" data-i18n="config.upstream.sequentialTimeout">Sequential Timeout (ms)</label>
-                            <input type="number" id="upstream.sequential_timeout" name="upstream.sequential_timeout" min="100" max="2000" value="300">
-                            <small data-i18n="config.upstream.sequentialTimeoutHelp">Single attempt timeout for sequential strategy (100-2000ms).</small>
-                        </div>
-                        <div class="form-group" id="racing-params">
-                            <label for="upstream.racing_delay" data-i18n="config.upstream.racingDelay">Racing Delay (ms)</label>
-                            <input type="number" id="upstream.racing_delay" name="upstream.racing_delay" min="50" max="500" value="100">
-                            <small data-i18n="config.upstream.racingDelayHelp">Initial delay for racing strategy (50-500ms).</small>
-                        </div>
-                        <div class="form-group" id="racing-params-concurrent">
-                            <label for="upstream.racing_max_concurrent" data-i18n="config.upstream.racingMaxConcurrent">Racing Max Concurrent</label>
-                            <input type="number" id="upstream.racing_max_concurrent" name="upstream.racing_max_concurrent" min="2" max="5" value="2">
-                            <small data-i18n="config.upstream.racingMaxConcurrentHelp">Maximum concurrent requests for racing strategy (2-5).</small>
-                        </div>
-                        <hr>
-                        <legend data-i18n="config.upstream.errorHandling">Error Handling & Health Check</legend>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="upstream.nxdomain_for_errors" name="upstream.nxdomain_for_errors">
-                            <label for="upstream.nxdomain_for_errors" data-i18n="config.upstream.nxdomainForErrors">Convert Errors to NXDOMAIN</label>
-                            <small data-i18n="config.upstream.nxdomainForErrorsHelp">Convert unhandled SERVFAIL and timeout errors to NXDOMAIN responses to clients.</small>
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="upstream.health_check.enabled" name="upstream.health_check.enabled">
-                            <label for="upstream.health_check.enabled" data-i18n="config.upstream.healthCheckEnabled">Enable Health Check</label>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.health_check.failure_threshold" data-i18n="config.upstream.failureThreshold">Failure Threshold</label>
-                            <input type="number" id="upstream.health_check.failure_threshold" name="upstream.health_check.failure_threshold" min="1" max="10" value="3">
-                            <small data-i18n="config.upstream.failureThresholdHelp">Number of consecutive failures before degrading upstream server.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.health_check.circuit_breaker_threshold" data-i18n="config.upstream.circuitBreakerThreshold">Circuit Breaker Threshold</label>
-                            <input type="number" id="upstream.health_check.circuit_breaker_threshold" name="upstream.health_check.circuit_breaker_threshold" min="1" max="20" value="5">
-                            <small data-i18n="config.upstream.circuitBreakerThresholdHelp">Number of consecutive failures before stopping use of upstream server.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.health_check.circuit_breaker_timeout" data-i18n="config.upstream.circuitBreakerTimeout">Circuit Breaker Timeout (s)</label>
-                            <input type="number" id="upstream.health_check.circuit_breaker_timeout" name="upstream.health_check.circuit_breaker_timeout" min="10" max="300" value="30">
-                            <small data-i18n="config.upstream.circuitBreakerTimeoutHelp">Duration in seconds before retrying a broken circuit.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="upstream.health_check.success_threshold" data-i18n="config.upstream.successThreshold">Success Threshold</label>
-                            <input type="number" id="upstream.health_check.success_threshold" name="upstream.health_check.success_threshold" min="1" max="5" value="2">
-                            <small data-i18n="config.upstream.successThresholdHelp">Number of consecutive successes to recover from degraded/broken state.</small>
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-ping">
-                        <legend data-i18n="config.ping.legend">Ping</legend>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="ping.enabled" name="ping.enabled">
-                            <label for="ping.enabled" data-i18n="config.ping.enabled">启用 IP 优选</label>
-                            <small data-i18n="config.ping.enabledHelp" style="margin-left: 10px;">是否对 DNS 解析结果中的 IP 进行 Ping 测试和排序</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.count" data-i18n="config.ping.count">Count</label>
-                            <input type="number" id="ping.count" name="ping.count">
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.timeout_ms" data-i18n="config.ping.timeout">Timeout (ms)</label>
-                            <input type="number" id="ping.timeout_ms" name="ping.timeout_ms">
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.concurrency" data-i18n="config.ping.concurrency">Concurrency</label>
-                            <input type="number" id="ping.concurrency" name="ping.concurrency">
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.strategy" data-i18n="config.ping.strategy">Strategy</label>
-                            <select id="ping.strategy" name="ping.strategy">
-                                <option value="min">Min</option>
-                                <option value="avg">Avg</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.max_test_ips" data-i18n="config.ping.maxTestIps">Max Test IPs</label>
-                            <input type="number" id="ping.max_test_ips" name="ping.max_test_ips">
-                            <small data-i18n="config.ping.maxTestIpsHelp">Maximum number of IPs to test per sort (0 =
-                                unlimited).</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="ping.rtt_cache_ttl_seconds" data-i18n="config.ping.rttCacheTtl">RTT Cache TTL
-                                (s)</label>
-                            <input type="number" id="ping.rtt_cache_ttl_seconds" name="ping.rtt_cache_ttl_seconds">
-                            <small data-i18n="config.ping.rttCacheTtlHelp">Cache duration for RTT results (0 =
-                                disabled).</small>
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="ping.enable_http_fallback" name="ping.enable_http_fallback">
-                            <label for="ping.enable_http_fallback" data-i18n="config.ping.enableHttpFallback">Enable HTTP Fallback</label>
-                            <small data-i18n="config.ping.enableHttpFallbackHelp">Fall back to HTTP-based ping if ICMP fails.</small>
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-cache">
-                        <legend data-i18n="config.cache.legend">Cache</legend>
-                        <div class="form-group">
-                            <label for="cache.fast_response_ttl" data-i18n="config.cache.fastResponseTtl">Fast Response
-                                TTL (s)</label>
-                            <input type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl">
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.user_return_ttl" data-i18n="config.cache.userReturnTtl">User Return TTL
-                                (s)</label>
-                            <input type="number" id="cache.user_return_ttl" name="cache.user_return_ttl">
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.min_ttl_seconds" data-i18n="config.cache.minTtl">Min TTL (s)</label>
-                            <input type="number" id="cache.min_ttl_seconds" name="cache.min_ttl_seconds">
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.max_ttl_seconds" data-i18n="config.cache.maxTtl">Max TTL (s)</label>
-                            <input type="number" id="cache.max_ttl_seconds" name="cache.max_ttl_seconds">
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.negative_ttl_seconds" data-i18n="config.cache.negativeTtl">Negative Cache
-                                TTL (s)</label>
-                            <input type="number" id="cache.negative_ttl_seconds" name="cache.negative_ttl_seconds">
-                            <small data-i18n="config.cache.negativeTtlHelp">TTL for NXDOMAIN/NODATA responses.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.error_cache_ttl_seconds" data-i18n="config.cache.errorCacheTtl">Error
-                                Cache TTL (s)</label>
-                            <input type="number" id="cache.error_cache_ttl_seconds"
-                                name="cache.error_cache_ttl_seconds">
-                            <small data-i18n="config.cache.errorCacheTtlHelp">TTL for SERVFAIL/REFUSED
-                                responses.</small>
-                        </div>
-
-                        <hr>
-                        <legend data-i18n="config.cache.memoryLegend">Memory Cache Management</legend>
-
-                        <div class="form-group">
-                            <label for="cache.max_memory_mb" data-i18n="config.cache.maxMemory">Max Memory (MB)</label>
-                            <input type="number" id="cache.max_memory_mb" name="cache.max_memory_mb">
-                            <small data-i18n="config.cache.maxMemoryHelp">Max memory usage for the cache. Eviction is
-                                triggered beyond this limit. 0 for unlimited.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.eviction_threshold" data-i18n="config.cache.evictionThreshold">Eviction
-                                Threshold</label>
-                            <input type="number" id="cache.eviction_threshold" name="cache.eviction_threshold"
-                                step="0.01">
-                            <small data-i18n="config.cache.evictionThresholdHelp">Memory usage percentage (0.7-0.95)
-                                that triggers eviction.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.eviction_batch_percent"
-                                data-i18n="config.cache.evictionBatchPercent">Eviction Batch Percent</label>
-                            <input type="number" id="cache.eviction_batch_percent" name="cache.eviction_batch_percent"
-                                step="0.01">
-                            <small data-i18n="config.cache.evictionBatchPercentHelp">Percentage of total cache to evict
-                                in a single batch (0.05-0.2).</small>
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="cache.keep_expired_entries" name="cache.keep_expired_entries">
-                            <label for="cache.keep_expired_entries" data-i18n="config.cache.keepExpired">Keep Expired
-                                Entries</label>
-                            <small data-i18n="config.cache.keepExpiredHelp">Keep expired entries in memory if space is
-                                available to speed up subsequent queries.</small>
-                        </div>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="cache.protect_prefetch_domains"
-                                name="cache.protect_prefetch_domains">
-                            <label for="cache.protect_prefetch_domains" data-i18n="config.cache.protectPrefetch">Protect
-                                Prefetched Domains</label>
-                            <small data-i18n="config.cache.protectPrefetchHelp">Prevent domains in the prefetch list
-                                from being evicted during LRU cleanup.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="cache.save_to_disk_interval_minutes" data-i18n="config.cache.saveToDiskInterval">Save to Disk Interval (Minutes)</label>
-                            <input type="number" id="cache.save_to_disk_interval_minutes" name="cache.save_to_disk_interval_minutes" min="0" value="60">
-                            <small data-i18n="config.cache.saveToDiskIntervalHelp">How often to persist cache to disk (0 to disable). Set to 0 to disable periodic saves.</small>
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-prefetch">
-                        <legend data-i18n="config.prefetch.legend">Prefetch</legend>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="prefetch.enabled" name="prefetch.enabled">
-                            <label for="prefetch.enabled" data-i18n="config.prefetch.enable">Enable Prefetch</label>
-                        </div>
-                        <small data-i18n="config.prefetch.help">Prefetch uses an advanced mathematical model to automatically refresh popular domains before their cache expires.</small>
-                    </fieldset>
-
-                    <fieldset id="config-adblock">
-                        <legend data-i18n="tabs.adblock">AdBlock</legend>
-                        <div class="card card-full-width">
-                            <h2 data-i18n="adblock.ruleSources">Rule Sources</h2>
-                            <table id="adblock_sources_table">
-                                <thead>
-                                    <tr>
-                                        <th data-i18n="adblock.url">URL</th>
-                                        <th data-i18n="adblock.status">Status</th>
-                                        <th class="value" data-i18n="adblock.rules">Rules</th>
-                                        <th data-i18n="adblock.lastUpdate">Last Update</th>
-                                        <th data-i18n="adblock.enabled">Enabled</th>
-                                        <th data-i18n="adblock.actions">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <!-- Rows will be added dynamically -->
-                                </tbody>
-                            </table>
-                            <div class="card-footer">
-                                <h3 data-i18n="adblock.addNew">Add New Source</h3>
-                                <div class="form-group-inline">
-                                    <input type="text" id="adblock_new_source_url" data-i18n-ph="adblock.placeholderUrl"
-                                        placeholder="https://example.com/rules.txt" class="form-control">
-                                    <button id="adblockAddSourceButton" type="button" class="btn btn-success"
-                                        data-i18n="adblock.add">Add</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card">
-                            <h2 data-i18n="adblock.blockMode">Block Mode</h2>
-                            <div class="form-group-inline">
-                                <select id="adblock_block_mode" class="form-control">
-                                    <option value="nxdomain">NXDOMAIN</option>
-                                    <option value="refused">REFUSED</option>
-                                    <option value="zero_ip">Zero IP (0.0.0.0)</option>
-                                </select>
-                                <button id="adblockSaveBlockModeButton" type="button" class="btn btn-primary"
-                                    data-i18n="adblock.saveBlockMode">Save</button>
-                            </div>
-                            <small style="display: block; margin-top: 0.5rem; color: #6c757d;"
-                                data-i18n="adblock.blockModeHelp">
-                                Select how blocked domains should be handled
-                            </small>
-                        </div>
-
-                        <div class="card">
-                            <h2 data-i18n="adblock.testDomain">Test Domain</h2>
-                            <div class="form-group-inline">
-                                <input type="text" id="adblock_test_domain" data-i18n-ph="adblock.placeholderDomain"
-                                    placeholder="example.com" class="form-control">
-                                <button id="adblockTestDomainButton" type="button" class="btn btn-secondary"
-                                    data-i18n="adblock.test">Test</button>
-                            </div>
-                            <div id="adblock_test_result" class="test-result"></div>
-                        </div>
-
-                        <div class="card">
-                            <h2 data-i18n="adblock.settings">AdBlock Settings</h2>
-                            <div id="adblockSettingsContainer">
-                                <div class="form-group">
-                                    <label for="adblock_update_interval_hours" data-i18n="adblock.updateInterval">Update
-                                        Interval (Hours)</label>
-                                    <input type="number" id="adblock_update_interval_hours" name="update_interval_hours"
-                                        class="form-control">
-                                    <small data-i18n="adblock.updateIntervalHelp">How often to automatically update rule
-                                        lists. 0 to disable.</small>
-                                </div>
-                                <div class="form-group">
-                                    <label for="adblock_max_cache_age_hours" data-i18n="adblock.maxCacheAge">Max Cache
-                                        Age (Hours)</label>
-                                    <input type="number" id="adblock_max_cache_age_hours" name="max_cache_age_hours"
-                                        class="form-control">
-                                    <small data-i18n="adblock.maxCacheAgeHelp">Maximum age of cached rule files before
-                                        forcing a re-download. 0 to disable.</small>
-                                </div>
-                                <div class="form-group">
-                                    <label for="adblock_max_cache_size_mb" data-i18n="adblock.maxCacheSize">Max Cache
-                                        Size (MB)</label>
-                                    <input type="number" id="adblock_max_cache_size_mb" name="max_cache_size_mb"
-                                        class="form-control">
-                                    <small data-i18n="adblock.maxCacheSizeHelp">Total size limit for all cached rule
-                                        files.</small>
-                                </div>
-                                <div class="form-group">
-                                    <label for="adblock_blocked_ttl" data-i18n="adblock.blockedTtl">Blocked Response TTL
-                                        (Seconds)</label>
-                                    <input type="number" id="adblock_blocked_ttl" name="blocked_ttl"
-                                        class="form-control">
-                                    <small data-i18n="adblock.blockedTtlHelp">TTL for the response to a blocked domain
-                                        query.</small>
-                                </div>
-                                <div class="form-group">
-                                    <button type="button" id="adblockSaveSettingsButton" class="btn btn-primary"
-                                        data-i18n="adblock.saveSettings">Save Settings</button>
-                                </div>
-                            </div>
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-webui">
-                        <legend data-i18n="config.webui.legend">Web UI</legend>
-                        <div class="form-group form-group-inline">
-                            <input type="checkbox" id="webui.enabled" name="webui.enabled">
-                            <label for="webui.enabled" data-i18n="config.webui.enable">Enable Web UI</label>
-                        </div>
-                        <div class="form-group">
-                            <label for="webui.listen_port" data-i18n="config.webui.listenPort">Listen Port</label>
-                            <input type="number" id="webui.listen_port" name="webui.listen_port">
-                        </div>
-                    </fieldset>
-
-                    <fieldset id="config-system">
-                        <legend data-i18n="config.system.legend">System</legend>
-                        <div class="form-group">
-                            <label for="system.max_cpu_cores" data-i18n="config.system.maxCpuCores">Max CPU
-                                Cores</label>
-                            <input type="number" id="system.max_cpu_cores" name="system.max_cpu_cores">
-                            <small data-i18n="config.system.maxCpuCoresHelp">Set to 0 to use all available
-                                cores.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="system.sort_queue_workers" data-i18n="config.system.sortQueueWorkers">Sort Queue
-                                Workers</label>
-                            <input type="number" id="system.sort_queue_workers" name="system.sort_queue_workers">
-                            <small data-i18n="config.system.sortQueueWorkersHelp">Number of parallel sorting
-                                tasks.</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="system.refresh_workers" data-i18n="config.system.refreshWorkers">Refresh
-                                Workers</label>
-                            <input type="number" id="system.refresh_workers" name="system.refresh_workers">
-                            <small data-i18n="config.system.refreshWorkersHelp">Number of async cache refresh
-                                workers.</small>
-                        </div>
-                    </fieldset>
-                </form>
-            </div>
         </div>
-        <div class="save-button-container">
-            <button class="save-button" onclick="saveConfig()" data-i18n="config.save">Save & Apply</button>
-        </div>
-    </div>
 
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+            <!-- Header -->
+            <header
+                class="h-20 border-b border-[#e9e8ce] dark:border-[#3a3922] bg-background-light dark:bg-background-dark flex items-center justify-between px-6 shrink-0 z-10">
+                <div id="status" class="status-indicator" data-i18n="status.connecting">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <select id="langSwitch"
+                        class="h-10 px-4 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+                        <option value="en">English</option>
+                        <option value="zh-CN">中文 (简体)</option>
+                    </select>
+                    <button id="refreshButton"
+                        class="flex items-center justify-center size-10 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-text-sub-light dark:text-text-sub-dark transition-colors"
+                        title="Refresh Data">
+                        <span class="material-symbols-outlined">refresh</span>
+                    </button>
+                    <button id="clearCacheButton"
+                        class="hidden xl:flex h-10 px-4 items-center gap-2 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+                        <span class="material-symbols-outlined text-lg">delete_sweep</span>
+                        <span data-i18n="actions.clearCache">Clear DNS Cache</span>
+                    </button>
+                    <button id="clearStatsButton"
+                        class="hidden xl:flex h-10 px-4 items-center gap-2 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+                        <span class="material-symbols-outlined text-lg">bar_chart_off</span>
+                        <span data-i18n="actions.clearStats">Clear All Stats</span>
+                    </button>
+                    <button id="restartButton"
+                        class="flex h-10 px-5 items-center justify-center gap-2 rounded-full bg-primary hover:bg-[#dcd805] text-black text-sm font-bold shadow-sm hover:shadow transition-all">
+                        <span class="material-symbols-outlined text-lg">restart_alt</span>
+                        <span class="hidden sm:inline" data-i18n="actions.restart">Restart Service</span>
+                    </button>
+                </div>
+            </header>
 
-    </div>
+            <!-- Main Content Views -->
+            <main class="flex-1 overflow-y-auto p-6 scroll-smooth">
 
-    <!-- Custom Setting Tab -->
-    <div id="custom-setting" class="tab-content">
-        <div class="config-container">
-            <div class="config-content">
-                <fieldset>
-                    <legend data-i18n="custom.blockedDomains">Blocked Domains</legend>
-                    <p class="help-text" data-i18n="custom.blockedDomainsHelp">
-                        One domain per line. These domains will be blocked by AdBlock.
-                    </p>
-                    <textarea id="custom-blocked-content" class="code-editor" rows="15"
-                        placeholder="example.com&#10;ads.example.net&#10;tracker.example.org"
-                        spellcheck="false"></textarea>
-                    <div class="char-counter">
-                        <span id="blocked-line-count">0 lines</span> |
-                        <span id="blocked-char-count">0 characters</span>
-                    </div>
-                    <div class="form-actions">
-                        <button class="primary-btn" onclick="saveCustomBlocked()" data-i18n="custom.saveBlocked">
-                            Save Block List
-                        </button>
-                    </div>
-                </fieldset>
+                <!-- Dashboard View -->
+                <div id="view-dashboard" class="view-content">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 max-w-[1600px] mx-auto">
+                        <!-- 1. General Statistics -->
+                        <div
+                            class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+                            <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-2"
+                                data-i18n="dashboard.generalStats">General Stats</h2>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.totalQueries">Total Queries</p>
+                                    <h3 id="total_queries" class="text-2xl font-bold">0</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.cacheHits">Cache Hits</p>
+                                    <h3 id="cache_hits" class="text-2xl font-bold">0</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.cacheMisses">Cache Misses</p>
+                                    <h3 id="cache_misses" class="text-2xl font-bold">0</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.cacheHitRate">Cache Hit Rate</p>
+                                    <h3 id="cache_hit_rate" class="text-2xl font-bold">0.00%</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.upstreamFailures">Upstream Failures</p>
+                                    <h3 id="upstream_failures" class="text-2xl font-bold">0</h3>
+                                </div>
+                            </div>
+                        </div>
 
-                <fieldset>
-                    <legend data-i18n="custom.customResponses">Custom Responses</legend>
-                    <p class="help-text" data-i18n="custom.customResponsesHelp">
-                        Format: domain type value ttl
-                    </p>
-                    <div class="alert info" data-i18n="custom.customResponsesExample">
-                        Example: example.com A 1.2.3.4 300
+                        <!-- 2. System Status -->
+                        <div
+                            class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+                            <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-2"
+                                data-i18n="dashboard.systemStatus">System Status</h2>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.cpuUsage">CPU Usage</p>
+                                    <h3 id="cpu_usage_pct" class="text-2xl font-bold">0.0%</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.memoryUsage">Memory Usage</p>
+                                    <h3 id="mem_usage_pct" class="text-2xl font-bold">0.0%</h3>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.goroutines">Goroutines</p>
+                                    <h3 id="goroutines" class="text-2xl font-bold">0</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Memory Usage -->
+                        <div
+                            class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+                            <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium"
+                                data-i18n="dashboard.memoryUsageTitle">Memory Usage</h2>
+                            <div class="flex flex-col gap-2">
+                                <div class="flex justify-between items-end">
+                                    <h3 id="memory_usage_text" class="text-xl font-bold tracking-tight">0 MB / 0 MB</h3>
+                                </div>
+                                <div class="w-full bg-[#e9e8ce] dark:bg-[#3a3922] rounded-full h-2">
+                                    <div id="memory_usage_bar"
+                                        class="bg-primary h-2 rounded-full transition-all duration-500"
+                                        style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.cacheEntries">Cache Entries</p>
+                                    <p id="cache_entries" class="font-medium">0 / 0</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.expiredEntries">Expired Entries</p>
+                                    <p id="expired_entries" class="font-medium">0 (0.0%)</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.protectedEntries">Protected Entries</p>
+                                    <p id="protected_entries" class="font-medium">0</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. AdBlock Status (Interactive) -->
+                        <div
+                            class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-1"
+                                        data-i18n="dashboard.adblockStatus">AdBlock Status</p>
+                                    <h3 id="adblock_status" class="text-xl font-bold tracking-tight">N/A</h3>
+                                </div>
+                                <label class="inline-flex items-center cursor-pointer"><input type="checkbox"
+                                        id="adblock_enable_toggle" class="sr-only peer">
+                                    <div
+                                        class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary">
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="text-xs grid grid-cols-2 gap-1 text-text-sub-light dark:text-text-sub-dark">
+                                <span>Engine: <b id="adblock_engine"
+                                        class="text-text-main-light dark:text-text-main-dark">N/A</b></span>
+                                <span>Rules: <b id="adblock_total_rules"
+                                        class="text-text-main-light dark:text-text-main-dark">0</b></span>
+                                <span>Blocked Today: <b id="adblock_blocked_today"
+                                        class="text-text-main-light dark:text-text-main-dark">0</b></span>
+                                <span>Blocked Total: <b id="adblock_blocked_total"
+                                        class="text-text-main-light dark:text-text-main-dark">0</b></span>
+                                <span class="col-span-2">Last Update: <b id="adblock_last_update"
+                                        class="text-text-main-light dark:text-text-main-dark">N/A</b></span>
+                            </div>
+                            <button id="adblockUpdateRulesButton"
+                                class="w-full mt-2 py-2 px-4 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"><span
+                                    class="material-symbols-outlined text-sm">update</span><span
+                                    data-i18n="dashboard.updateRules">Update All Rules</span></button>
+                        </div>
+
+                        <!-- 5. Upstream Servers Table (Spans 2 cols) -->
+                        <div
+                            class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+                            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                                <h2 class="font-bold text-lg" data-i18n="dashboard.upstreamServers">Upstream Servers
+                                </h2>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table id="upstream_stats" class="w-full text-sm text-left">
+                                    <thead
+                                        class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                                        <tr>
+                                            <th class="px-6 py-3" data-i18n="dashboard.server">Server</th>
+                                            <th class="px-6 py-3" data-i18n="dashboard.success">Success</th>
+                                            <th class="px-6 py-3" data-i18n="dashboard.failure">Failure</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 6. Top 10 Domains Table (Spans 2 cols) -->
+                        <div
+                            class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+                            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                                <h2 class="font-bold text-lg" data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table id="hot_domains_table" class="w-full text-sm text-left">
+                                    <thead
+                                        class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                                        <tr>
+                                            <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
+                                            <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 7. Recent Queries (Full Width) -->
+                        <div
+                            class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+                            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                                <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
+                            </div>
+                            <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
+                        </div>
                     </div>
-                    <textarea id="custom-response-content" class="code-editor" rows="15"
-                        placeholder="example.com A 1.2.3.4 300&#10;mysite.local AAAA ::1 600&#10;test.local CNAME localhost 300"
-                        spellcheck="false"></textarea>
-                    <div class="char-counter">
-                        <span id="response-line-count">0 lines</span> |
-                        <span id="response-char-count">0 characters</span>
+                </div>
+
+                <!-- Configuration View -->
+                <div id="view-config" class="view-content" style="display: none;">
+                    <form id="configForm">
+                        <div class="max-w-7xl mx-auto space-y-8">
+                            <!-- DNS Service Card -->
+                            <section
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="config.dns.legend">DNS Service</h2>
+                                </div>
+                                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                    <div class="form-group"><label for="dns.listen_port"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.dns.listenPort">Listen Port</label><input type="number"
+                                            id="dns.listen_port" name="dns.listen_port"
+                                            class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                                            id="dns.enable_tcp" name="dns.enable_tcp"
+                                            class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                                            for="dns.enable_tcp" data-i18n="config.dns.enableTcp">Enable
+                                            TCP</label><input type="checkbox" id="dns.enable_ipv6"
+                                            name="dns.enable_ipv6"
+                                            class="h-5 w-5 rounded text-primary focus:ring-primary ml-4"><label
+                                            for="dns.enable_ipv6" data-i18n="config.dns.enableIpv6">Enable IPv6</label>
+                                    </div>
+                                </div>
+                            </section>
+
+                            </section>
+
+                            <!-- Upstream Card -->
+                            <section
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="config.upstream.legend">Upstream</h2>
+                                </div>
+                                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                    <div class="form-group md:col-span-2"><label for="upstream.servers"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.servers">Upstream Servers</label><textarea
+                                            id="upstream.servers" name="upstream.servers"
+                                            class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"></textarea><small
+                                            data-i18n="config.upstream.serversHelp">One per line.</small></div>
+                                    <div class="form-group md:col-span-2"><label for="upstream.bootstrap_dns"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.bootstrapDns">Bootstrap DNS</label><textarea
+                                            id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"
+                                            class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-24"></textarea><small
+                                            data-i18n="config.upstream.bootstrapDnsHelp">For DoH/DoT domains. One IP per
+                                            line.</small></div>
+                                    <div class="form-group"><label for="upstream.strategy"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.strategy._label">Strategy</label><select
+                                            id="upstream.strategy" name="upstream.strategy"
+                                            class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            <option value="random" data-i18n="config.upstream.strategy.random">Random
+                                            </option>
+                                            <option value="parallel" data-i18n="config.upstream.strategy.parallel">
+                                                Parallel</option>
+                                            <option value="sequential" data-i18n="config.upstream.strategy.sequential">
+                                                Sequential</option>
+                                            <option value="racing" data-i18n="config.upstream.strategy.racing">Racing
+                                            </option>
+                                        </select></div>
+                                    <div class="form-group"><label for="upstream.timeout_ms"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.timeout">Timeout (ms)</label><input type="number"
+                                            id="upstream.timeout_ms" name="upstream.timeout_ms"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="upstream.concurrency"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.concurrency">Concurrency</label><input
+                                            type="number" id="upstream.concurrency" name="upstream.concurrency"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+
+                                    <!-- Strategy Specific Params (Hidden by default, toggled by JS) -->
+                                    <div id="sequential-params" class="form-group hidden"><label
+                                            for="upstream.sequential_timeout"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.sequentialTimeout">Sequential Timeout (ms)</label><input type="number" id="upstream.sequential_timeout"
+                                            name="upstream.sequential_timeout"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div id="racing-params" class="form-group hidden"><label for="upstream.racing_delay"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.racingDelay">Racing Delay (ms)</label><input
+                                            type="number" id="upstream.racing_delay" name="upstream.racing_delay"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div id="racing-params-concurrent" class="form-group hidden"><label
+                                            for="upstream.racing_max_concurrent"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.racingMaxConcurrent">Racing Max Concurrent</label><input
+                                            type="number" id="upstream.racing_max_concurrent"
+                                            name="upstream.racing_max_concurrent"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+
+                                    <div class="form-group md:col-span-2 pt-2"><label
+                                            class="flex items-center gap-3"><input type="checkbox"
+                                                id="upstream.nxdomain_for_errors" name="upstream.nxdomain_for_errors"
+                                                class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                                data-i18n="config.upstream.nxdomainForErrors">Return NXDOMAIN for Upstream Errors</span></label></div>
+
+                                    <!-- Health Check Section -->
+                                    <div
+                                        class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
+                                        <h3 class="font-bold mb-4" data-i18n="config.upstream.healthCheck.legend">Health Check & Circuit Breaker</h3>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                            <div class="form-group md:col-span-2"><label
+                                                    class="flex items-center gap-3"><input type="checkbox"
+                                                        id="upstream.health_check.enabled"
+                                                        name="upstream.health_check.enabled"
+                                                        class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                                        data-i18n="config.upstream.healthCheck.enabled">Enable Health Checks</span></label></div>
+                                            <div class="form-group"><label for="upstream.health_check.failure_threshold"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.upstream.healthCheck.failureThreshold">Failure
+                                                    Threshold</label><input type="number"
+                                                    id="upstream.health_check.failure_threshold"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label
+                                                    for="upstream.health_check.circuit_breaker_threshold"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.upstream.healthCheck.circuitBreakerThreshold">Circuit Breaker
+                                                    Threshold</label><input type="number"
+                                                    id="upstream.health_check.circuit_breaker_threshold"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label
+                                                    for="upstream.health_check.circuit_breaker_timeout"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.upstream.healthCheck.circuitBreakerTimeout">Circuit Breaker Timeout
+                                                    (s)</label><input type="number"
+                                                    id="upstream.health_check.circuit_breaker_timeout"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label for="upstream.health_check.success_threshold"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.upstream.healthCheck.successThreshold">Success Threshold to
+                                                    Restore</label><input type="number"
+                                                    id="upstream.health_check.success_threshold"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Ping Card -->
+                            <section id="config-ping"
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="config.ping.legend">Ping</h2>
+                                </div>
+                                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                    <div class="form-group md:col-span-2"><label class="flex items-center gap-3"><input
+                                                type="checkbox" id="ping.enabled" name="ping.enabled"
+                                                class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                                data-i18n="config.ping.enabled">Enable IP Optimization</span></label></div>
+                                    <div class="form-group"><label for="ping.count"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.count">Count</label><input type="number"
+                                            id="ping.count" name="ping.count"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="ping.timeout_ms"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.timeout">Timeout (ms)</label><input type="number"
+                                            id="ping.timeout_ms" name="ping.timeout_ms"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="ping.concurrency"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.concurrency">Concurrency</label><input type="number"
+                                            id="ping.concurrency" name="ping.concurrency"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="ping.strategy"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.strategy">Strategy</label><select id="ping.strategy"
+                                            name="ping.strategy"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            <option value="min">Min</option>
+                                            <option value="avg">Avg</option>
+                                        </select></div>
+
+                                    <div class="form-group"><label for="ping.max_test_ips"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.maxTestIps">Max Test IPs</label><input
+                                            type="number" id="ping.max_test_ips" name="ping.max_test_ips"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="ping.rtt_cache_ttl_seconds"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.ping.rttCacheTtl">RTT Cache TTL (s)</label><input
+                                            type="number" id="ping.rtt_cache_ttl_seconds"
+                                            name="ping.rtt_cache_ttl_seconds"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group md:col-span-2 pt-2"><label
+                                            class="flex items-center gap-3"><input type="checkbox"
+                                                id="ping.enable_http_fallback" name="ping.enable_http_fallback"
+                                                class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                                data-i18n="config.ping.enableHttpFallback">Enable HTTP Fallback</span></label></div>
+                                </div>
+                            </section>
+
+                            <!-- Cache Card -->
+                            <section
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="config.cache.legend">Cache</h2>
+                                </div>
+                                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                    <div class="form-group"><label for="cache.fast_response_ttl"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.cache.fastResponseTtl">Fast Response TTL (s)</label><input
+                                            type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="cache.user_return_ttl"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.cache.userReturnTtl">User Return TTL (s)</label><input
+                                            type="number" id="cache.user_return_ttl" name="cache.user_return_ttl"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="cache.min_ttl_seconds"
+                                            class="block text-sm font-medium mb-2" data-i18n="config.cache.minTtl">Min
+                                            TTL (s)</label><input type="number" id="cache.min_ttl_seconds"
+                                            name="cache.min_ttl_seconds"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="cache.max_ttl_seconds"
+                                            class="block text-sm font-medium mb-2" data-i18n="config.cache.maxTtl">Max
+                                            TTL (s)</label><input type="number" id="cache.max_ttl_seconds"
+                                            name="cache.max_ttl_seconds"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+
+                                    <div class="form-group"><label for="cache.negative_ttl_seconds"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.cache.negativeTtl">Negative Cache TTL (s)</label><input
+                                            type="number" id="cache.negative_ttl_seconds"
+                                            name="cache.negative_ttl_seconds"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="cache.error_cache_ttl_seconds"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.cache.errorCacheTtl">Error Cache TTL (s)</label><input
+                                            type="number" id="cache.error_cache_ttl_seconds"
+                                            name="cache.error_cache_ttl_seconds"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+
+                                    <!-- Memory Management (Advanced) -->
+                                    <div
+                                        class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
+                                        <h3 class="font-bold mb-4" data-i18n="config.cache.memoryLegend">Memory Management (Advanced)</h3>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                            <div class="form-group md:col-span-2"><label for="cache.max_memory_mb"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.cache.maxMemory">Max Memory (MB)</label><input
+                                                    type="number" id="cache.max_memory_mb" name="cache.max_memory_mb"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label for="cache.eviction_threshold"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.cache.evictionThreshold">Eviction Threshold
+                                                    (0.1-1.0)</label><input type="number" step="0.1"
+                                                    id="cache.eviction_threshold" name="cache.eviction_threshold"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label for="cache.eviction_batch_percent"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.cache.evictionBatchPercent">Eviction Batch Percent
+                                                    (0.01-0.5)</label><input type="number" step="0.05"
+                                                    id="cache.eviction_batch_percent"
+                                                    name="cache.eviction_batch_percent"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group"><label for="cache.save_to_disk_interval_minutes"
+                                                    class="block text-sm font-medium mb-2"
+                                                    data-i18n="config.cache.saveToDiskInterval">Save to Disk Interval
+                                                    (Minutes)</label><input type="number"
+                                                    id="cache.save_to_disk_interval_minutes"
+                                                    name="cache.save_to_disk_interval_minutes"
+                                                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                            </div>
+                                            <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                                                    id="cache.keep_expired_entries" name="cache.keep_expired_entries"
+                                                    class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                                                    for="cache.keep_expired_entries"
+                                                    data-i18n="config.cache.keepExpired">Keep Expired Entries in
+                                                    Memory</label></div>
+                                            <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                                                    id="cache.protect_prefetch_domains"
+                                                    name="cache.protect_prefetch_domains"
+                                                    class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                                                    for="cache.protect_prefetch_domains"
+                                                    data-i18n="config.cache.protectPrefetch">Protect Prefetch
+                                                    Domains</label></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- AdBlock Card -->
+                            <section
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="tabs.adblock">AdBlock</h2>
+                                </div>
+                                <div class="p-6 space-y-6">
+                                    <div>
+                                        <h3 class="text-lg font-medium" data-i18n="adblock.ruleSources">Rule Sources
+                                        </h3>
+                                        <div class="overflow-x-auto mt-2">
+                                            <table id="adblock_sources_table" class="w-full text-sm">
+                                                <thead>
+                                                    <tr class="text-left text-text-sub-light">
+                                                        <th class="p-2" data-i18n="adblock.url">URL</th>
+                                                        <th class="p-2" data-i18n="adblock.status">Status</th>
+                                                        <th class="p-2" data-i18n="adblock.rules">Rules</th>
+                                                        <th class="p-2" data-i18n="adblock.enabled">Enabled</th>
+                                                        <th class="p-2" data-i18n="adblock.actions">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="mt-4 flex gap-2"><input type="text" id="adblock_new_source_url"
+                                                placeholder="https://example.com/rules.txt"
+                                                class="flex-grow h-10 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm"><button
+                                                id="adblockAddSourceButton" type="button"
+                                                class="h-10 px-4 rounded-lg bg-primary text-black font-bold text-sm"
+                                                data-i18n="adblock.add">Add</button></div>
+                                    </div>
+                                    <div
+                                        class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border-light dark:border-border-dark">
+                                        <div>
+                                            <label for="adblock_block_mode" class="block text-sm font-medium mb-2"
+                                                data-i18n="adblock.blockMode">Block Mode</label>
+                                            <select id="adblock_block_mode"
+                                                class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                                <option value="nxdomain">NXDOMAIN</option>
+                                                <option value="refused">REFUSED</option>
+                                                <option value="zero_ip">Zero IP</option>
+                                            </select>
+                                            <button id="adblockSaveBlockModeButton" type="button"
+                                                class="mt-2 h-10 px-4 rounded-lg bg-primary/80 text-black font-bold text-sm"
+                                                data-i18n="adblock.saveBlockMode">Save Mode</button>
+                                        </div>
+                                        <div>
+                                            <label for="adblock_test_domain" class="block text-sm font-medium mb-2"
+                                                data-i18n="adblock.testDomain">Test Domain</label>
+                                            <div class="flex gap-2"><input type="text" id="adblock_test_domain"
+                                                    placeholder="example.com"
+                                                    class="flex-grow h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm"><button
+                                                    id="adblockTestDomainButton" type="button"
+                                                    class="h-12 px-4 rounded-lg border border-border-light dark:border-border-dark font-bold text-sm"
+                                                    data-i18n="adblock.test">Test</button></div>
+                                            <div id="adblock_test_result" class="text-sm mt-2 p-2 rounded-lg"></div>
+                                        </div>
+                                    </div>
+                                    <div class="pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                        <h3 class="text-lg font-medium" data-i18n="adblock.settings">AdBlock Settings
+                                        </h3>
+                                        <div class="form-group"><label for="adblock_update_interval_hours"
+                                                data-i18n="adblock.updateInterval">Update Interval (Hours)</label><input
+                                                type="number" id="adblock_update_interval_hours"
+                                                name="update_interval_hours"
+                                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                        </div>
+                                        <button type="button" id="adblockSaveSettingsButton"
+                                            class="h-10 px-5 rounded-lg bg-primary/80 text-black font-bold text-sm"
+                                            data-i18n="adblock.saveSettings">Save Settings</button>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Other Settings Card -->
+                            <section
+                                class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced Settings</h2>
+                                </div>
+                                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                    <div class="form-group"><label for="webui.listen_port"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.webui.listenPort">Web Listen Port</label><input type="number"
+                                            id="webui.listen_port" name="webui.listen_port"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="system.max_cpu_cores"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.system.maxCpuCores">Max CPU Cores</label><input
+                                            type="number" id="system.max_cpu_cores" name="system.max_cpu_cores"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="system.sort_queue_workers"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.system.sortQueueWorkers">Sort Queue Workers</label><input
+                                            type="number" id="system.sort_queue_workers"
+                                            name="system.sort_queue_workers"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group"><label for="system.refresh_workers"
+                                            class="block text-sm font-medium mb-2"
+                                            data-i18n="config.system.refreshWorkers">Refresh Workers</label><input
+                                            type="number" id="system.refresh_workers" name="system.refresh_workers"
+                                            class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                    </div>
+                                    <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                                            id="prefetch.enabled" name="prefetch.enabled"
+                                            class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                                            for="prefetch.enabled" data-i18n="config.prefetch.enable">Enable
+                                            Prefetch</label></div>
+                                    <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                                            id="webui.enabled" name="webui.enabled"
+                                            class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                                            for="webui.enabled" data-i18n="config.webui.enable">Enable Web UI</label>
+                                    </div>
+                                </div>
+                            </section>
+
+                        </div>
+                        <div
+                            class="sticky bottom-0 right-0 mt-8 -mx-6 -mb-6 bg-white/80 dark:bg-card-dark/90 backdrop-blur-md border-t border-border-light dark:border-border-dark px-8 py-4 flex items-center justify-end z-30">
+                            <button type="button" onclick="saveConfig()"
+                                class="h-11 px-8 rounded-full bg-primary text-black font-bold shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+                                <span class="material-symbols-outlined text-[20px]">save</span>
+                                <span data-i18n="config.save">Save & Apply</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Custom Rules View -->
+                <div id="view-rules" class="view-content" style="display: none;">
+                    <div class="mx-auto max-w-7xl flex flex-col gap-8">
+                        <div class="flex flex-col gap-2">
+                            <h2 class="text-3xl md:text-4xl font-bold tracking-tight" data-i18n="custom.title">Custom
+                                Rules Management</h2>
+                            <p class="text-text-sub-light dark:text-text-sub-dark text-base max-w-2xl"
+                                data-i18n="custom.description">Manage your blocked domains and custom DNS reply rules.
+                            </p>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                            <section
+                                class="flex flex-col bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden h-full min-h-[500px]">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h3 class="text-lg font-bold" data-i18n="custom.blockedDomains">Blocked Domains</h3>
+                                </div>
+                                <div class="flex-1 p-6 flex flex-col gap-4">
+                                    <div
+                                        class="flex items-center gap-2 text-sm text-text-sub-light dark:text-text-sub-dark mb-1">
+                                        <span class="material-symbols-outlined text-sm">info</span><span
+                                            data-i18n="custom.blockedDomainsHelp">Enter one domain per line.</span>
+                                    </div>
+                                    <textarea id="custom-blocked-content"
+                                        class="w-full h-full min-h-[350px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
+                                        placeholder="example.com&#10;tracking-server.net" spellcheck="false"></textarea>
+                                </div>
+                                <div
+                                    class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
+                                    <button onclick="saveCustomBlocked()"
+                                        class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
+                                            data-i18n="custom.saveBlocked">Save Block List</span></button>
+                                </div>
+                            </section>
+                            <section
+                                class="flex flex-col bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden h-full min-h-[500px]">
+                                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                                    <h3 class="text-lg font-bold" data-i18n="custom.customResponses">Custom Reply Rules
+                                    </h3>
+                                </div>
+                                <div class="flex-1 p-6 flex flex-col gap-4">
+                                    <div class="rounded-lg bg-primary/10 border border-primary/20 p-3">
+                                        <p class="text-xs font-bold text-text-main-light dark:text-text-main-dark mb-1"
+                                            data-i18n="custom.customResponsesExample">Syntax Guide</p><code
+                                            class="text-xs font-mono text-text-sub-light dark:text-text-sub-dark block">domain.com A 1.2.3.4 300</code>
+                                    </div>
+                                    <textarea id="custom-response-content"
+                                        class="w-full h-full min-h-[300px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
+                                        placeholder="nas.local A 192.168.1.100 3600" spellcheck="false"></textarea>
+                                </div>
+                                <div
+                                    class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
+                                    <button onclick="saveCustomResponse()"
+                                        class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
+                                            data-i18n="custom.saveResponse">Save Reply Rules</span></button>
+                                </div>
+                            </section>
+                        </div>
                     </div>
-                    <div class="form-actions">
-                        <button class="primary-btn" onclick="saveCustomResponse()" data-i18n="custom.saveResponse">
-                            Save Response Rules
-                        </button>
-                    </div>
-                </fieldset>
-            </div>
+                </div>
+
+                <footer class="mt-8 text-center text-xs text-text-sub-light dark:text-text-sub-dark pb-4">
+                    <p data-i18n="footer.copyright">© 2025 SmartDNSSort. <a
+                            href="https://github.com/lee-alone/SmartDNSSort" target="_blank">GitHub</a></p>
+                </footer>
+            </main>
         </div>
     </div>
 
     <script src="js/i18n.js"></script>
     <script src="js/app.js"></script>
-    <footer class="footer">
-        <p data-i18n="footer.copyright">© 2025 SmartDNSSort. <a href="https://github.com/lee-alone/SmartDNSSort"
-                target="_blank">GitHub</a></p>
-    </footer>
 </body>
 
 </html>

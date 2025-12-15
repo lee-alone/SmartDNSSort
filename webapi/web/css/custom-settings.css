@@ -1,9 +1,0 @@
-
-/* Style for disabled inputs to indicate they are not editable */
-.disabled-input {
-    background-color: #e9ecef !important; /* Light grey background */
-    color: #6c757d !important;         /* Muted text color */
-    cursor: not-allowed !important;    /* Indicate non-interactiveness */
-    opacity: 0.7;                      /* Slightly faded look */
-    border-color: #dee2e6 !important;  /* Lighter border */
-}
