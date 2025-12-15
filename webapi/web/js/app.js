@@ -195,22 +195,63 @@ document.getElementById('refreshButton').addEventListener('click', () => {
 
 document.getElementById('restartButton').addEventListener('click', () => {
     if (!confirm(i18n.t('messages.restartConfirm'))) return;
-    fetch('/api/restart', { method: 'POST' })
-        .then(response => {
-            if (response.ok) {
-                alert(i18n.t('messages.restarting'));
-                // 等待5秒后自动刷新页面
-                setTimeout(() => {
-                    location.reload();
-                }, 5000);
-            } else {
-                alert(i18n.t('messages.restartFailed'));
-            }
-        })
-        .catch(error => {
-            alert(i18n.t('messages.restartError', { error: error }));
-            console.error('Restart error:', error);
-        });
+    
+    // 先保存配置，然后再重启
+    const currentConfig = originalConfig;
+    if (currentConfig && Object.keys(currentConfig).length === 0) {
+        alert('Configuration not loaded. Please refresh and try again.');
+        return;
+    }
+    
+    const performRestart = () => {
+        console.log('[DEBUG] Calling restart API');
+        fetch('/api/restart', { method: 'POST' })
+            .then(response => {
+                console.log('[DEBUG] Restart API response status:', response.status);
+                if (response.ok) {
+                    alert(i18n.t('messages.restarting'));
+                    // 等待5秒后自动刷新页面
+                    setTimeout(() => {
+                        location.reload();
+                    }, 5000);
+                } else {
+                    response.json().then(data => {
+                        alert(i18n.t('messages.restartFailed'));
+                        console.error('Restart failed:', data);
+                    }).catch(() => {
+                        alert(i18n.t('messages.restartFailed'));
+                    });
+                }
+            })
+            .catch(error => {
+                alert(i18n.t('messages.restartError', { error: error }));
+                console.error('Restart error:', error);
+            });
+    };
+    
+    // Check if current form has unsaved changes
+    const form = document.getElementById('configForm');
+    if (form && form.style.display !== 'none') {
+        // Config form is visible, prompt to save first
+        if (confirm('Do you want to save the current configuration changes before restarting?')) {
+            // Save configuration and then restart
+            console.log('[DEBUG] Saving config before restart');
+            saveConfig()
+                .then(() => {
+                    console.log('[DEBUG] Config saved successfully, performing restart');
+                    setTimeout(performRestart, 500);
+                })
+                .catch(error => {
+                    console.error('[DEBUG] Config save failed, aborting restart:', error);
+                });
+        } else {
+            // User chose not to save, proceed with restart anyway
+            performRestart();
+        }
+    } else {
+        // Config form not visible, proceed with restart directly
+        performRestart();
+    }
 });
 
 
@@ -312,154 +353,121 @@ function loadConfig() {
 }
 
 function saveConfig() {
-    const form = document.getElementById('configForm');
-
-    // Deep copy the original config to preserve uneditable fields like adblock
-    const data = JSON.parse(JSON.stringify(originalConfig));
-
-    // Log the values being sent for debugging
-    console.log('[DEBUG] Form values before sending:');
-    console.log('  fast_response_ttl:', form.elements['cache.fast_response_ttl'].value);
-    console.log('  user_return_ttl:', form.elements['cache.user_return_ttl'].value);
-
-    // Overwrite with form values
-    data.dns = {
-        listen_port: parseInt(form.elements['dns.listen_port'].value),
-        enable_tcp: form.elements['dns.enable_tcp'].checked,
-        enable_ipv6: form.elements['dns.enable_ipv6'].checked,
-    };
-    data.upstream = {
-        servers: form.elements['upstream.servers'].value.split('\n').filter(s => s.trim() !== ''),
-        bootstrap_dns: form.elements['upstream.bootstrap_dns'].value.split('\n').filter(s => s.trim() !== ''),
-        strategy: form.elements['upstream.strategy'].value,
-        timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value),
-        concurrency: parseInt(form.elements['upstream.concurrency'].value),
-        sequential_timeout: parseInt(form.elements['upstream.sequential_timeout'].value) || 300,
-        racing_delay: parseInt(form.elements['upstream.racing_delay'].value) || 100,
-        racing_max_concurrent: parseInt(form.elements['upstream.racing_max_concurrent'].value) || 2,
-        nxdomain_for_errors: form.elements['upstream.nxdomain_for_errors'].checked,
-        health_check: {
-            enabled: form.elements['upstream.health_check.enabled'].checked,
-            failure_threshold: parseInt(form.elements['upstream.health_check.failure_threshold'].value) || 3,
-            circuit_breaker_threshold: parseInt(form.elements['upstream.health_check.circuit_breaker_threshold'].value) || 5,
-            circuit_breaker_timeout: parseInt(form.elements['upstream.health_check.circuit_breaker_timeout'].value) || 30,
-            success_threshold: parseInt(form.elements['upstream.health_check.success_threshold'].value) || 2
+    return new Promise((resolve, reject) => {
+        const form = document.getElementById('configForm');
+        if (!form) {
+            alert('Configuration form not found');
+            return reject('Form not found');
         }
-    };
-    data.ping = {
-        enabled: form.elements['ping.enabled'].checked, // Add this line
-        count: parseInt(form.elements['ping.count'].value),
-        timeout_ms: parseInt(form.elements['ping.timeout_ms'].value),
-        concurrency: parseInt(form.elements['ping.concurrency'].value),
-        strategy: form.elements['ping.strategy'].value,
-        max_test_ips: parseInt(form.elements['ping.max_test_ips'].value),
-        rtt_cache_ttl_seconds: parseInt(form.elements['ping.rtt_cache_ttl_seconds'].value),
-        enable_http_fallback: form.elements['ping.enable_http_fallback'].checked,
-    };
-    data.cache = {
-        fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value),
-        user_return_ttl: parseInt(form.elements['cache.user_return_ttl'].value),
-        min_ttl_seconds: parseInt(form.elements['cache.min_ttl_seconds'].value),
-        max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value),
-        negative_ttl_seconds: parseInt(form.elements['cache.negative_ttl_seconds'].value),
-        error_cache_ttl_seconds: parseInt(form.elements['cache.error_cache_ttl_seconds'].value),
-        // Memory cache settings
-        max_memory_mb: parseInt(form.elements['cache.max_memory_mb'].value),
-        eviction_threshold: parseFloat(form.elements['cache.eviction_threshold'].value),
-        eviction_batch_percent: parseFloat(form.elements['cache.eviction_batch_percent'].value),
-        keep_expired_entries: form.elements['cache.keep_expired_entries'].checked,
-        protect_prefetch_domains: form.elements['cache.protect_prefetch_domains'].checked,
-        save_to_disk_interval_minutes: parseInt(form.elements['cache.save_to_disk_interval_minutes'].value) || 60
-    };
-    data.prefetch = {
-        enabled: form.elements['prefetch.enabled'].checked,
-    };
-    data.webui = {
-        enabled: form.elements['webui.enabled'].checked,
-        listen_port: parseInt(form.elements['webui.listen_port'].value),
-    };
-    data.system = {
-        max_cpu_cores: parseInt(form.elements['system.max_cpu_cores'].value),
-        sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value),
-        refresh_workers: parseInt(form.elements['system.refresh_workers'].value),
-    };
 
-    // Log the data being sent to the server (Main Config)
-    console.log('[DEBUG] Data being sent to server:', JSON.stringify(data, null, 2));
+        // 从表单收集所有配置数据
+        const data = {
+            dns: {
+                listen_port: parseInt(form.elements['dns.listen_port'].value) || 53,
+                enable_tcp: form.elements['dns.enable_tcp'].checked,
+                enable_ipv6: form.elements['dns.enable_ipv6'].checked,
+            },
+            upstream: {
+                servers: form.elements['upstream.servers'].value
+                    .split('\n')
+                    .map(s => s.trim())
+                    .filter(s => s !== ''),
+                bootstrap_dns: form.elements['upstream.bootstrap_dns'].value
+                    .split('\n')
+                    .map(s => s.trim())
+                    .filter(s => s !== ''),
+                strategy: form.elements['upstream.strategy'].value || 'sequential',
+                timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value) || 5000,
+                concurrency: parseInt(form.elements['upstream.concurrency'].value) || 3,
+                sequential_timeout: parseInt(form.elements['upstream.sequential_timeout'].value) || 300,
+                racing_delay: parseInt(form.elements['upstream.racing_delay'].value) || 100,
+                racing_max_concurrent: parseInt(form.elements['upstream.racing_max_concurrent'].value) || 2,
+                nxdomain_for_errors: form.elements['upstream.nxdomain_for_errors'].checked,
+                health_check: {
+                    enabled: form.elements['upstream.health_check.enabled'].checked,
+                    failure_threshold: parseInt(form.elements['upstream.health_check.failure_threshold'].value) || 3,
+                    circuit_breaker_threshold: parseInt(form.elements['upstream.health_check.circuit_breaker_threshold'].value) || 5,
+                    circuit_breaker_timeout: parseInt(form.elements['upstream.health_check.circuit_breaker_timeout'].value) || 30,
+                    success_threshold: parseInt(form.elements['upstream.health_check.success_threshold'].value) || 2,
+                }
+            },
+            ping: {
+                enabled: form.elements['ping.enabled'].checked,
+                count: parseInt(form.elements['ping.count'].value) || 3,
+                timeout_ms: parseInt(form.elements['ping.timeout_ms'].value) || 1000,
+                concurrency: parseInt(form.elements['ping.concurrency'].value) || 16,
+                strategy: form.elements['ping.strategy'].value || 'min',
+                max_test_ips: parseInt(form.elements['ping.max_test_ips'].value) || 0,
+                rtt_cache_ttl_seconds: parseInt(form.elements['ping.rtt_cache_ttl_seconds'].value) || 300,
+                enable_http_fallback: form.elements['ping.enable_http_fallback'].checked,
+            },
+            cache: {
+                fast_response_ttl: parseInt(form.elements['cache.fast_response_ttl'].value) || 15,
+                user_return_ttl: parseInt(form.elements['cache.user_return_ttl'].value) || 600,
+                min_ttl_seconds: parseInt(form.elements['cache.min_ttl_seconds'].value) || 3600,
+                max_ttl_seconds: parseInt(form.elements['cache.max_ttl_seconds'].value) || 84600,
+                negative_ttl_seconds: parseInt(form.elements['cache.negative_ttl_seconds'].value) || 300,
+                error_cache_ttl_seconds: parseInt(form.elements['cache.error_cache_ttl_seconds'].value) || 30,
+                max_memory_mb: parseInt(form.elements['cache.max_memory_mb'].value) || 128,
+                eviction_threshold: parseFloat(form.elements['cache.eviction_threshold'].value) || 0.9,
+                eviction_batch_percent: parseFloat(form.elements['cache.eviction_batch_percent'].value) || 0.1,
+                keep_expired_entries: form.elements['cache.keep_expired_entries'].checked,
+                protect_prefetch_domains: form.elements['cache.protect_prefetch_domains'].checked,
+                save_to_disk_interval_minutes: parseInt(form.elements['cache.save_to_disk_interval_minutes'].value) || 60,
+            },
+            prefetch: {
+                enabled: form.elements['prefetch.enabled'].checked,
+            },
+            webui: {
+                enabled: form.elements['webui.enabled'].checked,
+                listen_port: parseInt(form.elements['webui.listen_port'].value) || 8080,
+            },
+            system: {
+                max_cpu_cores: parseInt(form.elements['system.max_cpu_cores'].value) || 0,
+                sort_queue_workers: parseInt(form.elements['system.sort_queue_workers'].value) || 4,
+                refresh_workers: parseInt(form.elements['system.refresh_workers'].value) || 4,
+            },
+        };
 
-    // Prepare promises for all save operations
-    const promises = [];
+        // 保留 AdBlock 配置（Web UI 通过单独的 API 处理）
+        if (originalConfig && originalConfig.adblock) {
+            data.adblock = originalConfig.adblock;
+        }
+        if (originalConfig && originalConfig.stats) {
+            data.stats = originalConfig.stats;
+        }
 
-    // 1. Main Config Save
-    promises.push(
+        console.log('[DEBUG] Collected form data:', JSON.stringify(data, null, 2));
+
+        // 发送到服务器
         fetch(CONFIG_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
-        }).then(response => {
-            if (!response.ok) {
-                return response.text().then(text => Promise.reject(`Config Save Error: ${text}`));
-            }
-            return Promise.resolve();
         })
-    );
-
-    // 2. AdBlock Block Mode Save
-    const blockModeSelect = document.getElementById('adblock_block_mode');
-    if (blockModeSelect) {
-        const blockMode = blockModeSelect.value;
-        promises.push(
-            fetch('/api/adblock/blockmode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ block_mode: blockMode })
-            }).then(response => {
+            .then(response => {
+                console.log('[DEBUG] Server response status:', response.status);
                 if (!response.ok) {
-                    return response.text().then(text => Promise.reject(`Block Mode Save Error: ${text}`));
+                    return response.text().then(text => {
+                        console.error('[ERROR] Server error response:', text);
+                        throw new Error(text || `HTTP ${response.status}`);
+                    });
                 }
-                return Promise.resolve();
+                return response.json();
             })
-        );
-    }
-
-    // 3. AdBlock Settings Save
-    // Collect available settings from the form
-    const adblockSettingsPayload = {};
-    const elUpdateInterval = document.getElementById('adblock_update_interval_hours');
-    const elMaxCacheAge = document.getElementById('adblock_max_cache_age_hours');
-    const elMaxCacheSize = document.getElementById('adblock_max_cache_size_mb');
-    const elBlockedTtl = document.getElementById('adblock_blocked_ttl');
-
-    if (elUpdateInterval) adblockSettingsPayload.update_interval_hours = parseInt(elUpdateInterval.value, 10);
-    if (elMaxCacheAge) adblockSettingsPayload.max_cache_age_hours = parseInt(elMaxCacheAge.value, 10);
-    if (elMaxCacheSize) adblockSettingsPayload.max_cache_size_mb = parseInt(elMaxCacheSize.value, 10);
-    if (elBlockedTtl) adblockSettingsPayload.blocked_ttl = parseInt(elBlockedTtl.value, 10);
-
-    // Only send if we have at least one field (update_interval_hours is standard)
-    if (Object.keys(adblockSettingsPayload).length > 0) {
-        promises.push(
-            fetch('/api/adblock/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(adblockSettingsPayload)
-            }).then(response => {
-                if (!response.ok) {
-                    return response.json().then(data => Promise.reject(`AdBlock Settings Save Error: ${data.message}`));
-                }
-                return Promise.resolve();
+            .then(result => {
+                console.log('[DEBUG] Config saved successfully:', result);
+                alert(i18n.t('messages.configSaved'));
+                // 重新加载配置以确保 UI 与服务器同步
+                loadConfig();
+                resolve(result);
             })
-        );
-    }
-
-    // Execute all
-    Promise.all(promises)
-        .then(() => {
-            alert(i18n.t('messages.configSaved'));
-        })
-        .catch(error => {
-            console.error('Error saving configuration:', error);
-            alert(i18n.t('messages.configSaveError', { error: error }));
-        });
+            .catch(error => {
+                console.error('[ERROR] Failed to save config:', error);
+                alert(i18n.t('messages.configSaveError', { error: error.message }));
+                reject(error);
+            });
+    });
 }
 
 // Initial Load

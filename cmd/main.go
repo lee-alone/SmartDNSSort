@@ -15,6 +15,7 @@ import (
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -188,6 +189,9 @@ func printHelp() {
 func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 	log.Println("Restarting service...")
 
+	// Add a small delay to ensure configuration is flushed to disk
+	time.Sleep(500 * time.Millisecond)
+
 	// 1. 停止 Web 服务 (释放 8080 端口)
 	if webServer != nil {
 		log.Println("Stopping Web API server...")
@@ -196,9 +200,15 @@ func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 		}
 	}
 
+	// Add delay between stopping services
+	time.Sleep(500 * time.Millisecond)
+
 	// 2. 停止 DNS 服务 (释放 53 端口)
 	log.Println("Stopping DNS server...")
 	dnsServer.Shutdown()
+
+	// Add delay after shutdown
+	time.Sleep(500 * time.Millisecond)
 
 	// 3. 检查是否为 systemd 服务 (仅 Linux)
 	// systemd 会设置 INVOCATION_ID 环境变量

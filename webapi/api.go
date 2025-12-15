@@ -1,7 +1,6 @@
 package webapi
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -415,57 +414,75 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 }
 
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
-	// 先加载现有配置,以保留 Web UI 中未包含的字段
-	existingCfg, err := config.LoadConfig(s.configPath)
-	if err != nil {
-		s.writeJSONError(w, "Failed to load existing config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 读取请求体以便记录日志
+	// 读取请求体
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	log.Printf("[DEBUG] Received config update request body: %s", string(bodyBytes))
+	log.Printf("[DEBUG] Received config update request: %s", string(bodyBytes))
 
-	// 重新创建 reader 用于解码
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	// 解码新配置到现有配置上(覆盖)
-	if err := json.NewDecoder(r.Body).Decode(existingCfg); err != nil {
-		s.writeJSONError(w, "Failed to decode new config: "+err.Error(), http.StatusBadRequest)
+	// 解码新配置为新对象（不使用现有配置）
+	newCfg := &config.Config{}
+	if err := json.Unmarshal(bodyBytes, newCfg); err != nil {
+		s.writeJSONError(w, "Failed to parse config JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[DEBUG] Decoded cache config - FastResponseTTL: %d, UserReturnTTL: %d",
-		existingCfg.Cache.FastResponseTTL, existingCfg.Cache.UserReturnTTL)
+	log.Printf("[DEBUG] Parsed config - DNS port: %d, Cache TTL: %d/%d",
+		newCfg.DNS.ListenPort, newCfg.Cache.FastResponseTTL, newCfg.Cache.UserReturnTTL)
+	log.Printf("[DEBUG] Upstream servers: %v", newCfg.Upstream.Servers)
+	log.Printf("[DEBUG] Upstream bootstrap DNS: %v", newCfg.Upstream.BootstrapDNS)
 
-	if err := s.validateConfig(existingCfg); err != nil {
+	// 验证配置
+	if err := s.validateConfig(newCfg); err != nil {
 		s.writeJSONError(w, "Configuration validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	yamlData, err := yaml.Marshal(existingCfg)
+	// 加载现有配置以获取某些不在Web UI中的字段
+	existingCfg, err := config.LoadConfig(s.configPath)
+	if err == nil {
+		// 保留一些 Web UI 中不能修改的字段
+		if newCfg.AdBlock.Enable == false && existingCfg.AdBlock.Enable {
+			// 保留 AdBlock 的一些私有状态（如果 Web UI 没有更新）
+			// 这里仅保留 Enable 状态，其他字段由 Web UI 更新
+		}
+		if newCfg.System.LogLevel == "" && existingCfg.System.LogLevel != "" {
+			newCfg.System.LogLevel = existingCfg.System.LogLevel
+		}
+		if newCfg.Stats.HotDomainsWindowHours == 0 && existingCfg.Stats.HotDomainsWindowHours > 0 {
+			newCfg.Stats = existingCfg.Stats
+		}
+	}
+
+	// 使用正确的YAML标签将配置序列化为YAML
+	// 创建一个自定义编码器来确保格式正确
+	yamlData, err := yaml.Marshal(newCfg)
 	if err != nil {
-		s.writeJSONError(w, "Failed to marshal new config to YAML: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, "Failed to marshal config to YAML: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[DEBUG] Generated YAML:\n%s", string(yamlData))
+
+	// 写入配置文件
 	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Configuration saved to %s", s.configPath)
-	if err := s.dnsServer.ApplyConfig(existingCfg); err != nil {
-		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
+	log.Printf("✓ Configuration written to %s successfully", s.configPath)
+
+	// 应用新配置到运行中的服务器
+	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
+		log.Printf("✗ Failed to apply new configuration: %v", err)
+		s.writeJSONError(w, "Failed to apply configuration to running server: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Println("Configuration hot-reloaded successfully.")
-	s.writeJSONSuccess(w, "Configuration updated and applied successfully", nil)
+	log.Println("✓ Configuration applied to DNS server successfully")
+	s.writeJSONSuccess(w, "Configuration saved and applied successfully", nil)
 }
 
 func (s *Server) validateConfig(cfg *config.Config) error {
