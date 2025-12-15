@@ -384,25 +384,81 @@ function saveConfig() {
         refresh_workers: parseInt(form.elements['system.refresh_workers'].value),
     };
 
-    // Log the data being sent to the server
+    // Log the data being sent to the server (Main Config)
     console.log('[DEBUG] Data being sent to server:', JSON.stringify(data, null, 2));
-    console.log('[DEBUG] Cache config being sent:', data.cache);
 
-    fetch(CONFIG_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    })
-        .then(response => {
-            if (response.ok) {
-                alert(i18n.t('messages.configSaved'));
-            } else {
-                response.text().then(text => alert(i18n.t('messages.configSaveError', { error: text })));
+    // Prepare promises for all save operations
+    const promises = [];
+
+    // 1. Main Config Save
+    promises.push(
+        fetch(CONFIG_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        }).then(response => {
+            if (!response.ok) {
+                return response.text().then(text => Promise.reject(`Config Save Error: ${text}`));
             }
+            return Promise.resolve();
+        })
+    );
+
+    // 2. AdBlock Block Mode Save
+    const blockModeSelect = document.getElementById('adblock_block_mode');
+    if (blockModeSelect) {
+        const blockMode = blockModeSelect.value;
+        promises.push(
+            fetch('/api/adblock/blockmode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ block_mode: blockMode })
+            }).then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => Promise.reject(`Block Mode Save Error: ${text}`));
+                }
+                return Promise.resolve();
+            })
+        );
+    }
+
+    // 3. AdBlock Settings Save
+    // Collect available settings from the form
+    const adblockSettingsPayload = {};
+    const elUpdateInterval = document.getElementById('adblock_update_interval_hours');
+    const elMaxCacheAge = document.getElementById('adblock_max_cache_age_hours');
+    const elMaxCacheSize = document.getElementById('adblock_max_cache_size_mb');
+    const elBlockedTtl = document.getElementById('adblock_blocked_ttl');
+
+    if (elUpdateInterval) adblockSettingsPayload.update_interval_hours = parseInt(elUpdateInterval.value, 10);
+    if (elMaxCacheAge) adblockSettingsPayload.max_cache_age_hours = parseInt(elMaxCacheAge.value, 10);
+    if (elMaxCacheSize) adblockSettingsPayload.max_cache_size_mb = parseInt(elMaxCacheSize.value, 10);
+    if (elBlockedTtl) adblockSettingsPayload.blocked_ttl = parseInt(elBlockedTtl.value, 10);
+
+    // Only send if we have at least one field (update_interval_hours is standard)
+    if (Object.keys(adblockSettingsPayload).length > 0) {
+        promises.push(
+            fetch('/api/adblock/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(adblockSettingsPayload)
+            }).then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => Promise.reject(`AdBlock Settings Save Error: ${data.message}`));
+                }
+                return Promise.resolve();
+            })
+        );
+    }
+
+    // Execute all
+    Promise.all(promises)
+        .then(() => {
+            alert(i18n.t('messages.configSaved'));
         })
         .catch(error => {
-            console.error('Error saving config:', error);
-            alert(i18n.t('messages.configSaveErrorGeneric'));
+            console.error('Error saving configuration:', error);
+            alert(i18n.t('messages.configSaveError', { error: error }));
         });
 }
 
@@ -535,33 +591,7 @@ function loadAdBlockSettings() {
         .catch(error => console.error('Error fetching AdBlock settings:', error));
 }
 
-document.getElementById('adblockSaveSettingsButton').addEventListener('click', function (e) {
-    e.preventDefault();
 
-    const payload = {
-        update_interval_hours: parseInt(document.getElementById('adblock_update_interval_hours').value, 10),
-        max_cache_age_hours: parseInt(document.getElementById('adblock_max_cache_age_hours').value, 10),
-        max_cache_size_mb: parseInt(document.getElementById('adblock_max_cache_size_mb').value, 10),
-        blocked_ttl: parseInt(document.getElementById('adblock_blocked_ttl').value, 10),
-    };
-
-    fetch('/api/adblock/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    })
-        .then(response => {
-            if (response.ok) {
-                alert(i18n.t('messages.adblockSettingsSaved'));
-            } else {
-                response.json().then(data => alert(i18n.t('messages.adblockSettingsSaveError', { error: data.message })));
-            }
-        })
-        .catch(error => {
-            console.error('Error saving AdBlock settings:', error);
-            alert(i18n.t('messages.adblockSettingsSaveErrorGeneric'));
-        });
-});
 
 function updateAdBlockTab() {
     // Fetch AdBlock status
@@ -792,32 +822,7 @@ document.getElementById('adblockTestDomainButton').addEventListener('click', () 
 
 
 // AdBlock BlockMode Save Button Event Handler
-document.getElementById('adblockSaveBlockModeButton').addEventListener('click', () => {
-    const blockModeSelect = document.getElementById('adblock_block_mode');
-    const blockMode = blockModeSelect.value;
 
-    if (!blockMode) {
-        alert(i18n.t('messages.selectBlockMode'));
-        return;
-    }
-
-    fetch('/api/adblock/blockmode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ block_mode: blockMode })
-    })
-        .then(response => {
-            if (response.ok) {
-                alert(i18n.t('messages.adblockBlockModeSaved'));
-            } else {
-                response.text().then(text => alert(i18n.t('messages.adblockBlockModeSaveError', { error: text })));
-            }
-        })
-        .catch(error => {
-            alert(i18n.t('messages.adblockBlockModeSaveError', { error: error }));
-            console.error('Save block mode error:', error);
-        });
-});
 
 // ========== Custom Settings Logic ==========
 
