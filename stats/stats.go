@@ -30,6 +30,9 @@ type Stats struct {
 
 	// 新增：Hot Domains 追踪器
 	hotDomains *HotDomainsTracker
+
+	// 启动时间
+	startTime time.Time
 }
 
 // NewStats 创建新的统计实例
@@ -48,6 +51,7 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 		upstreamSuccess: make(map[string]*int64),
 		upstreamFailure: make(map[string]*int64),
 		hotDomains:      NewHotDomainsTracker(cfg),
+		startTime:       time.Now(),
 	}
 }
 
@@ -233,6 +237,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"upstream_stats":    upstreamStats,
 		"system_stats":      sysStats,
 		"top_domains":       topDomains,
+		"uptime_seconds":    time.Since(s.startTime).Seconds(),
 	}
 }
 

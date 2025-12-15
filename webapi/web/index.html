@@ -15,7 +15,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;600;700&display=swap"
         rel="stylesheet" />
     <!-- Material Symbols - Direct from Google Fonts (Most Stable) -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet" />
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -91,9 +93,9 @@
             <!-- Header -->
             <header
                 class="h-20 border-b border-[#e9e8ce] dark:border-[#3a3922] bg-background-light dark:bg-background-dark flex items-center justify-between px-6 shrink-0 z-10">
-                <div id="status" class="status-indicator" data-i18n="status.connecting">
+                <div id="status" class="status-indicator">
                     <span class="status-dot"></span>
-                    <span class="status-text">Connecting...</span>
+                    <span class="status-text" data-i18n="status.connecting">Connecting...</span>
                 </div>
                 <div class="flex items-center gap-3">
                     <select id="langSwitch"
@@ -170,6 +172,11 @@
                             <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-2"
                                 data-i18n="dashboard.systemStatus">System Status</h2>
                             <div class="grid grid-cols-2 gap-4">
+                                <div class="col-span-2">
+                                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                                        data-i18n="dashboard.uptime">System Uptime</p>
+                                    <h3 id="system_uptime" class="text-2xl font-bold">0d 0h 0m 0s</h3>
+                                </div>
                                 <div>
                                     <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
                                         data-i18n="dashboard.cpuUsage">CPU Usage</p>
@@ -389,9 +396,9 @@
 
                                     <!-- Strategy Specific Params (Hidden by default, toggled by JS) -->
                                     <div id="sequential-params" class="form-group hidden"><label
-                                            for="upstream.sequential_timeout"
-                                            class="block text-sm font-medium mb-2"
-                                            data-i18n="config.upstream.sequentialTimeout">Sequential Timeout (ms)</label><input type="number" id="upstream.sequential_timeout"
+                                            for="upstream.sequential_timeout" class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.sequentialTimeout">Sequential Timeout
+                                            (ms)</label><input type="number" id="upstream.sequential_timeout"
                                             name="upstream.sequential_timeout"
                                             class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                     </div>
@@ -402,10 +409,9 @@
                                             class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                     </div>
                                     <div id="racing-params-concurrent" class="form-group hidden"><label
-                                            for="upstream.racing_max_concurrent"
-                                            class="block text-sm font-medium mb-2"
-                                            data-i18n="config.upstream.racingMaxConcurrent">Racing Max Concurrent</label><input
-                                            type="number" id="upstream.racing_max_concurrent"
+                                            for="upstream.racing_max_concurrent" class="block text-sm font-medium mb-2"
+                                            data-i18n="config.upstream.racingMaxConcurrent">Racing Max
+                                            Concurrent</label><input type="number" id="upstream.racing_max_concurrent"
                                             name="upstream.racing_max_concurrent"
                                             class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                     </div>
@@ -414,19 +420,22 @@
                                             class="flex items-center gap-3"><input type="checkbox"
                                                 id="upstream.nxdomain_for_errors" name="upstream.nxdomain_for_errors"
                                                 class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                                                data-i18n="config.upstream.nxdomainForErrors">Return NXDOMAIN for Upstream Errors</span></label></div>
+                                                data-i18n="config.upstream.nxdomainForErrors">Return NXDOMAIN for
+                                                Upstream Errors</span></label></div>
 
                                     <!-- Health Check Section -->
                                     <div
                                         class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                                        <h3 class="font-bold mb-4" data-i18n="config.upstream.healthCheck.legend">Health Check & Circuit Breaker</h3>
+                                        <h3 class="font-bold mb-4" data-i18n="config.upstream.healthCheck.legend">Health
+                                            Check & Circuit Breaker</h3>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                                             <div class="form-group md:col-span-2"><label
                                                     class="flex items-center gap-3"><input type="checkbox"
                                                         id="upstream.health_check.enabled"
                                                         name="upstream.health_check.enabled"
                                                         class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                                                        data-i18n="config.upstream.healthCheck.enabled">Enable Health Checks</span></label></div>
+                                                        data-i18n="config.upstream.healthCheck.enabled">Enable Health
+                                                        Checks</span></label></div>
                                             <div class="form-group"><label for="upstream.health_check.failure_threshold"
                                                     class="block text-sm font-medium mb-2"
                                                     data-i18n="config.upstream.healthCheck.failureThreshold">Failure
@@ -437,7 +446,8 @@
                                             <div class="form-group"><label
                                                     for="upstream.health_check.circuit_breaker_threshold"
                                                     class="block text-sm font-medium mb-2"
-                                                    data-i18n="config.upstream.healthCheck.circuitBreakerThreshold">Circuit Breaker
+                                                    data-i18n="config.upstream.healthCheck.circuitBreakerThreshold">Circuit
+                                                    Breaker
                                                     Threshold</label><input type="number"
                                                     id="upstream.health_check.circuit_breaker_threshold"
                                                     class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
@@ -445,14 +455,16 @@
                                             <div class="form-group"><label
                                                     for="upstream.health_check.circuit_breaker_timeout"
                                                     class="block text-sm font-medium mb-2"
-                                                    data-i18n="config.upstream.healthCheck.circuitBreakerTimeout">Circuit Breaker Timeout
+                                                    data-i18n="config.upstream.healthCheck.circuitBreakerTimeout">Circuit
+                                                    Breaker Timeout
                                                     (s)</label><input type="number"
                                                     id="upstream.health_check.circuit_breaker_timeout"
                                                     class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                             </div>
                                             <div class="form-group"><label for="upstream.health_check.success_threshold"
                                                     class="block text-sm font-medium mb-2"
-                                                    data-i18n="config.upstream.healthCheck.successThreshold">Success Threshold to
+                                                    data-i18n="config.upstream.healthCheck.successThreshold">Success
+                                                    Threshold to
                                                     Restore</label><input type="number"
                                                     id="upstream.health_check.success_threshold"
                                                     class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
@@ -472,7 +484,8 @@
                                     <div class="form-group md:col-span-2"><label class="flex items-center gap-3"><input
                                                 type="checkbox" id="ping.enabled" name="ping.enabled"
                                                 class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                                                data-i18n="config.ping.enabled">Enable IP Optimization</span></label></div>
+                                                data-i18n="config.ping.enabled">Enable IP Optimization</span></label>
+                                    </div>
                                     <div class="form-group"><label for="ping.count"
                                             class="block text-sm font-medium mb-2"
                                             data-i18n="config.ping.count">Count</label><input type="number"
@@ -502,8 +515,8 @@
 
                                     <div class="form-group"><label for="ping.max_test_ips"
                                             class="block text-sm font-medium mb-2"
-                                            data-i18n="config.ping.maxTestIps">Max Test IPs</label><input
-                                            type="number" id="ping.max_test_ips" name="ping.max_test_ips"
+                                            data-i18n="config.ping.maxTestIps">Max Test IPs</label><input type="number"
+                                            id="ping.max_test_ips" name="ping.max_test_ips"
                                             class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                     </div>
                                     <div class="form-group"><label for="ping.rtt_cache_ttl_seconds"
@@ -517,7 +530,8 @@
                                             class="flex items-center gap-3"><input type="checkbox"
                                                 id="ping.enable_http_fallback" name="ping.enable_http_fallback"
                                                 class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                                                data-i18n="config.ping.enableHttpFallback">Enable HTTP Fallback</span></label></div>
+                                                data-i18n="config.ping.enableHttpFallback">Enable HTTP
+                                                Fallback</span></label></div>
                                 </div>
                             </section>
 
@@ -571,7 +585,8 @@
                                     <!-- Memory Management (Advanced) -->
                                     <div
                                         class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                                        <h3 class="font-bold mb-4" data-i18n="config.cache.memoryLegend">Memory Management (Advanced)</h3>
+                                        <h3 class="font-bold mb-4" data-i18n="config.cache.memoryLegend">Memory
+                                            Management (Advanced)</h3>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                                             <div class="form-group md:col-span-2"><label for="cache.max_memory_mb"
                                                     class="block text-sm font-medium mb-2"
@@ -698,13 +713,14 @@
                             <section
                                 class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
                                 <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
-                                    <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced Settings</h2>
+                                    <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced
+                                        Settings</h2>
                                 </div>
                                 <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                                     <div class="form-group"><label for="webui.listen_port"
                                             class="block text-sm font-medium mb-2"
-                                            data-i18n="config.webui.listenPort">Web Listen Port</label><input type="number"
-                                            id="webui.listen_port" name="webui.listen_port"
+                                            data-i18n="config.webui.listenPort">Web Listen Port</label><input
+                                            type="number" id="webui.listen_port" name="webui.listen_port"
                                             class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                     </div>
                                     <div class="form-group"><label for="system.max_cpu_cores"

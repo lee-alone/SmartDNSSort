@@ -59,6 +59,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Dashboard / Stats Logic ---
 const API_URL = '/api/stats';
 
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / (3600 * 24));
+    const h = Math.floor((seconds % (3600 * 24)) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return `${d}d ${h}h ${m}m ${s}s`;
+}
+
 function updateDashboard() {
     // Fetch main stats and hot domains
     fetch(API_URL)
@@ -77,6 +85,9 @@ function updateDashboard() {
                 document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
                 document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
                 document.getElementById('goroutines').textContent = sys.goroutines || 0;
+            }
+            if (data.uptime_seconds) {
+                document.getElementById('system_uptime').textContent = formatUptime(data.uptime_seconds);
             }
             if (data.cache_memory_stats) {
                 const mem = data.cache_memory_stats;
@@ -232,7 +243,7 @@ function populateForm(config) {
         setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
         setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
         setChecked('upstream.nxdomain_for_errors', config.upstream.nxdomain_for_errors);
-        
+
         // Health Check settings
         if (config.upstream.health_check) {
             setChecked('upstream.health_check.enabled', config.upstream.health_check.enabled);
@@ -241,7 +252,7 @@ function populateForm(config) {
             setValue('upstream.health_check.circuit_breaker_timeout', config.upstream.health_check.circuit_breaker_timeout || 30);
             setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
         }
-        
+
         setChecked('ping.enabled', config.ping.enabled); // Add this line
         setValue('ping.count', config.ping.count);
         setValue('ping.timeout_ms', config.ping.timeout_ms);
@@ -396,9 +407,17 @@ function saveConfig() {
 }
 
 // Initial Load
-// updateDashboard(); // Called by i18n.init() or manually after i18n load?
-// loadConfig(); // This can be called immediately as it doesn't depend on i18n for values, only labels which are static HTML
-// updateAdBlockTab();
+// Initial Load handled via event to ensure i18n is ready
+window.addEventListener('languageChanged', () => {
+    loadConfig();
+    updateAdBlockTab();
+    updateDashboard(); // Initial fetch
+
+    // Setup polling if not already active
+    if (!window.dashboardInterval) {
+        window.dashboardInterval = setInterval(updateDashboard, 5000);
+    }
+});
 
 // We should wait for i18n to be ready before rendering dynamic content that needs translation.
 // i18n.js dispatches 'languageChanged' event, but also we can just init everything after DOMContentLoaded which i18n also hooks into.
@@ -477,9 +496,9 @@ function updateStrategyUI() {
     const sequentialParams = document.getElementById('sequential-params');
     const racingParams = document.getElementById('racing-params');
     const racingParamsConcurrent = document.getElementById('racing-params-concurrent');
-    
+
     const strategy = strategySelect.value;
-    
+
     // Show/hide params based on selected strategy
     if (sequentialParams) sequentialParams.style.display = strategy === 'sequential' ? 'block' : 'none';
     if (racingParams) racingParams.style.display = strategy === 'racing' ? 'block' : 'none';
@@ -945,7 +964,7 @@ function saveCustomResponse() {
 function togglePingSettingsState() {
     const pingEnabled = document.getElementById('ping.enabled').checked;
     const pingSettings = document.getElementById('config-ping'); // The fieldset
-    
+
     // Get all input/select elements within the ping settings fieldset, excluding the enable checkbox itself
     const elements = pingSettings.querySelectorAll('input:not(#ping\\.enabled), select');
 
