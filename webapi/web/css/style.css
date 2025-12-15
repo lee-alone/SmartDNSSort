@@ -3,51 +3,94 @@
     width: 8px;
     height: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
     background: #e9e8ce;
     border-radius: 4px;
 }
+
 .dark ::-webkit-scrollbar-thumb {
     background: #4a482f;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: #d4d3b6;
 }
 
 /* Status Indicator Styles */
 .status-indicator {
-    @apply flex items-center gap-2 text-sm font-medium;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
 }
+
 .status-indicator .status-dot {
-    @apply w-2.5 h-2.5 rounded-full;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #d1d5db;
+    /* default gray */
 }
+
 .status-indicator.connecting .status-dot {
-    @apply bg-yellow-500 animate-pulse;
+    background-color: #eab308;
+    animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
 .status-indicator.connected .status-dot {
-    @apply bg-green-500;
+    background-color: #22c55e;
 }
+
 .status-indicator.error .status-dot {
-    @apply bg-red-500;
+    background-color: #ef4444;
 }
+
 .status-indicator.connecting .status-text {
-    @apply text-yellow-600 dark:text-yellow-400;
+    color: #ca8a04;
 }
+
+html.dark .status-indicator.connecting .status-text {
+    color: #facc15;
+}
+
 .status-indicator.connected .status-text {
-    @apply text-green-600 dark:text-green-400;
+    color: #16a34a;
 }
+
+html.dark .status-indicator.connected .status-text {
+    color: #4ade80;
+}
+
 .status-indicator.error .status-text {
-    @apply text-red-600 dark:text-red-400;
+    color: #dc2626;
+}
+
+html.dark .status-indicator.error .status-text {
+    color: #f87171;
+}
+
+@keyframes status-pulse {
+    50% {
+        opacity: .5;
+    }
 }
 
 /* Style for disabled inputs to indicate they are not editable */
 .disabled-input {
-    background-color: #e9ecef !important; /* Light grey background */
-    color: #6c757d !important;         /* Muted text color */
-    cursor: not-allowed !important;    /* Indicate non-interactiveness */
-    opacity: 0.7;                      /* Slightly faded look */
-    border-color: #dee2e6 !important;  /* Lighter border */
+    background-color: #e9ecef !important;
+    /* Light grey background */
+    color: #6c757d !important;
+    /* Muted text color */
+    cursor: not-allowed !important;
+    /* Indicate non-interactiveness */
+    opacity: 0.7;
+    /* Slightly faded look */
+    border-color: #dee2e6 !important;
+    /* Lighter border */
 }
