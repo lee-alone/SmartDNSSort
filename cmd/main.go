@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -81,7 +80,7 @@ func main() {
 	// 加载配置（先加载配置以获取日志级别设置）
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Fatalf("Failed to load config: %v", err)
 	}
 
 	// 立即设置日志级别，确保后续所有日志都遵循配置
@@ -187,16 +186,16 @@ func printHelp() {
 }
 
 func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
-	log.Println("Restarting service...")
+	logger.Info("Restarting service...")
 
 	// Add a small delay to ensure configuration is flushed to disk
 	time.Sleep(500 * time.Millisecond)
 
 	// 1. 停止 Web 服务 (释放 8080 端口)
 	if webServer != nil {
-		log.Println("Stopping Web API server...")
+		logger.Info("Stopping Web API server...")
 		if err := webServer.Stop(); err != nil {
-			log.Printf("Failed to stop Web API server: %v", err)
+			logger.Errorf("Failed to stop Web API server: %v", err)
 		}
 	}
 
@@ -204,7 +203,7 @@ func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 	time.Sleep(500 * time.Millisecond)
 
 	// 2. 停止 DNS 服务 (释放 53 端口)
-	log.Println("Stopping DNS server...")
+	logger.Info("Stopping DNS server...")
 	dnsServer.Shutdown()
 
 	// Add delay after shutdown
@@ -213,18 +212,17 @@ func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 	// 3. 检查是否为 systemd 服务 (仅 Linux)
 	// systemd 会设置 INVOCATION_ID 环境变量
 	if runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "" {
-		log.Println("Detected systemd environment. Exiting to trigger systemd restart...")
+		logger.Info("Detected systemd environment. Exiting to trigger systemd restart...")
 		os.Exit(0)
 	}
 
 	// 4. 手动重启 (Windows 或 Linux 手动运行)
 	executable, err := os.Executable()
 	if err != nil {
-		log.Printf("Failed to get executable path: %v", err)
-		os.Exit(1)
+		logger.Fatalf("Failed to get executable path: %v", err)
 	}
 
-	log.Printf("Spawning new process: %s %v", executable, os.Args[1:])
+	logger.Infof("Spawning new process: %s %v", executable, os.Args[1:])
 
 	// 启动新进程
 	cmd := exec.Command(executable, os.Args[1:]...)
@@ -234,11 +232,9 @@ func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 	cmd.Env = os.Environ()
 
 	if err := cmd.Start(); err != nil {
-		log.Printf("Failed to start new process: %v", err)
-		// 如果启动失败，我们仍然退出，因为旧服务已经停止了
-		os.Exit(1)
+		logger.Fatalf("Failed to start new process: %v", err)
 	}
 
-	log.Println("New process started. Exiting current process...")
+	logger.Info("New process started. Exiting current process...")
 	os.Exit(0)
 }

@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
+	"smartdnssort/logger"
 	"strings"
 	"time"
 
@@ -69,7 +69,7 @@ func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.S
 // Start 启动 Web API 服务
 func (s *Server) Start() error {
 	if !s.cfg.WebUI.Enabled {
-		log.Println("WebAPI is disabled")
+		logger.Info("WebAPI is disabled")
 		return nil
 	}
 
@@ -103,14 +103,14 @@ func (s *Server) Start() error {
 
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
-		log.Println("Using embedded web files")
+		logger.Info("Using embedded web files")
 		mux.Handle("/", s.corsMiddleware(http.FileServer(http.FS(webSubFS))))
 	} else {
 		webDir := s.findWebDirectory()
 		if webDir == "" {
-			log.Println("Warning: Could not find web directory. Web UI may not work properly.")
+			logger.Warn("Warning: Could not find web directory. Web UI may not work properly.")
 		} else {
-			log.Printf("Using web directory: %s\n", webDir)
+			logger.Infof("Using web directory: %s", webDir)
 			fsServer := http.FileServer(http.Dir(webDir))
 			mux.Handle("/", s.corsMiddleware(fsServer))
 		}
@@ -121,7 +121,7 @@ func (s *Server) Start() error {
 		Handler: mux,
 	}
 
-	log.Printf("Web API server started on http://localhost:%d\n", s.cfg.WebUI.ListenPort)
+	logger.Infof("Web API server started on http://localhost:%d", s.cfg.WebUI.ListenPort)
 	return s.listener.ListenAndServe()
 }
 
@@ -272,7 +272,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		log.Printf("[ERROR] Failed to encode stats: %v", err)
+		logger.Errorf("Failed to encode stats: %v", err)
 		s.writeJSONError(w, "Failed to encode stats", http.StatusInternalServerError)
 	}
 }
@@ -321,7 +321,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	log.Println("Shutting down Web API server...")
+	logger.Info("Shutting down Web API server...")
 	return s.listener.Shutdown(ctx)
 }
 
@@ -333,21 +333,21 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 
 	// 清空内存缓存
 	s.dnsCache.Clear()
-	log.Println("DNS cache (memory) cleared via API request.")
+	logger.Info("DNS cache (memory) cleared via API request.")
 
 	// 删除磁盘缓存文件
 	cacheFile := "dns_cache.json"
 	if err := os.Remove(cacheFile); err != nil {
 		if !os.IsNotExist(err) {
 			// 文件存在但删除失败
-			log.Printf("Warning: Failed to delete cache file %s: %v", cacheFile, err)
+			logger.Warnf("Warning: Failed to delete cache file %s: %v", cacheFile, err)
 			s.writeJSONError(w, fmt.Sprintf("Memory cache cleared, but failed to delete disk cache file: %v", err), http.StatusInternalServerError)
 			return
 		}
 		// 文件不存在,这是正常的
-		log.Printf("Disk cache file %s does not exist, skipping deletion.", cacheFile)
+		logger.Infof("Disk cache file %s does not exist, skipping deletion.", cacheFile)
 	} else {
-		log.Printf("Disk cache file %s deleted successfully.", cacheFile)
+		logger.Infof("Disk cache file %s deleted successfully.", cacheFile)
 	}
 
 	s.writeJSONSuccess(w, "Cache cleared successfully (memory and disk)", nil)
@@ -359,7 +359,7 @@ func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dnsServer.ClearStats()
-	log.Println("Statistics cleared via API request.")
+	logger.Info("Statistics cleared via API request.")
 	s.writeJSONSuccess(w, "All stats cleared successfully", nil)
 }
 
@@ -371,7 +371,7 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 	queries := s.dnsServer.GetRecentQueries()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(queries); err != nil {
-		log.Printf("[ERROR] Failed to encode recent queries: %v", err)
+		logger.Errorf("Failed to encode recent queries: %v", err)
 		s.writeJSONError(w, "Failed to encode recent queries", http.StatusInternalServerError)
 	}
 }
@@ -388,7 +388,7 @@ func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(topDomainsList); err != nil {
-		log.Printf("[ERROR] Failed to encode hot domains: %v", err)
+		logger.Errorf("Failed to encode hot domains: %v", err)
 		s.writeJSONError(w, "Failed to encode hot domains", http.StatusInternalServerError)
 	}
 }
@@ -408,7 +408,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 	currentConfig := s.dnsServer.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
-		log.Printf("[ERROR] Failed to encode config for API: %v", err)
+		logger.Errorf("Failed to encode config for API: %v", err)
 		http.Error(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -420,7 +420,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	log.Printf("[DEBUG] Received config update request: %s", string(bodyBytes))
+	logger.Debugf("Received config update request: %s", string(bodyBytes))
 
 	// 解码新配置为新对象（不使用现有配置）
 	newCfg := &config.Config{}
@@ -429,10 +429,10 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] Parsed config - DNS port: %d, Cache TTL: %d/%d",
+	logger.Debugf("Parsed config - DNS port: %d, Cache TTL: %d/%d",
 		newCfg.DNS.ListenPort, newCfg.Cache.FastResponseTTL, newCfg.Cache.UserReturnTTL)
-	log.Printf("[DEBUG] Upstream servers: %v", newCfg.Upstream.Servers)
-	log.Printf("[DEBUG] Upstream bootstrap DNS: %v", newCfg.Upstream.BootstrapDNS)
+	logger.Debugf("Upstream servers: %v", newCfg.Upstream.Servers)
+	logger.Debugf("Upstream bootstrap DNS: %v", newCfg.Upstream.BootstrapDNS)
 
 	// 验证配置
 	if err := s.validateConfig(newCfg); err != nil {
@@ -464,7 +464,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] Generated YAML:\n%s", string(yamlData))
+	logger.Debugf("Generated YAML:\n%s", string(yamlData))
 
 	// 写入配置文件
 	if err := os.WriteFile(s.configPath, yamlData, 0644); err != nil {
@@ -472,16 +472,16 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("✓ Configuration written to %s successfully", s.configPath)
+	logger.Infof("✓ Configuration written to %s successfully", s.configPath)
 
 	// 应用新配置到运行中的服务器
 	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
-		log.Printf("✗ Failed to apply new configuration: %v", err)
+		logger.Errorf("✗ Failed to apply new configuration: %v", err)
 		s.writeJSONError(w, "Failed to apply configuration to running server: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Println("✓ Configuration applied to DNS server successfully")
+	logger.Info("✓ Configuration applied to DNS server successfully")
 	s.writeJSONSuccess(w, "Configuration saved and applied successfully", nil)
 }
 
@@ -574,15 +574,15 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	log.Println("Service restart requested via API.")
+	logger.Info("Service restart requested via API.")
 	s.writeJSONSuccess(w, "Service restart initiated", nil)
 	if s.restartFunc != nil {
 		go func() {
-			log.Println("Executing restart function...")
+			logger.Info("Executing restart function...")
 			s.restartFunc()
 		}()
 	} else {
-		log.Println("No restart function configured. Please restart manually.")
+		logger.Warn("No restart function configured. Please restart manually.")
 	}
 }
 
@@ -637,14 +637,14 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 
 		// Also add to config.yaml
 		if err := s.addSourceToConfig(payload.URL); err != nil {
-			log.Printf("[AdBlock] Warning: Failed to add source to config: %v", err)
+			logger.Warnf("[AdBlock] Failed to add source to config: %v", err)
 		}
 
 		// Trigger an update in the background
 		go func() {
-			log.Printf("[AdBlock] Auto-updating rules after adding new source: %s", payload.URL)
+			logger.Infof("[AdBlock] Auto-updating rules after adding new source: %s", payload.URL)
 			if _, err := adblockMgr.UpdateRules(true); err != nil {
-				log.Printf("[AdBlock] Auto-update failed after adding source: %v", err)
+				logger.Errorf("[AdBlock] Auto-update failed after adding source: %v", err)
 			}
 		}()
 
@@ -689,13 +689,13 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 
 		// Also remove from config.yaml
 		if err := s.removeSourceFromConfig(payload.URL); err != nil {
-			log.Printf("[AdBlock] Warning: Failed to remove source from config: %v", err)
+			logger.Warnf("[AdBlock] Failed to remove source from config: %v", err)
 		}
 
 		// If the removed source is the custom rules file, also clear it from config
 		if payload.URL == s.cfg.AdBlock.CustomRulesFile {
 			if err := s.removeCustomRulesFromConfig(); err != nil {
-				log.Printf("[AdBlock] Warning: Failed to remove custom rules file from config: %v", err)
+				logger.Warnf("[AdBlock] Failed to remove custom rules file from config: %v", err)
 			}
 		}
 
@@ -723,10 +723,10 @@ func (s *Server) handleAdBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		// Run in a goroutine to not block the API response
 		result, err := adblockMgr.UpdateRules(true) // force update
 		if err != nil {
-			log.Printf("[AdBlock] Manual update failed: %v", err)
+			logger.Errorf("[AdBlock] Manual update failed: %v", err)
 			return
 		}
-		log.Printf("[AdBlock] Manual update completed: %+v", result)
+		logger.Infof("[AdBlock] Manual update completed: %+v", result)
 	}()
 
 	s.writeJSONSuccess(w, "AdBlock rule update started", nil)
@@ -772,7 +772,7 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[AdBlock] Status toggled to: %v", payload.Enabled)
+	logger.Infof("[AdBlock] Status toggled to: %v", payload.Enabled)
 	s.writeJSONSuccess(w, "AdBlock status updated successfully", nil)
 }
 
@@ -924,7 +924,7 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("[AdBlock] Block mode changed to: %s", payload.BlockMode)
+	logger.Infof("[AdBlock] Block mode changed to: %s", payload.BlockMode)
 	s.writeJSONSuccess(w, "Block mode updated successfully", nil)
 }
 
@@ -1000,7 +1000,7 @@ func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	log.Println("[AdBlock] Settings updated via API")
+	logger.Info("[AdBlock] Settings updated via API")
 	s.writeJSONSuccess(w, "AdBlock settings updated successfully", nil)
 }
 

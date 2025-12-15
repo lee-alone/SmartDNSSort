@@ -3,7 +3,6 @@ package dnsserver
 import (
 	"context"
 	"fmt"
-	"log"
 	"reflect"
 	"smartdnssort/adblock"
 	"smartdnssort/cache"
@@ -219,7 +218,7 @@ func (s *Server) GetStats() map[string]interface{} {
 func (s *Server) ClearStats() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Println("Clearing all statistics via API request.")
+	logger.Info("Clearing all statistics via API request.")
 	s.stats.Reset()
 }
 
@@ -270,13 +269,13 @@ func (s *Server) GetConfig() *config.Config {
 
 // ApplyConfig applies a new configuration to the running server (hot-reload).
 func (s *Server) ApplyConfig(newCfg *config.Config) error {
-	log.Println("Applying new configuration...")
+	logger.Info("Applying new configuration...")
 
 	// Create new components outside the lock to avoid blocking.
 	// Create new components outside the lock to avoid blocking.
 	var newUpstream *upstream.Manager
 	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
-		log.Println("Reloading Upstream client due to configuration changes.")
+		logger.Info("Reloading Upstream client due to configuration changes.")
 
 		// Re-initialize bootstrap resolver
 		boot := bootstrap.NewResolver(newCfg.Upstream.BootstrapDNS)
@@ -285,7 +284,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		for _, serverUrl := range newCfg.Upstream.Servers {
 			u, err := upstream.NewUpstream(serverUrl, boot)
 			if err != nil {
-				log.Printf("Failed to create upstream for %s: %v", serverUrl, err)
+				logger.Errorf("Failed to create upstream for %s: %v", serverUrl, err)
 				continue
 			}
 			upstreams = append(upstreams, u)
@@ -298,7 +297,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	var newPinger *ping.Pinger
 	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
-		log.Println("Reloading Pinger due to configuration changes.")
+		logger.Info("Reloading Pinger due to configuration changes.")
 		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.EnableHttpFallback)
 	}
 
