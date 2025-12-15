@@ -593,11 +593,17 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 				// 网络超时（疑似丢包或服务器响应慢）
 				logger.Debugf("[querySequential] 服务器 %s 超时，尝试下一个", server.Address())
 				server.RecordTimeout()
+				if u.stats != nil {
+					u.stats.IncUpstreamFailure(server.Address())
+				}
 				continue
 			} else {
 				// 网络层错误，记录并继续
 				logger.Debugf("[querySequential] 服务器 %s 错误: %v，尝试下一个", server.Address(), err)
 				server.RecordError()
+				if u.stats != nil {
+					u.stats.IncUpstreamFailure(server.Address())
+				}
 				continue
 			}
 		}
@@ -619,6 +625,9 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			logger.Debugf("[querySequential] 服务器 %s 返回错误码 %d，尝试下一个",
 				server.Address(), reply.Rcode)
 			server.RecordError()
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
+			}
 			continue
 		}
 
@@ -630,6 +639,9 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			logger.Debugf("[querySequential] 服务器 %s 返回空结果，尝试下一个",
 				server.Address())
 			server.RecordError()
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
+			}
 			continue
 		}
 
@@ -701,6 +713,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 		reply, err := server.Exchange(raceCtx, msg)
 
 		if err != nil {
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
+			}
 			select {
 			case errorChan <- err:
 			case <-raceCtx.Done():
@@ -746,6 +761,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 		case <-raceCtx.Done():
 		}
 		server.RecordError()
+		if u.stats != nil {
+			u.stats.IncUpstreamFailure(server.Address())
+		}
 	}(sortedServers[0], 0)
 
 	// 2. 设置延迟计时器
@@ -797,6 +815,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 			reply, err := server.Exchange(raceCtx, msg)
 
 			if err != nil {
+				if u.stats != nil {
+					u.stats.IncUpstreamFailure(server.Address())
+				}
 				select {
 				case errorChan <- err:
 				case <-raceCtx.Done():
@@ -839,6 +860,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 			case <-raceCtx.Done():
 			}
 			server.RecordError()
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(server.Address())
+			}
 		}(sortedServers[idx], idx)
 	}
 
