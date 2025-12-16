@@ -214,8 +214,16 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 			domain, dns.TypeToString[qtype], sorted.IPs, userTTL)
 	} else {
 		// === 场景 2: 数据陈旧 (SWR) ===
-		userTTL = calculatedUserTTL
-		logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (TTL=%d)",
+		// [Fix] 当返回陈旧数据时，强制使用较短的 FastResponseTTL
+		// 这样客户端会在短时间内再次查询 (e.g. 15s)，届时后台刷新早已完成，客户端即可获得最新数据
+		// 避免客户端被锁定在长 TTL (UserReturnTTL) 中导致长时间使用失效 IP
+		fastTTL := uint32(cfg.Cache.FastResponseTTL)
+		if calculatedUserTTL > fastTTL {
+			userTTL = fastTTL
+		} else {
+			userTTL = calculatedUserTTL
+		}
+		logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (TTL=%d, Force FastTTL)",
 			domain, dns.TypeToString[qtype], sorted.IPs, userTTL)
 
 		// 尝试触发后台刷新
