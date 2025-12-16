@@ -3,8 +3,10 @@ package dnsserver
 import (
 	"context"
 	"fmt"
+	"net"
 	"smartdnssort/cache"
 	"smartdnssort/logger"
+	"strings"
 	"time"
 
 	"github.com/miekg/dns"
@@ -23,12 +25,33 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 
 	logger.Debugf("[performPingSort] 对 %d 个 IP 进行 ping 排序", len(ips))
 
+	// Determine the domain name to use for sorting stats (handle CNAMEs)
+	// If the domain has CNAMEs, we want to use the canonical name (target) for stats and sorting.
+	// This ensures that 'img1.mydrivers.com' shares the same blacklist/stats as 'img1.mydrivers.com.ctdns.cn'.
+	sortDomain := domain
+	if len(ips) > 0 {
+		var qtype uint16 = dns.TypeA
+		if net.ParseIP(ips[0]).To4() == nil {
+			qtype = dns.TypeAAAA
+		}
+
+		if raw, exists := s.cache.GetRaw(domain, qtype); exists && len(raw.CNAMEs) > 0 {
+			lastCname := raw.CNAMEs[len(raw.CNAMEs)-1]
+			cnameTarget := strings.TrimRight(lastCname, ".")
+			if cnameTarget != domain {
+				logger.Debugf("[performPingSort] Using CNAME target %s for sorting stats of %s", cnameTarget, domain)
+				sortDomain = cnameTarget
+			}
+		}
+	}
+
 	s.mu.RLock()
 	pinger := s.pinger
 	s.mu.RUnlock()
 
 	// 使用现有的 Pinger 进行 ping 测试和排序
-	pingResults := pinger.PingAndSort(ctx, ips, domain)
+	// We use sortDomain here so that stats are keyed by the canonical name
+	pingResults := pinger.PingAndSort(ctx, ips, sortDomain)
 
 	if len(pingResults) == 0 {
 		return nil, nil, fmt.Errorf("ping sort returned no results")
@@ -44,7 +67,8 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	}
 
 	// Report results to prefetcher for blacklist/stat updates
-	s.prefetcher.ReportPingResultWithDomain(domain, pingResults)
+	// We also report against sortDomain to centralize the knowledge base
+	s.prefetcher.ReportPingResultWithDomain(sortDomain, pingResults)
 
 	return sortedIPs, rtts, nil
 }
