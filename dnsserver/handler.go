@@ -423,10 +423,6 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		result = v.(*upstream.QueryResultWithTTL)
 	}
 
-	var ips []string
-	var cnames []string
-	var upstreamTTL uint32 = uint32(currentCfg.Cache.MaxTTLSeconds)
-
 	if err != nil {
 		logger.Warnf("[handleQuery] 上游查询失败: %v", err)
 		originalRcode := parseRcodeFromError(err)
@@ -452,66 +448,20 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		return
 	}
 
-	if result != nil {
-		ips = result.IPs
-		cnames = result.CNAMEs
-		upstreamTTL = result.TTL
-	}
+	// --- 统一处理入口 ---
 
-	// [AdBlock] CNAME 链路检查
-	if s.handleCNAMEChainValidation(w, r, domain, cnames, currentCfg, adblockMgr) {
-		return // 请求被拦截
-	}
+	var finalIPs []string
+	var fullCNAMEs []string
+	var finalTTL uint32
 
-	if len(ips) > 0 {
-		currentStats.RecordDomainQuery(domain)
-		logger.Debugf("[handleQuery] 上游查询完成: %s (type=%s) 获得 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
-			domain, dns.TypeToString[qtype], len(ips), cnames, upstreamTTL, ips)
+	if len(result.IPs) == 0 && len(result.CNAMEs) > 0 {
+		// 场景1: 只有 CNAME，需要递归解析
+		lastCNAME := result.CNAMEs[len(result.CNAMEs)-1]
+		logger.Debugf("[handleQuery] 上游查询返回 CNAMEs=%v，开始递归解析最后一个: %s -> %s", result.CNAMEs, domain, lastCNAME)
 
-		s.cache.SetRaw(domain, qtype, ips, cnames, upstreamTTL)
-		go s.sortIPsAsync(domain, qtype, ips, upstreamTTL, time.Now())
-
-		// [Fix] 若存在 CNAME，同时也缓存 CNAME 目标域名的结果
-		if len(cnames) > 0 {
-			lastCNAME := cnames[len(cnames)-1]
-			cnameTargetDomain := strings.TrimRight(dns.Fqdn(lastCNAME), ".")
-			s.cache.SetRaw(cnameTargetDomain, qtype, ips, nil, upstreamTTL)
-			go s.sortIPsAsync(cnameTargetDomain, qtype, ips, upstreamTTL, time.Now())
-		}
-
-		// 使用历史数据进行兜底排序 (Fallback Rank)
-		// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重
-		rankDomain := domain
-		if len(cnames) > 0 {
-			rankDomain = strings.TrimRight(cnames[len(cnames)-1], ".")
-		}
-		fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, ips)
-
-		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-
-		msg := new(dns.Msg)
-		msg.SetReply(r)
-		msg.Compress = false
-		if len(cnames) > 0 {
-			logger.Debugf("[handleQuery] 构造 CNAME 响应链: %s -> %v -> IPs", domain, cnames)
-			s.buildDNSResponseWithCNAME(msg, domain, cnames, fallbackIPs, qtype, fastTTL)
-		} else {
-			s.buildDNSResponse(msg, domain, fallbackIPs, qtype, fastTTL)
-		}
-		w.WriteMsg(msg)
-		return
-	}
-
-	if len(cnames) > 0 {
-		// 只有 CNAME 没有 IP，需要递归解析
-		lastCNAME := cnames[len(cnames)-1]
-
-		logger.Debugf("[handleQuery] 上游查询返回 CNAMEs=%v，开始递归解析最后一个: %s -> %s", cnames, domain, lastCNAME)
-
-		finalResult, err := s.resolveCNAME(ctx, lastCNAME, qtype)
-		if err != nil {
-			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", err)
-
+		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype)
+		if resolveErr != nil {
+			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", resolveErr)
 			msg := new(dns.Msg)
 			msg.SetReply(r)
 			msg.Compress = false
@@ -520,40 +470,74 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			return
 		}
 
-		// 合并结果
-		fullCNAMEs := append(cnames, finalResult.CNAMEs...)
-		finalIPs := finalResult.IPs
-		finalTTL := finalResult.TTL
+		finalIPs = finalResult.IPs
+		// 完整链 = 初始链 + 递归解析出的链
+		fullCNAMEs = append(result.CNAMEs, finalResult.CNAMEs...)
+		finalTTL = finalResult.TTL
+	} else {
+		// 场景2: 直接获得了 IP (可能也带了 CNAME) 或 空结果
+		finalIPs = result.IPs
+		fullCNAMEs = result.CNAMEs
+		finalTTL = result.TTL
+	}
 
-		// Update Cache
-		s.cache.SetRaw(domain, qtype, finalIPs, fullCNAMEs, finalTTL)
+	// [AdBlock] 对最终的完整 CNAME 链进行检查
+	if s.handleCNAMEChainValidation(w, r, domain, fullCNAMEs, currentCfg, adblockMgr) {
+		return // 请求被拦截
+	}
 
-		// Cache target
-		cnameTargetDomain := strings.TrimRight(dns.Fqdn(lastCNAME), ".")
-		s.cache.SetRaw(cnameTargetDomain, qtype, finalIPs, finalResult.CNAMEs, finalTTL)
-
-		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
-		currentStats.RecordDomainQuery(domain)
-
-		// Fallback Rank
-		fallbackIPs := s.prefetcher.GetFallbackRank(cnameTargetDomain, finalIPs)
-
+	// 如果最终没有IP也没有CNAME，那就是 NODATA
+	if len(finalIPs) == 0 && len(fullCNAMEs) == 0 {
+		logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
 		msg := new(dns.Msg)
 		msg.SetReply(r)
 		msg.Compress = false
-		s.buildDNSResponseWithCNAME(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL)
+		msg.SetRcode(r, dns.RcodeSuccess)
+		msg.Answer = nil
 		w.WriteMsg(msg)
-
-		go s.sortIPsAsync(cnameTargetDomain, qtype, finalIPs, finalTTL, time.Now())
 		return
 	}
 
-	logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
+	// --- 缓存与排序 ---
+	currentStats.RecordDomainQuery(domain)
+	logger.Debugf("[handleQuery] 最终解析结果: %s (type=%s) 获得 %d 个IP, 完整 CNAMEs=%v (TTL=%d秒): %v",
+		domain, dns.TypeToString[qtype], len(finalIPs), fullCNAMEs, finalTTL, finalIPs)
+
+	// [Fix] 为CNAME链中的每个域名都创建缓存和排序任务
+	s.cache.SetRaw(domain, qtype, finalIPs, fullCNAMEs, finalTTL)
+	if len(finalIPs) > 0 {
+		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
+	}
+
+	for i, cname := range fullCNAMEs {
+		cnameDomain := strings.TrimRight(cname, ".")
+		var subCNAMEs []string
+		if i < len(fullCNAMEs)-1 {
+			subCNAMEs = fullCNAMEs[i+1:]
+		}
+		s.cache.SetRaw(cnameDomain, qtype, finalIPs, subCNAMEs, finalTTL)
+		if len(finalIPs) > 0 {
+			go s.sortIPsAsync(cnameDomain, qtype, finalIPs, finalTTL, time.Now())
+		}
+	}
+
+	// --- 快速响应 ---
+	// 使用历史数据进行兜底排序 (Fallback Rank)
+	rankDomain := domain
+	if len(fullCNAMEs) > 0 {
+		rankDomain = strings.TrimRight(fullCNAMEs[len(fullCNAMEs)-1], ".")
+	}
+	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, finalIPs)
+	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
+
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Compress = false
-	msg.SetRcode(r, dns.RcodeSuccess)
-	msg.Answer = nil
+	if len(fullCNAMEs) > 0 {
+		s.buildDNSResponseWithCNAME(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL)
+	} else {
+		s.buildDNSResponse(msg, domain, fallbackIPs, qtype, fastTTL)
+	}
 	w.WriteMsg(msg)
 }
 
@@ -690,33 +674,38 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	return false // Not handled by filter
 }
 
-// resolveCNAME 递归解析 CNAME，直到找到 IP 地址
+// resolveCNAME 递归解析 CNAME，直到找到 IP 地址.
+// 它返回最终的 IP 和在解析过程中发现的 *所有* CNAME。
 func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) (*upstream.QueryResultWithTTL, error) {
 	const maxRedirects = 10
 	currentDomain := domain
+	var accumulatedCNAMEs []string
+
+	var finalResult *upstream.QueryResultWithTTL
 
 	for i := 0; i < maxRedirects; i++ {
 		logger.Debugf("[resolveCNAME] 递归查询 #%d: %s (type=%s)", i+1, currentDomain, dns.TypeToString[qtype])
 
-		// 检查上下文是否已取消
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		// 去掉末尾的点, 以符合内部查询习惯
 		queryDomain := strings.TrimRight(currentDomain, ".")
-
 		result, err := s.upstream.Query(ctx, queryDomain, qtype)
 		if err != nil {
 			return nil, fmt.Errorf("cname resolution failed for %s: %v", queryDomain, err)
 		}
 
+		// 累加发现的 CNAME
+		if len(result.CNAMEs) > 0 {
+			accumulatedCNAMEs = append(accumulatedCNAMEs, result.CNAMEs...)
+		}
+
 		// 如果找到了 IP，解析结束
 		if len(result.IPs) > 0 {
 			logger.Debugf("[resolveCNAME] 成功解析到 IP: %v for domain %s", result.IPs, queryDomain)
-			// CNAME链的最终结果的CNAME字段应为空
-			result.CNAMEs = nil
-			return result, nil
+			finalResult = result
+			break
 		}
 
 		// 如果没有 IP 但有 CNAME，继续重定向
@@ -727,11 +716,19 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 			continue
 		}
 
-		// 如果既没有 IP 也没有 CNAME，说明解析中断
-		return nil, fmt.Errorf("cname resolution failed: no IPs or further CNAME found for %s", queryDomain)
+		// 如果既没有 IP 也没有 CNAME，说明解析中断 (NODATA for last CNAME)
+		// 在这种情况下，我们仍认为解析是“成功”的，但返回空 IP 列表
+		finalResult = result
+		break
 	}
 
-	return nil, fmt.Errorf("cname resolution failed: exceeded max redirects for %s", domain)
+	if finalResult == nil {
+		return nil, fmt.Errorf("cname resolution failed: exceeded max redirects for %s", domain)
+	}
+
+	// 确保返回的 CNAME 链是完整的
+	finalResult.CNAMEs = accumulatedCNAMEs
+	return finalResult, nil
 }
 
 // buildDNSResponse 构造 DNS 响应
