@@ -226,23 +226,24 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 		logger.Debugf("[handleQuery] 排序缓存命中 (Stale): %s (type=%s) -> %v (TTL=%d, Force FastTTL)",
 			domain, dns.TypeToString[qtype], sorted.IPs, userTTL)
 
-		// 尝试触发后台刷新
-		raw, rawExists := s.cache.GetRaw(domain, qtype)
-		if rawExists && !raw.IsExpired() {
-			go func() {
-				sfKey := fmt.Sprintf("refresh:%s:%d", domain, qtype)
-				s.requestGroup.Do(sfKey, func() (interface{}, error) {
-					// 双重检查防抖: 10秒内不重复刷新
-					if latest, ok := s.cache.GetSorted(domain, qtype); ok {
-						if time.Since(latest.Timestamp) < 10*time.Second {
-							return nil, nil
-						}
+		// 触发异步刷新，无论原始缓存状态如何
+		go func() {
+			sfKey := fmt.Sprintf("refresh:%s:%d", domain, qtype)
+			s.requestGroup.Do(sfKey, func() (interface{}, error) {
+				// 双重检查防抖: 10秒内不重复刷新
+				// 检查最新的 sorted entry 是否在最近被刷新过
+				if latest, ok := s.cache.GetSorted(domain, qtype); ok {
+					if time.Since(latest.Timestamp) < 10*time.Second {
+						logger.Debugf("[handleQuery] Stale cache refresh skipped, recently updated for %s", domain)
+						return nil, nil
 					}
-					s.sortIPsAsync(domain, qtype, raw.IPs, raw.UpstreamTTL, raw.AcquisitionTime)
-					return nil, nil
-				})
-			}()
-		}
+				}
+				logger.Debugf("[handleQuery] Stale cache, triggering async refresh for %s", domain)
+				task := RefreshTask{Domain: domain, Qtype: qtype}
+				s.refreshQueue.Submit(task)
+				return nil, nil
+			})
+		}()
 	}
 
 	// 检查是否有 CNAME（从原始缓存获取）
