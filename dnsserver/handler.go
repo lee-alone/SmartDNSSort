@@ -302,7 +302,12 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	}
 
 	// 使用历史数据进行兜底排序 (Fallback Rank)
-	fallbackIPs := s.prefetcher.GetFallbackRank(domain, raw.IPs)
+	// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
+	rankDomain := domain
+	if len(raw.CNAMEs) > 0 {
+		rankDomain = strings.TrimRight(raw.CNAMEs[len(raw.CNAMEs)-1], ".")
+	}
+	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, raw.IPs)
 
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -475,7 +480,12 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		}
 
 		// 使用历史数据进行兜底排序 (Fallback Rank)
-		fallbackIPs := s.prefetcher.GetFallbackRank(domain, ips)
+		// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重
+		rankDomain := domain
+		if len(cnames) > 0 {
+			rankDomain = strings.TrimRight(cnames[len(cnames)-1], ".")
+		}
+		fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, ips)
 
 		fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
