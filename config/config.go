@@ -64,6 +64,10 @@ upstream:
   # 是否将未处理的 SERVFAIL, timeout 转换为 NXDOMAIN 响应给客户端，默认 true
   # 这可以减少客户端的失败重试行为，但可能会隐藏上游服务器的真实错误
   nxdomain_for_errors: true
+  
+  # 是否启用 DNSSEC，默认 false
+  # 启用后，会向上游请求 DNSSEC 记录 (RRSIG) 并将其返回给客户端
+  dnssec: false
 
   # 健康检查和熔断器配置
   health_check:
@@ -203,6 +207,7 @@ type UpstreamConfig struct {
 	RacingMaxConcurrent int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
 	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
+	Dnssec            bool `yaml:"dnssec" json:"dnssec"`
 
 	// 健康检查配置
 	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`

@@ -100,6 +100,7 @@ const resources = {
                 "racingMaxConcurrent": "Racing Max Concurrent",
                 "racingMaxConcurrentHelp": "Maximum concurrent requests for racing strategy (2-5).",
                 "nxdomainForErrors": "Return NXDOMAIN for Upstream Errors",
+                "dnssec": "Enable DNSSEC",
                 "healthCheck": {
                     "legend": "Health Check & Circuit Breaker",
                     "enabled": "Enable Health Checks",
@@ -368,6 +369,7 @@ const resources = {
                 "racingMaxConcurrent": "竞争最大并发数",
                 "racingMaxConcurrentHelp": "竞争策略的最大并发请求数 (2-5)。",
                 "nxdomainForErrors": "上游错误返回 NXDOMAIN",
+                "dnssec": "启用 DNSSEC",
                 "healthCheck": {
                     "legend": "健康检查与熔断器",
                     "enabled": "启用健康检查",

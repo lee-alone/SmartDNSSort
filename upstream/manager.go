@@ -96,22 +96,29 @@ func (u *Manager) GetTotalServerCount() int {
 }
 
 // Query 查询域名，返回 IP 列表和 TTL
-func (u *Manager) Query(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) Query(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
+	if len(r.Question) == 0 {
+		return nil, errors.New("query message has no questions")
+	}
+	question := r.Question[0]
+	domain := strings.TrimRight(question.Name, ".")
+	qtype := question.Qtype
+
 	switch u.strategy {
 	case "parallel":
-		return u.queryParallel(ctx, domain, qtype)
+		return u.queryParallel(ctx, domain, qtype, r, dnssec)
 	case "sequential":
-		return u.querySequential(ctx, domain, qtype)
+		return u.querySequential(ctx, domain, qtype, r, dnssec)
 	case "racing":
-		return u.queryRacing(ctx, domain, qtype)
+		return u.queryRacing(ctx, domain, qtype, r, dnssec)
 	default:
-		return u.queryRandom(ctx, domain, qtype)
+		return u.queryRandom(ctx, domain, qtype, r, dnssec)
 	}
 }
 
 // queryParallel 并行查询多个上游 DNS 服务器
 // 实现快速响应机制：第一个成功的响应立即返回，后台继续收集其他响应并更新缓存
-func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -156,6 +163,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			// Execute query using interface
 			msg := new(dns.Msg)
 			msg.SetQuestion(dns.Fqdn(domain), qtype)
+			if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+				msg.SetEdns0(4096, true)
+			}
 
 			reply, err := srv.Exchange(queryCtx, msg)
 
@@ -334,7 +344,7 @@ func (u *Manager) mergeAndDeduplicateIPs(results []*QueryResult) []string {
 
 // queryRandom 随机选择上游 DNS 服务器进行查询,带完整容错机制
 // 会按随机顺序尝试所有服务器,直到找到一个成功的响应
-func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -388,6 +398,9 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16) 
 		// 执行查询
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(domain), qtype)
+		if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+			msg.SetEdns0(4096, true)
+		}
 
 		reply, err := server.Exchange(queryCtx, msg)
 		cancel() // 立即释放资源
@@ -525,7 +538,7 @@ func extractNegativeTTL(msg *dns.Msg) uint32 {
 }
 
 // querySequential 顺序查询策略：从健康度最好的服务器开始依次尝试
-func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -578,6 +591,9 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 		// 执行查询
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(domain), qtype)
+		if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+			msg.SetEdns0(4096, true)
+		}
 
 		reply, err := server.Exchange(attemptCtx, msg)
 		cancel() // 立即释放资源
@@ -668,7 +684,7 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 }
 
 // queryRacing 竞争查询策略：通过微小延迟为第一个服务器争取时间，同时为可靠性保留备选方案
-func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) (*QueryResultWithTTL, error) {
+func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(u.servers) == 0 {
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
@@ -709,6 +725,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 		logger.Debugf("[queryRacing] 主请求发起: 服务器 %d (%s)", index, server.Address())
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(domain), dns.StringToType[dns.TypeToString[qtype]])
+		if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+			msg.SetEdns0(4096, true)
+		}
 
 		reply, err := server.Exchange(raceCtx, msg)
 
@@ -811,6 +830,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16) 
 			logger.Debugf("[queryRacing] 备选请求发起: 服务器 %d (%s)", index, server.Address())
 			msg := new(dns.Msg)
 			msg.SetQuestion(dns.Fqdn(domain), dns.StringToType[dns.TypeToString[qtype]])
+			if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+				msg.SetEdns0(4096, true)
+			}
 
 			reply, err := server.Exchange(raceCtx, msg)
 

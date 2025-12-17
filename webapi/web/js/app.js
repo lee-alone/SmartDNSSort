@@ -284,6 +284,7 @@ function populateForm(config) {
         setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
         setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
         setChecked('upstream.nxdomain_for_errors', config.upstream.nxdomain_for_errors);
+        setChecked('upstream.dnssec', config.upstream.dnssec);
 
         // Health Check settings
         if (config.upstream.health_check) {
@@ -383,6 +384,7 @@ function saveConfig() {
                 racing_delay: parseInt(form.elements['upstream.racing_delay'].value) || 100,
                 racing_max_concurrent: parseInt(form.elements['upstream.racing_max_concurrent'].value) || 2,
                 nxdomain_for_errors: form.elements['upstream.nxdomain_for_errors'].checked,
+                dnssec: form.elements['upstream.dnssec'].checked,
                 health_check: {
                     enabled: form.elements['upstream.health_check.enabled'].checked,
                     failure_threshold: parseInt(form.elements['upstream.health_check.failure_threshold'].value) || 3,

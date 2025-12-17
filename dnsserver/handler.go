@@ -412,7 +412,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	sfKey := fmt.Sprintf("query:%s:%d", domain, qtype)
 
 	v, err, shared := s.requestGroup.Do(sfKey, func() (interface{}, error) {
-		return currentUpstream.Query(ctx, domain, qtype)
+		return currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
 	})
 
 	if shared {
@@ -460,7 +460,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		lastCNAME := result.CNAMEs[len(result.CNAMEs)-1]
 		logger.Debugf("[handleQuery] 上游查询返回 CNAMEs=%v，开始递归解析最后一个: %s -> %s", result.CNAMEs, domain, lastCNAME)
 
-		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype)
+		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype, r, currentCfg.Upstream.Dnssec)
 		if resolveErr != nil {
 			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", resolveErr)
 			msg := new(dns.Msg)
@@ -677,7 +677,7 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 
 // resolveCNAME 递归解析 CNAME，直到找到 IP 地址.
 // 它返回最终的 IP 和在解析过程中发现的 *所有* CNAME。
-func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) (*upstream.QueryResultWithTTL, error) {
+func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*upstream.QueryResultWithTTL, error) {
 	const maxRedirects = 10
 	currentDomain := domain
 	var accumulatedCNAMEs []string
@@ -692,7 +692,15 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16) 
 		}
 
 		queryDomain := strings.TrimRight(currentDomain, ".")
-		result, err := s.upstream.Query(ctx, queryDomain, qtype)
+
+		// Create a new request for the CNAME
+		req := new(dns.Msg)
+		req.SetQuestion(dns.Fqdn(queryDomain), qtype)
+		if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+			req.SetEdns0(4096, true)
+		}
+
+		result, err := s.upstream.Query(ctx, req, dnssec)
 		if err != nil {
 			return nil, fmt.Errorf("cname resolution failed for %s: %v", queryDomain, err)
 		}
