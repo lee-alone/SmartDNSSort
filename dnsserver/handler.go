@@ -317,10 +317,12 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
+	// 仅当启用 DNSSEC 时才转发验证标记
+	authData := raw.AuthenticatedData && cfg.Upstream.Dnssec
 	if len(raw.CNAMEs) > 0 {
-		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, raw.CNAMEs, fallbackIPs, qtype, userTTL, raw.AuthenticatedData)
+		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, raw.CNAMEs, fallbackIPs, qtype, userTTL, authData)
 	} else {
-		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, userTTL, raw.AuthenticatedData)
+		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, userTTL, authData)
 	}
 	w.WriteMsg(msg)
 
@@ -513,6 +515,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		domain, dns.TypeToString[qtype], len(finalIPs), fullCNAMEs, finalTTL, finalIPs)
 
 	// [Fix] 为CNAME链中的每个域名都创建缓存和排序任务
+	// 总是保存实际的 AuthenticatedData 值到缓存，响应时根据配置决定是否转发
 	s.cache.SetRawWithDNSSEC(domain, qtype, finalIPs, fullCNAMEs, finalTTL, result.AuthenticatedData)
 	if len(finalIPs) > 0 {
 		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
@@ -543,10 +546,12 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
+	// 仅当启用 DNSSEC 时才转发验证标记
+	authData := result.AuthenticatedData && currentCfg.Upstream.Dnssec
 	if len(fullCNAMEs) > 0 {
-		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL, result.AuthenticatedData)
+		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL, authData)
 	} else {
-		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, fastTTL, result.AuthenticatedData)
+		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, fastTTL, authData)
 	}
 	w.WriteMsg(msg)
 }
