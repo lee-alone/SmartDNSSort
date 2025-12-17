@@ -21,8 +21,16 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	// Create a new request for the query, since we don't have one from a client
+	req := new(dns.Msg)
+	req.SetQuestion(dns.Fqdn(domain), qtype)
+	dnssec := s.cfg.Upstream.Dnssec
+	if dnssec {
+		req.SetEdns0(4096, true)
+	}
+
 	// Step 1: Initial query to upstream
-	result, err := s.upstream.Query(ctx, domain, qtype)
+	result, err := s.upstream.Query(ctx, req, dnssec)
 	if err != nil {
 		logger.Warnf("[refreshCacheAsync] 刷新缓存失败 (上游查询): %s, 错误: %v", domain, err)
 		return
@@ -37,7 +45,7 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 		lastCNAME := result.CNAMEs[len(result.CNAMEs)-1]
 		logger.Debugf("[refreshCacheAsync] 发现CNAME %v, 递归解析 %s", result.CNAMEs, lastCNAME)
 
-		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype)
+		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype, req, dnssec)
 		if resolveErr != nil {
 			logger.Warnf("[refreshCacheAsync] 刷新缓存失败 (CNAME递归): %s, 错误: %v", lastCNAME, resolveErr)
 			return

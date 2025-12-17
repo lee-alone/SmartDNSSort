@@ -41,7 +41,9 @@ func TestParallelQuery(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		result, err := u.Query(ctx, "www.google.com", dns.TypeA)
+		req := new(dns.Msg)
+		req.SetQuestion(dns.Fqdn("www.google.com"), dns.TypeA)
+		result, err := u.Query(ctx, req, false)
 		if err != nil {
 			t.Fatalf("Parallel query failed: %v", err)
 		}
@@ -67,7 +69,9 @@ func TestParallelQuery(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		result, err := u.Query(ctx, "www.google.com", dns.TypeA)
+		req := new(dns.Msg)
+		req.SetQuestion(dns.Fqdn("www.google.com"), dns.TypeA)
+		result, err := u.Query(ctx, req, false)
 		if err != nil {
 			t.Fatalf("Random query failed: %v", err)
 		}
@@ -95,7 +99,9 @@ func TestParallelQuery(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		result, err := u.Query(ctx, "www.baidu.com", dns.TypeA)
+		req := new(dns.Msg)
+		req.SetQuestion(dns.Fqdn("www.baidu.com"), dns.TypeA)
+		result, err := u.Query(ctx, req, false)
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -138,7 +144,9 @@ func TestParallelQueryFailover(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := u.Query(ctx, "www.google.com", dns.TypeA)
+	req := new(dns.Msg)
+	req.SetQuestion(dns.Fqdn("www.google.com"), dns.TypeA)
+	result, err := u.Query(ctx, req, false)
 	if err != nil {
 		t.Fatalf("Parallel query with failover failed: %v", err)
 	}
@@ -184,7 +192,9 @@ func TestParallelQueryIPMerging(t *testing.T) {
 	defer cancel()
 
 	// 查询一个有多个IP的域名
-	result, err := u.Query(ctx, "www.baidu.com", dns.TypeA)
+	req := new(dns.Msg)
+	req.SetQuestion(dns.Fqdn("www.baidu.com"), dns.TypeA)
+	result, err := u.Query(ctx, req, false)
 	if err != nil {
 		t.Fatalf("Parallel query for IP merging failed: %v", err)
 	}
