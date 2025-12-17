@@ -20,9 +20,10 @@ type QueryResult struct {
 	CNAMEs            []string // 支持多 CNAME 记录
 	TTL               uint32   // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
 	Error             error
-	Server            string // 添加服务器字段
-	Rcode             int    // DNS 响应代码
-	AuthenticatedData bool   // DNSSEC 验证标记 (AD flag)
+	Server            string   // 添加服务器字段
+	Rcode             int      // DNS 响应代码
+	AuthenticatedData bool     // DNSSEC 验证标记 (AD flag)
+	DnsMsg            *dns.Msg // 原始 DNS 消息（包含完整的 RRSIG 等 DNSSEC 数据）
 }
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
@@ -31,6 +32,7 @@ type QueryResultWithTTL struct {
 	CNAMEs            []string // 支持多 CNAME 记录
 	TTL               uint32   // 上游 DNS 返回的 TTL
 	AuthenticatedData bool     // DNSSEC 验证标记 (AD flag)
+	DnsMsg            *dns.Msg // 原始 DNS 消息（包含完整的 RRSIG 等 DNSSEC 数据）
 }
 
 // Manager 上游 DNS 查询管理器
@@ -199,6 +201,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 						Server:            srv.Address(),
 						Rcode:             reply.Rcode,
 						AuthenticatedData: reply.AuthenticatedData,
+						DnsMsg:            reply.Copy(), // 保存原始DNS消息的副本
 					}
 				}
 			}
@@ -272,6 +275,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		CNAMEs:            fastResponse.CNAMEs,
 		TTL:               fastResponse.TTL,
 		AuthenticatedData: fastResponse.AuthenticatedData,
+		DnsMsg:            fastResponse.DnsMsg,
 	}, nil
 }
 
@@ -439,7 +443,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 			}
 			logger.Debugf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒",
 				attemptNum+1, server.Address(), ttl)
-			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}, nil
+			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
 		}
 
 		// 处理其他 DNS 错误响应码
@@ -464,7 +468,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 			logger.Warnf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果",
 				attemptNum+1, server.Address())
 			// 保存这个空结果,但继续尝试其他服务器
-			lastResult = &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
+			lastResult = &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, DnsMsg: reply.Copy()}
 			continue
 		}
 
@@ -477,7 +481,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
 			attemptNum+1, server.Address(), len(ips), cnames, ttl, ips)
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}, nil
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}
 
 	// 所有服务器都失败了
@@ -645,7 +649,7 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			}
 			logger.Debugf("[querySequential] 服务器 %s 返回 NXDOMAIN，立即返回", server.Address())
 			server.RecordSuccess()
-			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}, nil
+			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
 		}
 
 		// 处理其他 DNS 错误响应码
@@ -682,7 +686,7 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			server.Address(), len(ips), ips)
 		server.RecordSuccess()
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}, nil
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}
 
 	// 所有服务器都尝试失败
@@ -758,7 +762,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 		// 处理查询成功
 		if reply.Rcode == dns.RcodeSuccess {
 			ips, cnames, ttl := extractIPs(reply)
-			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}
+			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
 			select {
 			case resultChan <- result:
 				logger.Debugf("[queryRacing] 主请求成功: %s", server.Address())
@@ -774,7 +778,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 		// 处理 NXDOMAIN - 确定性错误，立即返回
 		if reply.Rcode == dns.RcodeNameError {
 			ttl := extractNegativeTTL(reply)
-			result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}
+			result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
 			select {
 			case resultChan <- result:
 				server.RecordSuccess()
@@ -862,7 +866,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 
 			if reply.Rcode == dns.RcodeSuccess {
 				ips, cnames, ttl := extractIPs(reply)
-				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}
+				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
 				select {
 				case resultChan <- result:
 					logger.Debugf("[queryRacing] 备选请求成功: %s", server.Address())
@@ -877,7 +881,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 
 			if reply.Rcode == dns.RcodeNameError {
 				ttl := extractNegativeTTL(reply)
-				result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl}
+				result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
 				select {
 				case resultChan <- result:
 					server.RecordSuccess()

@@ -549,25 +549,23 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// 仅当启用 DNSSEC 时才转发验证标记
 	authData := result.AuthenticatedData && currentCfg.Upstream.Dnssec
 
-	// DNSSEC msgCache: 如果请求带有 DO 标志且启用了 DNSSEC，获取完整消息
+	// DNSSEC msgCache: 如果请求带有 DO 标志且启用了 DNSSEC，存储完整消息
 	if currentCfg.Upstream.Dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
-		logger.Debugf("[handleQuery] 获取完整 DNSSEC 消息以缓存 msgCache: %s (type=%s)", domain, dns.TypeToString[qtype])
-		// 对于 CNAME 情况，获取最终目标的完整消息
-		targetDomain := domain
-		if len(fullCNAMEs) > 0 {
-			targetDomain = strings.TrimRight(fullCNAMEs[len(fullCNAMEs)-1], ".")
-		}
+		if result.DnsMsg != nil {
+			logger.Debugf("[handleQuery] 将完整 DNSSEC 消息存储到 msgCache: %s (type=%s)", domain, dns.TypeToString[qtype])
 
-		// 创建用于获取完整消息的 DNS 查询
-		msgReq := new(dns.Msg)
-		msgReq.SetQuestion(dns.Fqdn(targetDomain), qtype)
-		msgReq.SetEdns0(4096, true) // DO flag
+			// 方案 A: 为 CNAME 链中的每一个域名都写入缓存
+			// 对于直接的A/AAAA记录，使用请求域名
+			s.cache.SetMsg(domain, qtype, result.DnsMsg)
 
-		// 从上游获取完整消息（包含 RRSIG 等完整DNSSEC数据）
-		if fullMsg, err := s.getDNSSECFullMessage(ctx, msgReq, currentUpstream); err == nil && fullMsg != nil {
-			// 存储完整消息到 msgCache
-			s.cache.SetMsg(targetDomain, qtype, fullMsg)
-			logger.Debugf("[handleQuery] DNSSEC 完整消息已存储到 msgCache: %s (type=%s)", targetDomain, dns.TypeToString[qtype])
+			// 对于 CNAME 链中的每个域名，也都写入相同的完整消息
+			// 这样后续查询链中任意域名都能命中 msgCache
+			for _, cname := range fullCNAMEs {
+				cnameDomain := strings.TrimRight(cname, ".")
+				s.cache.SetMsg(cnameDomain, qtype, result.DnsMsg)
+			}
+
+			logger.Debugf("[handleQuery] DNSSEC 完整消息已存储到 msgCache: %s 及其 CNAME 链", domain)
 		}
 	}
 
@@ -926,53 +924,4 @@ func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string,
 			}
 		}
 	}
-}
-
-// getDNSSECFullMessage 从上游 DNS 服务器获取完整的 DNSSEC 消息（包含 RRSIG 等）
-// 直接调用上游服务器，跳过 IP 排序，保留原始 DNS 响应
-func (s *Server) getDNSSECFullMessage(ctx context.Context, req *dns.Msg, upstreamMgr *upstream.Manager) (*dns.Msg, error) {
-	if upstreamMgr == nil || len(upstreamMgr.GetServers()) == 0 {
-		return nil, fmt.Errorf("no upstream servers available")
-	}
-
-	// 尝试从第一个健康的上游服务器获取完整消息
-	servers := upstreamMgr.GetServers()
-	for _, srv := range servers {
-		// 尝试向第一批健康的服务器查询
-		reply, err := srv.Exchange(ctx, req)
-		if err != nil {
-			logger.Debugf("[getDNSSECFullMessage] 从服务器 %s 获取 DNSSEC 消息失败: %v", srv.Address(), err)
-			continue
-		}
-
-		if reply == nil {
-			continue
-		}
-
-		if reply.Rcode != dns.RcodeSuccess {
-			logger.Debugf("[getDNSSECFullMessage] 服务器 %s 返回非成功响应码: %d", srv.Address(), reply.Rcode)
-			continue
-		}
-
-		logger.Debugf("[getDNSSECFullMessage] 成功从 %s 获取 DNSSEC 完整消息", srv.Address())
-		return reply, nil
-	}
-
-	// 如果所有健康的服务器都失败，尝试其他服务器
-	for _, srv := range servers {
-		reply, err := srv.Exchange(ctx, req)
-		if err != nil {
-			logger.Debugf("[getDNSSECFullMessage] 从备用服务器 %s 获取失败: %v", srv.Address(), err)
-			continue
-		}
-
-		if reply == nil || reply.Rcode != dns.RcodeSuccess {
-			continue
-		}
-
-		logger.Debugf("[getDNSSECFullMessage] 从备用服务器 %s 成功获取 DNSSEC 完整消息", srv.Address())
-		return reply, nil
-	}
-
-	return nil, fmt.Errorf("unable to get dnssec full message from any upstream server")
 }

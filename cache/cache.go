@@ -567,6 +567,7 @@ func (c *Cache) Clear() {
 	c.errorCache.Clear()
 	c.blockedCache = make(map[string]*BlockedCacheEntry)
 	c.allowedCache = make(map[string]*AllowedCacheEntry)
+	c.msgCache.Clear()
 }
 
 // cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
@@ -768,8 +769,8 @@ func (c *Cache) GetMsg(domain string, qtype uint16) (*dns.Msg, bool) {
 // SetMsg 设置 DNSSEC 完整消息缓存
 // 自动从消息中提取最小 TTL 作为缓存生命周期
 func (c *Cache) SetMsg(domain string, qtype uint16, msg *dns.Msg) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// 计算最小 TTL
 	minTTL := extractMinTTLFromMsg(msg)
