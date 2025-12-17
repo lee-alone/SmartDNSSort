@@ -115,10 +115,11 @@ func (lru *LRUCache) Clear() {
 
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
-	IPs             []string  // 原始 IP 列表
-	CNAMEs          []string  // CNAME 记录列表（支持多级 CNAME）
-	UpstreamTTL     uint32    // 上游 DNS 返回的原始 TTL（秒）
-	AcquisitionTime time.Time // 从上游获取的时间
+	IPs               []string  // 原始 IP 列表
+	CNAMEs            []string  // CNAME 记录列表（支持多级 CNAME）
+	UpstreamTTL       uint32    // 上游 DNS 返回的原始 TTL（秒）
+	AcquisitionTime   time.Time // 从上游获取的时间
+	AuthenticatedData bool      // DNSSEC 验证标记 (AD flag)
 }
 
 // IsExpired 检查原始缓存是否过期
@@ -231,15 +232,21 @@ func (c *Cache) GetRaw(domain string, qtype uint16) (*RawCacheEntry, bool) {
 
 // SetRaw 设置原始缓存（上游 DNS 响应）
 func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cnames []string, upstreamTTL uint32) {
+	c.SetRawWithDNSSEC(domain, qtype, ips, cnames, upstreamTTL, false)
+}
+
+// SetRawWithDNSSEC 设置带 DNSSEC 标记的原始缓存
+func (c *Cache) SetRawWithDNSSEC(domain string, qtype uint16, ips []string, cnames []string, upstreamTTL uint32, authData bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	key := cacheKey(domain, qtype)
 	entry := &RawCacheEntry{
-		IPs:             ips,
-		CNAMEs:          cnames,
-		UpstreamTTL:     upstreamTTL,
-		AcquisitionTime: time.Now(),
+		IPs:               ips,
+		CNAMEs:            cnames,
+		UpstreamTTL:       upstreamTTL,
+		AcquisitionTime:   time.Now(),
+		AuthenticatedData: authData,
 	}
 	c.rawCache.Set(key, entry)
 }

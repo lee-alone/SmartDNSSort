@@ -101,6 +101,7 @@ func (s *Server) handleCustomResponse(w dns.ResponseWriter, r *dns.Msg, domain s
 
 	msg := new(dns.Msg)
 	msg.SetReply(r)
+	msg.RecursionAvailable = true
 	msg.Compress = false
 
 	// Check for CNAME
@@ -157,6 +158,7 @@ func (s *Server) handleErrorCacheHit(w dns.ResponseWriter, r *dns.Msg, domain st
 
 		msg := new(dns.Msg)
 		msg.SetReply(r)
+		msg.RecursionAvailable = true
 		msg.SetRcode(r, dns.RcodeNameError)
 		w.WriteMsg(msg)
 		return true
@@ -255,6 +257,7 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	// 构造响应
 	msg := new(dns.Msg)
 	msg.SetReply(r)
+	msg.RecursionAvailable = true
 	msg.Compress = false
 	if len(cnames) > 0 {
 		s.buildDNSResponseWithCNAME(msg, domain, cnames, sorted.IPs, qtype, userTTL)
@@ -311,12 +314,13 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, raw.IPs)
 
 	msg := new(dns.Msg)
+	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
 	if len(raw.CNAMEs) > 0 {
-		s.buildDNSResponseWithCNAME(msg, domain, raw.CNAMEs, fallbackIPs, qtype, userTTL)
+		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, raw.CNAMEs, fallbackIPs, qtype, userTTL, raw.AuthenticatedData)
 	} else {
-		s.buildDNSResponse(msg, domain, fallbackIPs, qtype, userTTL)
+		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, userTTL, raw.AuthenticatedData)
 	}
 	w.WriteMsg(msg)
 
@@ -379,6 +383,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		logger.Debugf("[handleQuery] IPv6 已禁用，直接返回空响应: %s", domain)
 		msg := new(dns.Msg)
 		msg.SetReply(r)
+		msg.RecursionAvailable = true
 		msg.Compress = false
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
@@ -433,6 +438,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 
 		msg := new(dns.Msg)
 		msg.SetReply(r)
+		msg.RecursionAvailable = true
 		msg.Compress = false
 
 		if originalRcode == dns.RcodeNameError {
@@ -465,6 +471,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", resolveErr)
 			msg := new(dns.Msg)
 			msg.SetReply(r)
+			msg.RecursionAvailable = true
 			msg.Compress = false
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(msg)
@@ -492,6 +499,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
 		msg := new(dns.Msg)
 		msg.SetReply(r)
+		msg.RecursionAvailable = true
 		msg.Compress = false
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
@@ -505,7 +513,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		domain, dns.TypeToString[qtype], len(finalIPs), fullCNAMEs, finalTTL, finalIPs)
 
 	// [Fix] 为CNAME链中的每个域名都创建缓存和排序任务
-	s.cache.SetRaw(domain, qtype, finalIPs, fullCNAMEs, finalTTL)
+	s.cache.SetRawWithDNSSEC(domain, qtype, finalIPs, fullCNAMEs, finalTTL, result.AuthenticatedData)
 	if len(finalIPs) > 0 {
 		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
 	}
@@ -532,12 +540,13 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
 	msg := new(dns.Msg)
+	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
 	if len(fullCNAMEs) > 0 {
-		s.buildDNSResponseWithCNAME(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL)
+		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, fullCNAMEs, fallbackIPs, qtype, fastTTL, result.AuthenticatedData)
 	} else {
-		s.buildDNSResponse(msg, domain, fallbackIPs, qtype, fastTTL)
+		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, fastTTL, result.AuthenticatedData)
 	}
 	w.WriteMsg(msg)
 }
@@ -556,6 +565,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) == 0 {
 		msg := new(dns.Msg)
 		msg.SetReply(r)
+		msg.RecursionAvailable = true
 		w.WriteMsg(msg)
 		return
 	}
@@ -577,6 +587,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// ========== 第 3 阶段: 本地规则检查 & 基础验证 ==========
 	msg := new(dns.Msg)
 	msg.SetReply(r)
+	msg.RecursionAvailable = true
 	msg.Compress = false
 
 	if s.handleLocalRules(w, r, msg, domain, question) {
@@ -742,9 +753,20 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16, 
 
 // buildDNSResponse 构造 DNS 响应
 func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32) {
+	s.buildDNSResponseWithDNSSEC(msg, domain, ips, qtype, ttl, false)
+}
+
+// buildDNSResponseWithDNSSEC 构造带 DNSSEC 标记的 DNS 响应
+func (s *Server) buildDNSResponseWithDNSSEC(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32, authData bool) {
 	fqdn := dns.Fqdn(domain)
-	logger.Debugf("[buildDNSResponse] 构造响应: %s (type=%s) 包含 %d 个IP, TTL=%d",
-		domain, dns.TypeToString[qtype], len(ips), ttl)
+	if authData {
+		logger.Debugf("[buildDNSResponse] 构造响应: %s (type=%s) 包含 %d 个IP, TTL=%d, DNSSEC验证=已",
+			domain, dns.TypeToString[qtype], len(ips), ttl)
+		msg.AuthenticatedData = true
+	} else {
+		logger.Debugf("[buildDNSResponse] 构造响应: %s (type=%s) 包含 %d 个IP, TTL=%d",
+			domain, dns.TypeToString[qtype], len(ips), ttl)
+	}
 
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)
@@ -789,8 +811,17 @@ func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qty
 //	www.example.com.  300  IN  CNAME  cdn.example.com.
 //	cdn.example.com.  300  IN  A      1.2.3.4
 func (s *Server) buildDNSResponseWithCNAME(msg *dns.Msg, domain string, cnames []string, ips []string, qtype uint16, ttl uint32) {
+	s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, cnames, ips, qtype, ttl, false)
+}
+
+// buildDNSResponseWithCNAMEAndDNSSEC 构造包含 CNAME、IP 和 DNSSEC 标记的完整 DNS 响应
+func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string, cnames []string, ips []string, qtype uint16, ttl uint32, authData bool) {
 	if len(cnames) == 0 {
 		return
+	}
+
+	if authData {
+		msg.AuthenticatedData = true
 	}
 
 	// We need to chain the CNAMEs.

@@ -16,19 +16,21 @@ import (
 
 // QueryResult 查询结果
 type QueryResult struct {
-	IPs    []string
-	CNAMEs []string // 支持多 CNAME 记录
-	TTL    uint32   // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
-	Error  error
-	Server string // 添加服务器字段
-	Rcode  int    // DNS 响应代码
+	IPs               []string
+	CNAMEs            []string // 支持多 CNAME 记录
+	TTL               uint32   // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
+	Error             error
+	Server            string // 添加服务器字段
+	Rcode             int    // DNS 响应代码
+	AuthenticatedData bool   // DNSSEC 验证标记 (AD flag)
 }
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
 type QueryResultWithTTL struct {
-	IPs    []string
-	CNAMEs []string // 支持多 CNAME 记录
-	TTL    uint32   // 上游 DNS 返回的 TTL
+	IPs               []string
+	CNAMEs            []string // 支持多 CNAME 记录
+	TTL               uint32   // 上游 DNS 返回的 TTL
+	AuthenticatedData bool     // DNSSEC 验证标记 (AD flag)
 }
 
 // Manager 上游 DNS 查询管理器
@@ -182,11 +184,12 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 				} else {
 					ips, cnames, ttl := extractIPs(reply)
 					result = &QueryResult{
-						IPs:    ips,
-						CNAMEs: cnames,
-						TTL:    ttl,
-						Server: srv.Address(),
-						Rcode:  reply.Rcode,
+						IPs:               ips,
+						CNAMEs:            cnames,
+						TTL:               ttl,
+						Server:            srv.Address(),
+						Rcode:             reply.Rcode,
+						AuthenticatedData: reply.AuthenticatedData,
 					}
 				}
 			}
@@ -256,9 +259,10 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 	// 立即返回第一个成功的响应
 	return &QueryResultWithTTL{
-		IPs:    fastResponse.IPs,
-		CNAMEs: fastResponse.CNAMEs,
-		TTL:    fastResponse.TTL,
+		IPs:               fastResponse.IPs,
+		CNAMEs:            fastResponse.CNAMEs,
+		TTL:               fastResponse.TTL,
+		AuthenticatedData: fastResponse.AuthenticatedData,
 	}, nil
 }
 
@@ -464,7 +468,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
 			attemptNum+1, server.Address(), len(ips), cnames, ttl, ips)
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}, nil
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}, nil
 	}
 
 	// 所有服务器都失败了
@@ -669,7 +673,7 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			server.Address(), len(ips), ips)
 		server.RecordSuccess()
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}, nil
+		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}, nil
 	}
 
 	// 所有服务器都尝试失败
@@ -745,7 +749,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 		// 处理查询成功
 		if reply.Rcode == dns.RcodeSuccess {
 			ips, cnames, ttl := extractIPs(reply)
-			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
+			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}
 			select {
 			case resultChan <- result:
 				logger.Debugf("[queryRacing] 主请求成功: %s", server.Address())
@@ -849,7 +853,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 
 			if reply.Rcode == dns.RcodeSuccess {
 				ips, cnames, ttl := extractIPs(reply)
-				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl}
+				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData}
 				select {
 				case resultChan <- result:
 					logger.Debugf("[queryRacing] 备选请求成功: %s", server.Address())

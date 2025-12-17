@@ -10,13 +10,16 @@ import (
 
 func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
+	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeNameError)
+	msg.RecursionAvailable = true
 	w.WriteMsg(msg)
 }
 
 func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blockedTTL int) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
+	msg.RecursionAvailable = true
 
 	ip := net.ParseIP(blockedIP)
 	if ip == nil {
@@ -53,7 +56,9 @@ func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blo
 
 func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
+	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeRefused)
+	msg.RecursionAvailable = true
 	w.WriteMsg(msg)
 }
 
