@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 // LRUCache 标准的 LRU 缓存实现
@@ -165,6 +167,20 @@ func (e *ErrorCacheEntry) IsExpired() bool {
 	return time.Since(e.CachedAt).Seconds() > float64(e.TTL)
 }
 
+// DNSSECCacheEntry 代表一个 DNSSEC 缓存条目
+// 存储完整的 DNS 消息及其过期时间
+type DNSSECCacheEntry struct {
+	Message         *dns.Msg  // 完整的 DNS 响应消息
+	AcquisitionTime time.Time // 获取时间
+	TTL             uint32    // 消息 TTL（秒）
+}
+
+// IsExpired 检查缓存条目是否已过期
+func (e *DNSSECCacheEntry) IsExpired() bool {
+	elapsed := time.Since(e.AcquisitionTime).Seconds()
+	return elapsed > float64(e.TTL)
+}
+
 // PrefetchChecker 定义了检查域名是否为热点域名的接口
 // dnsserver 包中的 Prefetcher 将实现此接口
 type PrefetchChecker interface {
@@ -176,26 +192,36 @@ type Cache struct {
 	mu sync.RWMutex // 保护以下字段
 
 	// 缓存数据
+	config       *config.CacheConfig           // 缓存配置
+	maxEntries   int                           // 最大条目数
 	rawCache     *LRUCache                     // 原始缓存（使用 LRU 管理）
 	sortedCache  *LRUCache                     // 排序缓存（使用 LRU 管理）
 	sortingState map[string]*SortingState      // 排序任务状态
 	errorCache   *LRUCache                     // 错误缓存（使用 LRU 管理）
 	blockedCache map[string]*BlockedCacheEntry // 拦截缓存
 	allowedCache map[string]*AllowedCacheEntry // 白名单缓存
+	msgCache     *LRUCache                     // DNSSEC 消息缓存（存储完整的 DNS 响应）
 
-	// 内存管理
-	config     *config.CacheConfig // 缓存配置
-	maxEntries int                 // 根据内存估算的最大条目数
-	prefetcher PrefetchChecker     // 用于检查是否为受保护的域名
-
-	// 统计信息（原子操作）
-	hits   int64
-	misses int64
+	// 统计和其他字段
+	prefetcher PrefetchChecker // Prefetcher 实例，用于热点域名保护
+	hits       int64           // 缓存命中计数
+	misses     int64           // 缓存未命中计数
 }
 
 // NewCache 创建新的缓存实例
 func NewCache(cfg *config.CacheConfig) *Cache {
 	maxEntries := cfg.CalculateMaxEntries()
+
+	// 计算 msgCache 的最大条目数
+	msgCacheEntries := 0
+	if cfg.MsgCacheSizeMB > 0 {
+		// 假设平均 DNS 消息 ~2KB，计算最大条目数
+		msgCacheEntries = (cfg.MsgCacheSizeMB * 1024 * 1024) / 2048
+		if msgCacheEntries < 10 {
+			msgCacheEntries = 10 // 最小 10 条
+		}
+	}
+
 	return &Cache{
 		config:       cfg,
 		maxEntries:   maxEntries,
@@ -205,6 +231,7 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		errorCache:   NewLRUCache(maxEntries),
 		blockedCache: make(map[string]*BlockedCacheEntry),
 		allowedCache: make(map[string]*AllowedCacheEntry),
+		msgCache:     NewLRUCache(msgCacheEntries),
 	}
 }
 
@@ -713,4 +740,71 @@ func (c *Cache) LoadFromDisk(filename string) error {
 		c.rawCache.Set(key, cacheEntry)
 	}
 	return nil
+}
+
+// GetMsg 获取 DNSSEC 完整消息缓存
+func (c *Cache) GetMsg(domain string, qtype uint16) (*dns.Msg, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := cacheKey(domain, qtype)
+	val, exists := c.msgCache.Get(key)
+	if !exists {
+		return nil, false
+	}
+
+	entry := val.(*DNSSECCacheEntry)
+	if entry.IsExpired() {
+		// 缓存已过期，删除它
+		c.msgCache.Delete(key)
+		return nil, false
+	}
+
+	// 返回消息副本以防止外部修改原始缓存
+	msgCopy := entry.Message.Copy()
+	return msgCopy, true
+}
+
+// SetMsg 设置 DNSSEC 完整消息缓存
+// 自动从消息中提取最小 TTL 作为缓存生命周期
+func (c *Cache) SetMsg(domain string, qtype uint16, msg *dns.Msg) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// 计算最小 TTL
+	minTTL := extractMinTTLFromMsg(msg)
+	if minTTL == 0 {
+		minTTL = 300 // 默认 5 分钟
+	}
+
+	key := cacheKey(domain, qtype)
+	entry := &DNSSECCacheEntry{
+		Message:         msg.Copy(), // 保存副本
+		AcquisitionTime: time.Now(),
+		TTL:             minTTL,
+	}
+	c.msgCache.Set(key, entry)
+}
+
+// extractMinTTLFromMsg 从 DNS 消息中提取最小 TTL
+func extractMinTTLFromMsg(msg *dns.Msg) uint32 {
+	minTTL := uint32(0)
+
+	// 检查 Answer 部分
+	for _, rr := range msg.Answer {
+		ttl := rr.Header().Ttl
+		if minTTL == 0 || ttl < minTTL {
+			minTTL = ttl
+		}
+	}
+
+	// 检查 Authority 部分（用于 RRSIG）
+	for _, rr := range msg.Ns {
+		ttl := rr.Header().Ttl
+		if minTTL == 0 || ttl < minTTL {
+			minTTL = ttl
+		}
+	}
+
+	return minTTL
 }

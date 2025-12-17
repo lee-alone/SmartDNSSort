@@ -130,6 +130,9 @@ cache:
   protect_prefetch_domains: true
   # 缓存持久化落盘间隔（分钟），默认 60 分钟
   save_to_disk_interval_minutes: 60
+  # DNSSEC 消息缓存容量 (MB)，用于存储完整的 DNS 响应消息（包含 RRSIG 等）
+  # 独立于主缓存，默认为主缓存的 1/10（即 128MB 主缓存对应 12.8MB 消息缓存）
+  msg_cache_size_mb: 12
 
 # 预取配置（提前刷新缓存）
 prefetch:
@@ -248,6 +251,9 @@ type CacheConfig struct {
 	EvictionBatchPercent      float64 `yaml:"eviction_batch_percent,omitempty" json:"eviction_batch_percent"`
 	ProtectPrefetchDomains    bool    `yaml:"protect_prefetch_domains" json:"protect_prefetch_domains"`
 	SaveToDiskIntervalMinutes int     `yaml:"save_to_disk_interval_minutes" json:"save_to_disk_interval_minutes"`
+
+	// DNSSEC 消息缓存容量
+	MsgCacheSizeMB int `yaml:"msg_cache_size_mb,omitempty" json:"msg_cache_size_mb"`
 }
 
 type PrefetchConfig struct {
@@ -443,6 +449,13 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if cfg.Cache.EvictionBatchPercent == 0 {
 		cfg.Cache.EvictionBatchPercent = 0.1
+	}
+	if cfg.Cache.MsgCacheSizeMB == 0 {
+		// 默认为主缓存的 1/10
+		cfg.Cache.MsgCacheSizeMB = cfg.Cache.MaxMemoryMB / 10
+		if cfg.Cache.MsgCacheSizeMB < 1 {
+			cfg.Cache.MsgCacheSizeMB = 1 // 最小 1MB
+		}
 	}
 	if cfg.Cache.SaveToDiskIntervalMinutes == 0 {
 		cfg.Cache.SaveToDiskIntervalMinutes = 60

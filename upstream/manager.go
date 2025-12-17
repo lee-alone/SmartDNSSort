@@ -80,6 +80,15 @@ func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint
 	u.cacheUpdateCallback = callback
 }
 
+// GetServers 返回所有上游服务器列表
+func (u *Manager) GetServers() []Upstream {
+	result := make([]Upstream, len(u.servers))
+	for i, server := range u.servers {
+		result[i] = server
+	}
+	return result
+}
+
 // GetHealthyServerCount 返回当前健康的服务器数量
 // 用于计算动态超时时间
 func (u *Manager) GetHealthyServerCount() int {
