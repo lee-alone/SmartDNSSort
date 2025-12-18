@@ -94,8 +94,8 @@ ping:
 
 # DNS 缓存配置
 cache:
-  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 15
-  fast_response_ttl: 15
+  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 5
+  fast_response_ttl: 5
   # 正常返回给客户端的 TTL，默认值 600
   user_return_ttl: 600
   # 最小 TTL（秒）
