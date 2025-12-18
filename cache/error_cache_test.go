@@ -1,29 +1,11 @@
 ﻿package cache
 
 import (
-	"smartdnssort/config"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
 )
-
-// TestErrorCacheStorage 测试错误缓存存储
-func getDefaultCacheConfig() *config.CacheConfig {
-	return &config.CacheConfig{
-		MinTTLSeconds:          3600,
-		MaxTTLSeconds:          84600,
-		NegativeTTLSeconds:     300,
-		ErrorCacheTTL:          30,
-		FastResponseTTL:        15,
-		UserReturnTTL:          600,
-		MaxMemoryMB:            500, // Default value for tests
-		KeepExpiredEntries:     false,
-		EvictionThreshold:      0.9,
-		EvictionBatchPercent:   0.1,
-		ProtectPrefetchDomains: false,
-	}
-}
 
 // TestErrorCacheStorage 测试错误缓存存储
 func TestErrorCacheStorage(t *testing.T) {

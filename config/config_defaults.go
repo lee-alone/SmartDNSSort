@@ -126,6 +126,9 @@ func setCacheDefaults(cfg *Config) {
 		cfg.Cache.MsgCacheSizeMB = cfg.Cache.MaxMemoryMB / 10
 		cfg.Cache.MsgCacheSizeMB = max(cfg.Cache.MsgCacheSizeMB, 1) // 最小 1MB
 	}
+	if cfg.Cache.DNSSECMsgCacheTTLSeconds == 0 {
+		cfg.Cache.DNSSECMsgCacheTTLSeconds = 300 // 默认 5 分钟
+	}
 	if cfg.Cache.SaveToDiskIntervalMinutes == 0 {
 		cfg.Cache.SaveToDiskIntervalMinutes = 60
 	}

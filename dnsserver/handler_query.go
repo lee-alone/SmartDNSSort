@@ -192,15 +192,19 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		if result.DnsMsg != nil {
 			logger.Debugf("[handleQuery] 将完整 DNSSEC 消息存储到 msgCache: %s (type=%s)", domain, dns.TypeToString[qtype])
 
-			// 方案 A: 为 CNAME 链中的每一个域名都写入缓存
-			// 对于直接的A/AAAA记录，使用请求域名
-			s.cache.SetMsg(domain, qtype, result.DnsMsg)
+			// Helper to set DNSSEC message to cache for a given domain/qtype
+			setDNSSECMsgToCache := func(d string, qt uint16, msg *dns.Msg) {
+				s.cache.SetDNSSECMsg(d, qt, msg)
+			}
 
-			// 对于 CNAME 链中的每个域名，也都写入相同的完整消息
-			// 这样后续查询链中任意域名都能命中 msgCache
+			// For direct A/AAAA records, use the requested domain
+			setDNSSECMsgToCache(domain, qtype, result.DnsMsg)
+
+			// For each domain in the CNAME chain, also write the same full message
+			// This allows any domain in the chain to hit msgCache later
 			for _, cname := range fullCNAMEs {
 				cnameDomain := strings.TrimRight(cname, ".")
-				s.cache.SetMsg(cnameDomain, qtype, result.DnsMsg)
+				setDNSSECMsgToCache(cnameDomain, qtype, result.DnsMsg)
 			}
 
 			logger.Debugf("[handleQuery] DNSSEC 完整消息已存储到 msgCache: %s 及其 CNAME 链", domain)
@@ -213,6 +217,22 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, fastTTL, authData)
 	}
 	w.WriteMsg(msg)
+}
+
+// adjustTTL decrements the TTL of DNS resource records by the elapsed duration.
+// It ensures TTL does not go below a minimum value (1 second).
+func adjustTTL(rrs []dns.RR, elapsed time.Duration) {
+	for _, rr := range rrs {
+		header := rr.Header()
+		if header.Ttl > 0 { // Only adjust if TTL is not already 0
+			newTTL := int64(header.Ttl) - int64(elapsed.Seconds())
+			if newTTL <= 0 {
+				header.Ttl = 1 // Ensure TTL is at least 1
+			} else {
+				header.Ttl = uint32(newTTL)
+			}
+		}
+	}
 }
 
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
@@ -276,13 +296,23 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 	// DNSSEC 完整消息缓存（仅当启用 DNSSEC 且请求带有 DO 标志时）
 	if isDNSSECQuery && currentCfg.Upstream.Dnssec {
-		if msg, found := s.cache.GetMsg(domain, qtype); found {
+		if entry, found := s.cache.GetDNSSECMsg(domain, qtype); found {
 			logger.Debugf("[handleQuery] DNSSEC msgCache 命中: %s (type=%s)", domain, dns.TypeToString[qtype])
 			currentStats.IncCacheHits()
-			msg.RecursionAvailable = true
-			msg.Id = r.Id
-			msg.Compress = false
-			w.WriteMsg(msg)
+
+			// Create a deep copy of the cached message to modify TTLs
+			responseMsg := entry.Message.Copy()
+			elapsed := time.Since(entry.AcquisitionTime)
+
+			// Adjust TTLs for all records in the response
+			adjustTTL(responseMsg.Answer, elapsed)
+			adjustTTL(responseMsg.Ns, elapsed)
+			adjustTTL(responseMsg.Extra, elapsed)
+
+			responseMsg.RecursionAvailable = true
+			responseMsg.Id = r.Id
+			responseMsg.Compress = false
+			w.WriteMsg(responseMsg)
 			return
 		}
 	}

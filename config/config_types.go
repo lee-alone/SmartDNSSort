@@ -87,6 +87,8 @@ type CacheConfig struct {
 
 	// DNSSEC 消息缓存容量
 	MsgCacheSizeMB int `yaml:"msg_cache_size_mb,omitempty" json:"msg_cache_size_mb"`
+	// DNSSEC 消息缓存 TTL（秒），用于限制 RRSIG 等记录的缓存时间
+	DNSSECMsgCacheTTLSeconds int `yaml:"dnssec_msg_cache_ttl_seconds,omitempty" json:"dnssec_msg_cache_ttl_seconds"`
 }
 
 // PrefetchConfig 预取配置
