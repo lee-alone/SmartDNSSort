@@ -2,30 +2,30 @@ package ping
 
 import (
 	"context"
-	"crypto/tls"
-	"net"
-	"smartdnssort/logger"
-	"sort"
 	"sync"
 	"time"
 )
 
+// Result 表示单个 IP 的 ping 结果
 type Result struct {
 	IP   string
 	RTT  int // 毫秒，999999 表示不可达
 	Loss float64
 }
 
+// rttCacheEntry 缓存条目
 type rttCacheEntry struct {
 	rtt       int
 	expiresAt time.Time
 }
 
+// Pinger DNS IP 延迟测量和排序工具
+// 提供智能混合探测、缓存和并发测试功能
 type Pinger struct {
 	count              int
 	timeoutMs          int
 	concurrency        int
-	strategy           string // 保留，但我们现在用 smart 策略
+	strategy           string // 已弃用：保留用于向后兼容。详见 PING_NOTES.md
 	maxTestIPs         int
 	rttCacheTtlSeconds int
 	enableHttpFallback bool // 是否对纯 HTTP(80) 做补充探测，默认关闭
@@ -35,156 +35,8 @@ type Pinger struct {
 	stopChan   chan struct{}
 }
 
-func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int, enableHttpFallback bool) *Pinger {
-	if count <= 0 {
-		count = 3
-	}
-	if timeoutMs <= 0 {
-		timeoutMs = 800
-	}
-	if concurrency <= 0 {
-		concurrency = 8
-	}
-
-	p := &Pinger{
-		count:              count,
-		timeoutMs:          timeoutMs,
-		concurrency:        concurrency,
-		maxTestIPs:         maxTestIPs,
-		rttCacheTtlSeconds: rttCacheTtlSeconds,
-		enableHttpFallback: enableHttpFallback,
-		rttCache:           make(map[string]*rttCacheEntry),
-		stopChan:           make(chan struct{}),
-	}
-
-	if rttCacheTtlSeconds > 0 {
-		go p.startRttCacheCleaner()
-	}
-	return p
-}
-
-// 核心：智能混合探测（流量极小，准确率极高）
-func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
-	// 第1步：先测 443 TCP（几乎所有现代服务都支持）
-	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
-		// 第2步：关键！TLS ClientHello 带 SNI，能干掉 163.com 那种“TCP通但实际不可用”的节点
-		if rtt2 := p.tlsHandshakeWithSNI(ctx, ip, domain); rtt2 >= 0 {
-			// 用 TLS 握手时间更准（包含加密协商延迟）
-			return rtt2
-		}
-		// TLS 失败直接判死刑（防止假阳性）
-		return -1
-	}
-
-	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
-	if rtt := p.udpDnsPing(ctx, ip); rtt >= 0 {
-		return rtt
-	}
-
-	// 第4步（可选）：用户打开开关才测 80
-	if p.enableHttpFallback {
-		if rtt := p.tcpPingPort(ctx, ip, "80"); rtt >= 0 {
-			return rtt
-		}
-	}
-
-	return -1
-}
-
-// 通用 TCP 端口探测（443/80/853 都行）
-func (p *Pinger) tcpPingPort(ctx context.Context, ip, port string) int {
-	dialer := &net.Dialer{Timeout: time.Duration(p.timeoutMs) * time.Millisecond}
-	start := time.Now()
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, port))
-	if err != nil {
-		return -1
-	}
-	conn.Close()
-	return int(time.Since(start).Milliseconds())
-}
-
-// 核心过滤器：TLS ClientHello 带 SNI（≈500 字节）
-func (p *Pinger) tlsHandshakeWithSNI(ctx context.Context, ip, domain string) int {
-	conf := &tls.Config{
-		ServerName:         domain,
-		InsecureSkipVerify: true, // 只测速度
-		MinVersion:         tls.VersionTLS12,
-	}
-	dialer := &net.Dialer{Timeout: time.Duration(p.timeoutMs) * time.Millisecond}
-
-	start := time.Now()
-	conn, err := tls.DialWithDialer(dialer, "tcp", net.JoinHostPort(ip, "443"), conf)
-	if err != nil {
-		return -1
-	}
-	conn.Close()
-	return int(time.Since(start).Milliseconds())
-}
-
-// 超轻量 UDP DNS 查询（80~200 字节）
-func (p *Pinger) udpDnsPing(ctx context.Context, ip string) int {
-	// 固定查询 www.google.com A 记录，30 字节
-	query := []byte{
-		0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x03, 'w', 'w', 'w',
-		0x06, 'g', 'o', 'o', 'g', 'l', 'e', 0x03, 'c',
-		'o', 'm', 0x00, 0x00, 0x01, 0x00, 0x01,
-	}
-
-	pc, err := net.DialTimeout("udp", net.JoinHostPort(ip, "53"), time.Duration(p.timeoutMs)*time.Millisecond)
-	if err != nil {
-		return -1
-	}
-	defer pc.Close()
-	pc.SetDeadline(time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond))
-
-	start := time.Now()
-	if _, err = pc.Write(query); err != nil {
-		return -1
-	}
-	buf := make([]byte, 512)
-	if _, err = pc.Read(buf); err != nil {
-		return -1
-	}
-	return int(time.Since(start).Milliseconds())
-}
-
-// 单个 IP 多次测试 + 惩罚机制
-func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
-	var totalRTT int64 = 0
-	minRTT := 999999
-	successCount := 0
-
-	for i := 0; i < p.count; i++ {
-		rtt := p.smartPing(ctx, ip, domain)
-		if rtt >= 0 {
-			totalRTT += int64(rtt)
-			successCount++
-			if rtt < minRTT {
-				minRTT = rtt
-			}
-		}
-	}
-
-	if successCount == 0 {
-		return &Result{IP: ip, RTT: 999999, Loss: 100}
-	}
-
-	avgRTT := int(totalRTT / int64(successCount))
-	penalty := (p.count - successCount) * 150 // 惩罚降低一点，防止误伤
-	finalRTT := avgRTT + penalty
-	if finalRTT > 5000 {
-		finalRTT = 5000
-	}
-
-	return &Result{
-		IP:   ip,
-		RTT:  finalRTT,
-		Loss: float64(p.count-successCount) / float64(p.count) * 100,
-	}
-}
-
-// 并发测试 + 缓存 + 智能探测
+// PingAndSort 执行并发 ping 测试并返回排序后的结果
+// 支持缓存、智能探测和并发控制
 func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) []Result {
 	if len(ips) == 0 {
 		return nil
@@ -194,7 +46,6 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	testIPs := ips
 	if p.maxTestIPs > 0 && len(ips) > p.maxTestIPs {
 		testIPs = ips[:p.maxTestIPs]
-		logger.Debugf("[Ping] 超过 max_test_ips，只测前 %d 个", p.maxTestIPs)
 	}
 
 	var toPing []string
@@ -236,71 +87,6 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	all := append(cached, results...)
 	p.sortResults(all)
 	return all
-}
-
-func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string) []Result {
-	if len(ips) == 0 {
-		return nil
-	}
-
-	sem := make(chan struct{}, p.concurrency)
-	resultCh := make(chan Result, len(ips))
-	var wg sync.WaitGroup
-
-	for _, ip := range ips {
-		wg.Add(1)
-		go func(ipAddr string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			res := p.pingIP(ctx, ipAddr, domain)
-			resultCh <- *res
-		}(ip)
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	var results []Result
-	for r := range resultCh {
-		results = append(results, r)
-	}
-	return results
-}
-
-// 综合得分排序（推荐）
-func (p *Pinger) sortResults(results []Result) {
-	sort.Slice(results, func(i, j int) bool {
-		scoreI := results[i].RTT + int(results[i].Loss*18) // 权重可调
-		scoreJ := results[j].RTT + int(results[j].Loss*18)
-		if scoreI != scoreJ {
-			return scoreI < scoreJ
-		}
-		return results[i].IP < results[j].IP
-	})
-}
-
-func (p *Pinger) startRttCacheCleaner() {
-	ticker := time.NewTicker(time.Duration(p.rttCacheTtlSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			p.rttCacheMu.Lock()
-			for ip, entry := range p.rttCache {
-				if time.Now().After(entry.expiresAt) {
-					delete(p.rttCache, ip)
-				}
-			}
-			p.rttCacheMu.Unlock()
-		case <-p.stopChan:
-			return
-		}
-	}
 }
 
 // Stop 停止 Pinger 的后台任务
