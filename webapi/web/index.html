@@ -704,6 +704,24 @@
                                                 name="update_interval_hours"
                                                 class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                                         </div>
+                                        <div class="form-group"><label for="adblock_max_cache_age_hours"
+                                                data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label><input
+                                                type="number" id="adblock_max_cache_age_hours"
+                                                name="max_cache_age_hours"
+                                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                        </div>
+                                        <div class="form-group"><label for="adblock_max_cache_size_mb"
+                                                data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label><input
+                                                type="number" id="adblock_max_cache_size_mb"
+                                                name="max_cache_size_mb"
+                                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                        </div>
+                                        <div class="form-group"><label for="adblock_blocked_ttl"
+                                                data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label><input
+                                                type="number" id="adblock_blocked_ttl"
+                                                name="blocked_ttl"
+                                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                        </div>
                                     </div>
                                 </div>
                             </section>
@@ -791,10 +809,14 @@
                                     <textarea id="custom-blocked-content"
                                         class="w-full h-full min-h-[350px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
                                         placeholder="example.com&#10;tracking-server.net" spellcheck="false"></textarea>
+                                    <div class="text-xs text-text-sub-light dark:text-text-sub-dark flex gap-4">
+                                        <span id="blocked-line-count">0 lines</span>
+                                        <span id="blocked-char-count">0 characters</span>
+                                    </div>
                                 </div>
                                 <div
                                     class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
-                                    <button onclick="saveCustomBlocked()"
+                                    <button onclick="saveCustomBlocked(this)"
                                         class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
                                             data-i18n="custom.saveBlocked">Save Block List</span></button>
                                 </div>
@@ -814,10 +836,14 @@
                                     <textarea id="custom-response-content"
                                         class="w-full h-full min-h-[300px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
                                         placeholder="nas.local A 192.168.1.100 3600" spellcheck="false"></textarea>
+                                    <div class="text-xs text-text-sub-light dark:text-text-sub-dark flex gap-4">
+                                        <span id="response-line-count">0 lines</span>
+                                        <span id="response-char-count">0 characters</span>
+                                    </div>
                                 </div>
                                 <div
                                     class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
-                                    <button onclick="saveCustomResponse()"
+                                    <button onclick="saveCustomResponse(this)"
                                         class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
                                             data-i18n="custom.saveResponse">Save Reply Rules</span></button>
                                 </div>
@@ -834,7 +860,19 @@
         </div>
     </div>
 
-    <script src="js/i18n.js"></script>
+    <!-- i18n 模块（必须首先加载） -->
+    <script src="js/i18n/resources-en.js"></script>
+    <script src="js/i18n/resources-zh-cn.js"></script>
+    <script src="js/i18n/core.js"></script>
+    <script src="js/i18n/init.js"></script>
+
+    <!-- app 模块 -->
+    <script src="js/modules/utils.js"></script>
+    <script src="js/modules/navigation.js"></script>
+    <script src="js/modules/config.js"></script>
+    <script src="js/modules/dashboard.js"></script>
+    <script src="js/modules/adblock.js"></script>
+    <script src="js/modules/custom-settings.js"></script>
     <script src="js/app.js"></script>
 </body>
 

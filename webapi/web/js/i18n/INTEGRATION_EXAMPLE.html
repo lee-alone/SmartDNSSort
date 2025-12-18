@@ -1,0 +1,185 @@
+<!-- 
+    i18n Integration Example
+    
+    This example shows the correct way to load and use the modularized i18n system.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>i18n Integration Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .language-selector {
+            margin: 20px 0;
+        }
+        select {
+            padding: 8px;
+            font-size: 14px;
+        }
+        button {
+            padding: 8px 15px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .result {
+            background: #f0f0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <!-- ============================================
+         STEP 1: Load i18n modules in correct order
+         ============================================ -->
+    
+    <script src="resources-en.js"></script>
+    <script src="resources-zh-cn.js"></script>
+    <script src="core.js"></script>
+    <script src="init.js"></script>
+
+    <!-- ============================================
+         PAGE CONTENT
+         ============================================ -->
+
+    <h1 data-i18n="app.title"></h1>
+
+    <div class="language-selector">
+        <label for="langSwitch">Select Language:</label>
+        <select id="langSwitch">
+            <option value="en">English</option>
+            <option value="zh-CN">中文</option>
+        </select>
+    </div>
+
+    <!-- Example 1: Text Content Translation -->
+    <div class="section">
+        <h2>Example 1: Text Content Translation</h2>
+        <p data-i18n="dashboard.totalQueries"></p>
+        <p data-i18n="dashboard.cacheHits"></p>
+        <p data-i18n="dashboard.cacheMisses"></p>
+    </div>
+
+    <!-- Example 2: Placeholder Translation -->
+    <div class="section">
+        <h2>Example 2: Placeholder Translation</h2>
+        <input type="text" data-i18n-ph="adblock.placeholderUrl" placeholder="URL">
+        <input type="text" data-i18n-ph="adblock.placeholderDomain" placeholder="Domain">
+    </div>
+
+    <!-- Example 3: Title Translation -->
+    <div class="section">
+        <h2>Example 3: Title Translation</h2>
+        <button data-i18n-title="messages.confirmClearCache">Clear Cache</button>
+        <button data-i18n-title="messages.restartConfirm">Restart</button>
+    </div>
+
+    <!-- Example 4: JavaScript Translation -->
+    <div class="section">
+        <h2>Example 4: JavaScript Translation</h2>
+        <button onclick="testTranslation()">Test Translation</button>
+        <div id="result" class="result"></div>
+    </div>
+
+    <!-- Example 5: Parameterized Translation -->
+    <div class="section">
+        <h2>Example 5: Parameterized Translation</h2>
+        <button onclick="testParameterized()">Test Parameterized</button>
+        <div id="result2" class="result"></div>
+    </div>
+
+    <!-- Example 6: Language Information -->
+    <div class="section">
+        <h2>Example 6: Language Information</h2>
+        <button onclick="showLanguageInfo()">Show Language Info</button>
+        <div id="result3" class="result"></div>
+    </div>
+
+    <!-- ============================================
+         JAVASCRIPT EXAMPLES
+         ============================================ -->
+
+    <script>
+        // Example 4: Basic translation
+        function testTranslation() {
+            const result = document.getElementById('result');
+            const key = 'messages.configSaved';
+            const translation = i18n.t(key);
+            result.textContent = `Key: ${key}\nTranslation: ${translation}`;
+        }
+
+        // Example 5: Parameterized translation
+        function testParameterized() {
+            const result = document.getElementById('result2');
+            const key = 'messages.configSaveError';
+            const translation = i18n.t(key, { error: 'Network timeout' });
+            result.textContent = `Key: ${key}\nTranslation: ${translation}`;
+        }
+
+        // Example 6: Language information
+        function showLanguageInfo() {
+            const result = document.getElementById('result3');
+            const lang = i18n.getCurrentLanguage();
+            const info = `Current Language: ${lang}\nAvailable Languages: en, zh-CN`;
+            result.textContent = info;
+        }
+
+        // Listen for language changes
+        window.addEventListener('languageChanged', (event) => {
+            console.log('Language changed to:', event.detail);
+        });
+    </script>
+
+    <!-- ============================================
+         NOTES
+         ============================================ -->
+
+    <!--
+    IMPORTANT NOTES:
+
+    1. Script Loading Order:
+       - resources-en.js must be loaded first
+       - resources-zh-cn.js must be loaded second
+       - core.js must be loaded third
+       - init.js must be loaded last
+
+    2. HTML Attributes:
+       - data-i18n: Translates text content
+       - data-i18n-ph: Translates placeholder attribute
+       - data-i18n-title: Translates title attribute
+
+    3. JavaScript API:
+       - i18n.t(key, params): Translate a key
+       - i18n.getCurrentLanguage(): Get current language
+       - i18n.setLanguage(lang): Change language
+       - i18n.applyTranslations(): Apply translations to DOM
+
+    4. Events:
+       - languageChanged: Fired when language changes
+
+    5. Local Storage:
+       - smartdns_lang: Stores user's language preference
+
+    6. Browser Language Detection:
+       - If no saved preference, detects browser language
+       - Chinese browsers → zh-CN
+       - Others → en
+    -->
+</body>
+</html>

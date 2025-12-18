@@ -1,0 +1,67 @@
+<!-- 
+    Integration Example - How to load the modularized app.js
+    
+    This example shows the correct order and way to load all JavaScript modules
+    in your HTML file.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS Server Web UI</title>
+    <!-- CSS files -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Your HTML content here -->
+    
+    <!-- ============================================
+         JAVASCRIPT LOADING ORDER (IMPORTANT!)
+         ============================================ -->
+    
+    <!-- Step 1: Load i18n first (required by all modules) -->
+    <script src="js/i18n.js"></script>
+    
+    <!-- Step 2: Load utility functions (used by other modules) -->
+    <script src="js/modules/utils.js"></script>
+    
+    <!-- Step 3: Load feature modules (order doesn't matter for these) -->
+    <script src="js/modules/navigation.js"></script>
+    <script src="js/modules/config.js"></script>
+    <script src="js/modules/dashboard.js"></script>
+    <script src="js/modules/adblock.js"></script>
+    <script src="js/modules/custom-settings.js"></script>
+    
+    <!-- Step 4: Load main app entry point (must be last) -->
+    <script src="js/app.js"></script>
+    
+    <!-- ============================================
+         END OF JAVASCRIPT LOADING
+         ============================================ -->
+</body>
+</html>
+
+<!-- 
+    NOTES:
+    
+    1. The order is critical:
+       - i18n.js must be first
+       - utils.js must be before other modules
+       - app.js must be last
+    
+    2. All modules are loaded synchronously, so they execute in order
+    
+    3. Each module initializes itself on DOMContentLoaded or languageChanged events
+    
+    4. If you need to add new modules:
+       - Create the module file in js/modules/
+       - Add it to the script loading list (before app.js)
+       - Update the README.md with documentation
+    
+    5. For production, consider:
+       - Bundling all modules into a single file
+       - Minifying the JavaScript
+       - Using a module bundler like Webpack or Rollup
+-->
