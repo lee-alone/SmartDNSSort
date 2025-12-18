@@ -8,6 +8,8 @@ import (
 	"github.com/miekg/dns"
 )
 
+// buildNXDomainResponse builds an NXDOMAIN response for blocked domains.
+// Used in: handler_adblock.go
 func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -16,6 +18,8 @@ func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(msg)
 }
 
+// buildZeroIPResponse builds a response with a zero IP address for blocked domains.
+// Used in: handler_adblock.go
 func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blockedTTL int) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -54,6 +58,8 @@ func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blo
 	w.WriteMsg(msg)
 }
 
+// buildRefuseResponse builds a REFUSED response for blocked domains.
+// Used in: handler_adblock.go
 func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -65,6 +71,7 @@ func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg) {
 // parseRcodeFromError extracts the DNS response code from an upstream query error.
 // It parses error messages in the format "dns query failed: rcode=X" returned by the upstream package.
 // Returns dns.RcodeNameError for NXDOMAIN errors, dns.RcodeServerFailure for other failures.
+// Used in: handler_query.go
 func parseRcodeFromError(err error) int {
 	if err == nil {
 		return dns.RcodeSuccess
