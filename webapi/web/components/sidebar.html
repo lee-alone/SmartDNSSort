@@ -1,0 +1,31 @@
+<div
+    class="w-64 h-full hidden md:flex flex-col border-r border-[#e9e8ce] dark:border-[#3a3922] bg-background-light dark:bg-background-dark flex-shrink-0">
+    <div class="p-6 flex items-center gap-3">
+        <div class="bg-center bg-no-repeat bg-cover rounded-full size-10 shadow-sm"
+            style='background-image: url("favicon.svg");'></div>
+        <h1 class="text-xl font-bold tracking-tight" data-i18n="app.title">SmartDNSSort</h1>
+    </div>
+    <nav class="flex-1 flex flex-col gap-2 px-4">
+        <a id="nav-dashboard" href="#"
+            class="nav-button flex items-center gap-3 px-4 py-3 rounded-full bg-primary text-black transition-all shadow-sm hover:shadow-md">
+            <span class="material-symbols-outlined fill-1">dashboard</span>
+            <span class="font-medium" data-i18n="tabs.dashboard">Dashboard</span>
+        </a>
+        <a id="nav-config" href="#"
+            class="nav-button flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+            <span class="material-symbols-outlined">settings</span>
+            <span class="font-medium" data-i18n="tabs.config">Configuration</span>
+        </a>
+        <a id="nav-rules" href="#"
+            class="nav-button flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+            <span class="material-symbols-outlined">shield</span>
+            <span class="font-medium" data-i18n="tabs.custom">Custom Rules</span>
+        </a>
+        <div class="flex-1"></div>
+        <a href="https://github.com/lee-alone/SmartDNSSort" target="_blank"
+            class="flex items-center gap-3 px-4 py-3 rounded-full text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5 transition-colors mb-4">
+            <span class="material-symbols-outlined">help</span>
+            <span class="font-medium" data-i18n="footer.github">Help & Docs</span>
+        </a>
+    </nav>
+</div>

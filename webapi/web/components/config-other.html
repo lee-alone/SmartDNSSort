@@ -1,0 +1,44 @@
+<section
+    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+        <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced
+            Settings</h2>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        <div class="form-group"><label for="webui.listen_port"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.webui.listenPort">Web Listen Port</label><input
+                type="number" id="webui.listen_port" name="webui.listen_port"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="system.max_cpu_cores"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.system.maxCpuCores">Max CPU Cores</label><input
+                type="number" id="system.max_cpu_cores" name="system.max_cpu_cores"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="system.sort_queue_workers"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.system.sortQueueWorkers">Sort Queue Workers</label><input
+                type="number" id="system.sort_queue_workers"
+                name="system.sort_queue_workers"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="system.refresh_workers"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.system.refreshWorkers">Refresh Workers</label><input
+                type="number" id="system.refresh_workers" name="system.refresh_workers"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                id="prefetch.enabled" name="prefetch.enabled"
+                class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                for="prefetch.enabled" data-i18n="config.prefetch.enable">Enable
+                Prefetch</label></div>
+        <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                id="webui.enabled" name="webui.enabled"
+                class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                for="webui.enabled" data-i18n="config.webui.enable">Enable Web UI</label>
+        </div>
+    </div>
+</section>

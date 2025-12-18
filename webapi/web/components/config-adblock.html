@@ -1,0 +1,84 @@
+<section
+    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+        <h2 class="text-xl font-bold" data-i18n="tabs.adblock">AdBlock</h2>
+    </div>
+    <div class="p-6 space-y-6">
+        <div>
+            <h3 class="text-lg font-medium" data-i18n="adblock.ruleSources">Rule Sources
+            </h3>
+            <div class="overflow-x-auto mt-2">
+                <table id="adblock_sources_table" class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-text-sub-light">
+                            <th class="p-2" data-i18n="adblock.url">URL</th>
+                            <th class="p-2" data-i18n="adblock.status">Status</th>
+                            <th class="p-2" data-i18n="adblock.rules">Rules</th>
+                            <th class="p-2" data-i18n="adblock.enabled">Enabled</th>
+                            <th class="p-2" data-i18n="adblock.actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex gap-2"><input type="text" id="adblock_new_source_url"
+                    placeholder="https://example.com/rules.txt"
+                    class="flex-grow h-10 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm"><button
+                    id="adblockAddSourceButton" type="button"
+                    class="h-10 px-4 rounded-lg bg-primary text-black font-bold text-sm"
+                    data-i18n="adblock.add">Add</button></div>
+        </div>
+        <div
+            class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border-light dark:border-border-dark">
+            <div>
+                <label for="adblock_block_mode" class="block text-sm font-medium mb-2"
+                    data-i18n="adblock.blockMode">Block Mode</label>
+                <select id="adblock_block_mode"
+                    class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                    <option value="nxdomain">NXDOMAIN</option>
+                    <option value="refused">REFUSED</option>
+                    <option value="zero_ip">Zero IP</option>
+                </select>
+            </div>
+            <div>
+                <label for="adblock_test_domain" class="block text-sm font-medium mb-2"
+                    data-i18n="adblock.testDomain">Test Domain</label>
+                <div class="flex gap-2"><input type="text" id="adblock_test_domain"
+                        placeholder="example.com"
+                        class="flex-grow h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm"><button
+                        id="adblockTestDomainButton" type="button"
+                        class="h-12 px-4 rounded-lg border border-border-light dark:border-border-dark font-bold text-sm"
+                        data-i18n="adblock.test">Test</button></div>
+                <div id="adblock_test_result" class="text-sm mt-2 p-2 rounded-lg"></div>
+            </div>
+        </div>
+        <div class="pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+            <h3 class="text-lg font-medium" data-i18n="adblock.settings">AdBlock Settings
+            </h3>
+            <div class="form-group"><label for="adblock_update_interval_hours"
+                    data-i18n="adblock.updateInterval">Update Interval (Hours)</label><input
+                    type="number" id="adblock_update_interval_hours"
+                    name="update_interval_hours"
+                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+            </div>
+            <div class="form-group"><label for="adblock_max_cache_age_hours"
+                    data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label><input
+                    type="number" id="adblock_max_cache_age_hours"
+                    name="max_cache_age_hours"
+                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+            </div>
+            <div class="form-group"><label for="adblock_max_cache_size_mb"
+                    data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label><input
+                    type="number" id="adblock_max_cache_size_mb"
+                    name="max_cache_size_mb"
+                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+            </div>
+            <div class="form-group"><label for="adblock_blocked_ttl"
+                    data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label><input
+                    type="number" id="adblock_blocked_ttl"
+                    name="blocked_ttl"
+                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+            </div>
+        </div>
+    </div>
+</section>

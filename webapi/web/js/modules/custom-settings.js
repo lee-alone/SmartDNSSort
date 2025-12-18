@@ -118,7 +118,7 @@ function saveCustomResponse(button) {
         });
 }
 
-document.addEventListener('DOMContentLoaded', initializeCounters);
+document.addEventListener('componentsLoaded', initializeCounters);
 
 window.addEventListener('languageChanged', () => {
     loadCustomSettings();

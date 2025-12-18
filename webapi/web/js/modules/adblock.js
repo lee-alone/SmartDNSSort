@@ -239,7 +239,7 @@ function initializeAdBlockHandlers() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', initializeAdBlockHandlers);
+document.addEventListener('componentsLoaded', initializeAdBlockHandlers);
 
 window.addEventListener('languageChanged', () => {
     updateAdBlockTab();

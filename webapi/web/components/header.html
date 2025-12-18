@@ -1,0 +1,34 @@
+<header
+    class="h-20 border-b border-[#e9e8ce] dark:border-[#3a3922] bg-background-light dark:bg-background-dark flex items-center justify-between px-6 shrink-0 z-10">
+    <div id="status" class="status-indicator">
+        <span class="status-dot"></span>
+        <span class="status-text" data-i18n="status.connecting">Connecting...</span>
+    </div>
+    <div class="flex items-center gap-3">
+        <select id="langSwitch"
+            class="h-10 px-4 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+            <option value="en">English</option>
+            <option value="zh-CN">中文 (简体)</option>
+        </select>
+        <button id="refreshButton"
+            class="flex items-center justify-center size-10 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-text-sub-light dark:text-text-sub-dark transition-colors"
+            title="Refresh Data">
+            <span class="material-symbols-outlined">refresh</span>
+        </button>
+        <button id="clearCacheButton"
+            class="hidden xl:flex h-10 px-4 items-center gap-2 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+            <span class="material-symbols-outlined text-lg">delete_sweep</span>
+            <span data-i18n="actions.clearCache">Clear DNS Cache</span>
+        </button>
+        <button id="clearStatsButton"
+            class="hidden xl:flex h-10 px-4 items-center gap-2 rounded-full border border-[#e9e8ce] dark:border-[#3a3922] bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-text-main-light dark:text-text-main-dark text-xs font-bold uppercase tracking-wider transition-colors">
+            <span class="material-symbols-outlined text-lg">bar_chart_off</span>
+            <span data-i18n="actions.clearStats">Clear All Stats</span>
+        </button>
+        <button id="restartButton"
+            class="flex h-10 px-5 items-center justify-center gap-2 rounded-full bg-primary hover:bg-[#dcd805] text-black text-sm font-bold shadow-sm hover:shadow transition-all">
+            <span class="material-symbols-outlined text-lg">restart_alt</span>
+            <span class="hidden sm:inline" data-i18n="actions.restart">Restart Service</span>
+        </button>
+    </div>
+</header>

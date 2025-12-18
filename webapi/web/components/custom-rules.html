@@ -1,0 +1,64 @@
+<div class="mx-auto max-w-7xl flex flex-col gap-8">
+    <div class="flex flex-col gap-2">
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight" data-i18n="custom.title">Custom
+            Rules Management</h2>
+        <p class="text-text-sub-light dark:text-text-sub-dark text-base max-w-2xl"
+            data-i18n="custom.description">Manage your blocked domains and custom DNS reply rules.
+        </p>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+        <section
+            class="flex flex-col bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden h-full min-h-[500px]">
+            <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                <h3 class="text-lg font-bold" data-i18n="custom.blockedDomains">Blocked Domains</h3>
+            </div>
+            <div class="flex-1 p-6 flex flex-col gap-4">
+                <div
+                    class="flex items-center gap-2 text-sm text-text-sub-light dark:text-text-sub-dark mb-1">
+                    <span class="material-symbols-outlined text-sm">info</span><span
+                        data-i18n="custom.blockedDomainsHelp">Enter one domain per line.</span>
+                </div>
+                <textarea id="custom-blocked-content"
+                    class="w-full h-full min-h-[350px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
+                    placeholder="example.com&#10;tracking-server.net" spellcheck="false"></textarea>
+                <div class="text-xs text-text-sub-light dark:text-text-sub-dark flex gap-4">
+                    <span id="blocked-line-count">0 lines</span>
+                    <span id="blocked-char-count">0 characters</span>
+                </div>
+            </div>
+            <div
+                class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
+                <button onclick="saveCustomBlocked(this)"
+                    class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
+                        data-i18n="custom.saveBlocked">Save Block List</span></button>
+            </div>
+        </section>
+        <section
+            class="flex flex-col bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden h-full min-h-[500px]">
+            <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                <h3 class="text-lg font-bold" data-i18n="custom.customResponses">Custom Reply Rules
+                </h3>
+            </div>
+            <div class="flex-1 p-6 flex flex-col gap-4">
+                <div class="rounded-lg bg-primary/10 border border-primary/20 p-3">
+                    <p class="text-xs font-bold text-text-main-light dark:text-text-main-dark mb-1"
+                        data-i18n="custom.customResponsesExample">Syntax Guide</p><code
+                        class="text-xs font-mono text-text-sub-light dark:text-text-sub-dark block">domain.com A 1.2.3.4 300</code>
+                </div>
+                <textarea id="custom-response-content"
+                    class="w-full h-full min-h-[300px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
+                    placeholder="nas.local A 192.168.1.100 3600" spellcheck="false"></textarea>
+                <div class="text-xs text-text-sub-light dark:text-text-sub-dark flex gap-4">
+                    <span id="response-line-count">0 lines</span>
+                    <span id="response-char-count">0 characters</span>
+                </div>
+            </div>
+            <div
+                class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center">
+                <button onclick="saveCustomResponse(this)"
+                    class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
+                        data-i18n="custom.saveResponse">Save Reply Rules</span></button>
+            </div>
+        </section>
+    </div>
+</div>

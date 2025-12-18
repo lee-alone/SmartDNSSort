@@ -184,7 +184,7 @@ function initializeDashboardButtons() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', initializeDashboardButtons);
+document.addEventListener('componentsLoaded', initializeDashboardButtons);
 
 window.addEventListener('languageChanged', () => {
     updateDashboard();

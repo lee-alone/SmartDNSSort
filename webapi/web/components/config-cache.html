@@ -1,0 +1,98 @@
+<section
+    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+        <h2 class="text-xl font-bold" data-i18n="config.cache.legend">Cache</h2>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        <div class="form-group"><label for="cache.fast_response_ttl"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.cache.fastResponseTtl">Fast Response TTL (s)</label><input
+                type="number" id="cache.fast_response_ttl" name="cache.fast_response_ttl"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="cache.user_return_ttl"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.cache.userReturnTtl">User Return TTL (s)</label><input
+                type="number" id="cache.user_return_ttl" name="cache.user_return_ttl"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="cache.min_ttl_seconds"
+                class="block text-sm font-medium mb-2" data-i18n="config.cache.minTtl">Min
+                TTL (s)</label><input type="number" id="cache.min_ttl_seconds"
+                name="cache.min_ttl_seconds"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="cache.max_ttl_seconds"
+                class="block text-sm font-medium mb-2" data-i18n="config.cache.maxTtl">Max
+                TTL (s)</label><input type="number" id="cache.max_ttl_seconds"
+                name="cache.max_ttl_seconds"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+
+        <div class="form-group"><label for="cache.negative_ttl_seconds"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.cache.negativeTtl">Negative Cache TTL (s)</label><input
+                type="number" id="cache.negative_ttl_seconds"
+                name="cache.negative_ttl_seconds"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="cache.error_cache_ttl_seconds"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.cache.errorCacheTtl">Error Cache TTL (s)</label><input
+                type="number" id="cache.error_cache_ttl_seconds"
+                name="cache.error_cache_ttl_seconds"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+
+        <!-- Memory Management (Advanced) -->
+        <div
+            class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
+            <h3 class="font-bold mb-4" data-i18n="config.cache.memoryLegend">Memory
+                Management (Advanced)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <div class="form-group md:col-span-2"><label for="cache.max_memory_mb"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.cache.maxMemory">Max Memory (MB)</label><input
+                        type="number" id="cache.max_memory_mb" name="cache.max_memory_mb"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="cache.eviction_threshold"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.cache.evictionThreshold">Eviction Threshold
+                        (0.1-1.0)</label><input type="number" step="0.1"
+                        id="cache.eviction_threshold" name="cache.eviction_threshold"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="cache.eviction_batch_percent"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.cache.evictionBatchPercent">Eviction Batch Percent
+                        (0.01-0.5)</label><input type="number" step="0.05"
+                        id="cache.eviction_batch_percent"
+                        name="cache.eviction_batch_percent"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="cache.save_to_disk_interval_minutes"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.cache.saveToDiskInterval">Save to Disk Interval
+                        (Minutes)</label><input type="number"
+                        id="cache.save_to_disk_interval_minutes"
+                        name="cache.save_to_disk_interval_minutes"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                        id="cache.keep_expired_entries" name="cache.keep_expired_entries"
+                        class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                        for="cache.keep_expired_entries"
+                        data-i18n="config.cache.keepExpired">Keep Expired Entries in
+                        Memory</label></div>
+                <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
+                        id="cache.protect_prefetch_domains"
+                        name="cache.protect_prefetch_domains"
+                        class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                        for="cache.protect_prefetch_domains"
+                        data-i18n="config.cache.protectPrefetch">Protect Prefetch
+                        Domains</label></div>
+            </div>
+        </div>
+    </div>
+</section>

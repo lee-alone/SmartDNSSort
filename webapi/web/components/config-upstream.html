@@ -1,0 +1,130 @@
+<section
+    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+        <h2 class="text-xl font-bold" data-i18n="config.upstream.legend">Upstream</h2>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        <div class="form-group md:col-span-2"><label for="upstream.servers"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.servers">Upstream Servers</label><textarea
+                id="upstream.servers" name="upstream.servers"
+                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"></textarea><small
+                data-i18n="config.upstream.serversHelp">One per line.</small></div>
+        <div class="form-group md:col-span-2"><label for="upstream.bootstrap_dns"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.bootstrapDns">Bootstrap DNS</label><textarea
+                id="upstream.bootstrap_dns" name="upstream.bootstrap_dns"
+                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-24"></textarea><small
+                data-i18n="config.upstream.bootstrapDnsHelp">For DoH/DoT domains. One IP per
+                line.</small></div>
+        <div class="form-group"><label for="upstream.strategy"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.strategy._label">Strategy</label><select
+                id="upstream.strategy" name="upstream.strategy"
+                class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                <option value="random" data-i18n="config.upstream.strategy.random">Random
+                </option>
+                <option value="parallel" data-i18n="config.upstream.strategy.parallel">
+                    Parallel</option>
+                <option value="sequential" data-i18n="config.upstream.strategy.sequential">
+                    Sequential</option>
+                <option value="racing" data-i18n="config.upstream.strategy.racing">Racing
+                </option>
+            </select></div>
+        <div class="form-group"><label for="upstream.timeout_ms"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.timeout">Timeout (ms)</label><input type="number"
+                id="upstream.timeout_ms" name="upstream.timeout_ms"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group"><label for="upstream.concurrency"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.concurrency">Concurrency</label><input
+                type="number" id="upstream.concurrency" name="upstream.concurrency"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+
+        <!-- Strategy Specific Params (Hidden by default, toggled by JS) -->
+        <div id="sequential-params" class="form-group hidden"><label
+                for="upstream.sequential_timeout" class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.sequentialTimeout">Sequential Timeout
+                (ms)</label><input type="number" id="upstream.sequential_timeout"
+                name="upstream.sequential_timeout"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div id="racing-params" class="form-group hidden"><label for="upstream.racing_delay"
+                class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.racingDelay">Racing Delay (ms)</label><input
+                type="number" id="upstream.racing_delay" name="upstream.racing_delay"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div id="racing-params-concurrent" class="form-group hidden"><label
+                for="upstream.racing_max_concurrent" class="block text-sm font-medium mb-2"
+                data-i18n="config.upstream.racingMaxConcurrent">Racing Max
+                Concurrent</label><input type="number" id="upstream.racing_max_concurrent"
+                name="upstream.racing_max_concurrent"
+                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+
+        <div class="form-group md:col-span-2 pt-2"><label
+                class="flex items-center gap-3"><input type="checkbox"
+                    id="upstream.nxdomain_for_errors" name="upstream.nxdomain_for_errors"
+                    class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                    data-i18n="config.upstream.nxdomainForErrors">Return NXDOMAIN for
+                    Upstream Errors</span></label></div>
+        <div class="form-group md:col-span-2"><label
+                class="flex items-center gap-3"><input type="checkbox"
+                    id="upstream.dnssec" name="upstream.dnssec"
+                    class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                    data-i18n="config.upstream.dnssec">Enable DNSSEC</span></label></div>
+
+        <!-- Health Check Section -->
+        <div
+            class="md:col-span-2 mt-4 pt-4 border-t border-border-light dark:border-border-dark">
+            <h3 class="font-bold mb-4" data-i18n="config.upstream.healthCheck.legend">Health
+                Check & Circuit Breaker</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <div class="form-group md:col-span-2"><label
+                        class="flex items-center gap-3"><input type="checkbox"
+                            id="upstream.health_check.enabled"
+                            name="upstream.health_check.enabled"
+                            class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                            data-i18n="config.upstream.healthCheck.enabled">Enable Health
+                            Checks</span></label></div>
+                <div class="form-group"><label for="upstream.health_check.failure_threshold"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.upstream.healthCheck.failureThreshold">Failure
+                        Threshold</label><input type="number"
+                        id="upstream.health_check.failure_threshold"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label
+                        for="upstream.health_check.circuit_breaker_threshold"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.upstream.healthCheck.circuitBreakerThreshold">Circuit
+                        Breaker
+                        Threshold</label><input type="number"
+                        id="upstream.health_check.circuit_breaker_threshold"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label
+                        for="upstream.health_check.circuit_breaker_timeout"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.upstream.healthCheck.circuitBreakerTimeout">Circuit
+                        Breaker Timeout
+                        (s)</label><input type="number"
+                        id="upstream.health_check.circuit_breaker_timeout"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="upstream.health_check.success_threshold"
+                        class="block text-sm font-medium mb-2"
+                        data-i18n="config.upstream.healthCheck.successThreshold">Success
+                        Threshold to
+                        Restore</label><input type="number"
+                        id="upstream.health_check.success_threshold"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

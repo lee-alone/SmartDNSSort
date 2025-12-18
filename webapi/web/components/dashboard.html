@@ -1,0 +1,183 @@
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 max-w-[1600px] mx-auto">
+    <!-- 1. General Statistics -->
+    <div
+        class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+        <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-2"
+            data-i18n="dashboard.generalStats">General Stats</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.totalQueries">Total Queries</p>
+                <h3 id="total_queries" class="text-2xl font-bold">0</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.cacheHits">Cache Hits</p>
+                <h3 id="cache_hits" class="text-2xl font-bold">0</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.cacheMisses">Cache Misses</p>
+                <h3 id="cache_misses" class="text-2xl font-bold">0</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.cacheHitRate">Cache Hit Rate</p>
+                <h3 id="cache_hit_rate" class="text-2xl font-bold">0.00%</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.upstreamFailures">Upstream Failures</p>
+                <h3 id="upstream_failures" class="text-2xl font-bold">0</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. System Status -->
+    <div
+        class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+        <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-2"
+            data-i18n="dashboard.systemStatus">System Status</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2">
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.uptime">System Uptime</p>
+                <h3 id="system_uptime" class="text-2xl font-bold">0d 0h 0m 0s</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.cpuUsage">CPU Usage</p>
+                <h3 id="cpu_usage_pct" class="text-2xl font-bold">0.0%</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.memoryUsage">Memory Usage</p>
+                <h3 id="mem_usage_pct" class="text-2xl font-bold">0.0%</h3>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.goroutines">Goroutines</p>
+                <h3 id="goroutines" class="text-2xl font-bold">0</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Memory Usage -->
+    <div
+        class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+        <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium"
+            data-i18n="dashboard.memoryUsageTitle">Memory Usage</h2>
+        <div class="flex flex-col gap-2">
+            <div class="flex justify-between items-end">
+                <h3 id="memory_usage_text" class="text-xl font-bold tracking-tight">0 MB / 0 MB</h3>
+            </div>
+            <div class="w-full bg-[#e9e8ce] dark:bg-[#3a3922] rounded-full h-2">
+                <div id="memory_usage_bar"
+                    class="bg-primary h-2 rounded-full transition-all duration-500"
+                    style="width: 0%"></div>
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.cacheEntries">Cache Entries</p>
+                <p id="cache_entries" class="font-medium">0 / 0</p>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.expiredEntries">Expired Entries</p>
+                <p id="expired_entries" class="font-medium">0 (0.0%)</p>
+            </div>
+            <div>
+                <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
+                    data-i18n="dashboard.protectedEntries">Protected Entries</p>
+                <p id="protected_entries" class="font-medium">0</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. AdBlock Status (Interactive) -->
+    <div
+        class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
+        <div class="flex justify-between items-start">
+            <div>
+                <p class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium mb-1"
+                    data-i18n="dashboard.adblockStatus">AdBlock Status</p>
+                <h3 id="adblock_status" class="text-xl font-bold tracking-tight">N/A</h3>
+            </div>
+            <label class="inline-flex items-center cursor-pointer"><input type="checkbox"
+                    id="adblock_enable_toggle" class="sr-only peer">
+                <div
+                    class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary">
+                </div>
+            </label>
+        </div>
+        <div class="text-xs grid grid-cols-2 gap-1 text-text-sub-light dark:text-text-sub-dark">
+            <span>Engine: <b id="adblock_engine"
+                    class="text-text-main-light dark:text-text-main-dark">N/A</b></span>
+            <span>Rules: <b id="adblock_total_rules"
+                    class="text-text-main-light dark:text-text-main-dark">0</b></span>
+            <span>Blocked Today: <b id="adblock_blocked_today"
+                    class="text-text-main-light dark:text-text-main-dark">0</b></span>
+            <span>Blocked Total: <b id="adblock_blocked_total"
+                    class="text-text-main-light dark:text-text-main-dark">0</b></span>
+            <span class="col-span-2">Last Update: <b id="adblock_last_update"
+                    class="text-text-main-light dark:text-text-main-dark">N/A</b></span>
+        </div>
+        <button id="adblockUpdateRulesButton"
+            class="w-full mt-2 py-2 px-4 bg-black dark:bg-white text-white dark:text-black rounded-lg text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"><span
+                class="material-symbols-outlined text-sm">update</span><span
+                data-i18n="dashboard.updateRules">Update All Rules</span></button>
+    </div>
+
+    <!-- 5. Upstream Servers Table (Spans 2 cols) -->
+    <div
+        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+            <h2 class="font-bold text-lg" data-i18n="dashboard.upstreamServers">Upstream Servers
+            </h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table id="upstream_stats" class="w-full text-sm text-left">
+                <thead
+                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                    <tr>
+                        <th class="px-6 py-3" data-i18n="dashboard.server">Server</th>
+                        <th class="px-6 py-3" data-i18n="dashboard.success">Success</th>
+                        <th class="px-6 py-3" data-i18n="dashboard.failure">Failure</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 6. Top 10 Domains Table (Spans 2 cols) -->
+    <div
+        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+            <h2 class="font-bold text-lg" data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table id="hot_domains_table" class="w-full text-sm text-left">
+                <thead
+                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                    <tr>
+                        <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
+                        <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 7. Recent Queries (Full Width) -->
+    <div
+        class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+            <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
+        </div>
+        <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
+    </div>
+</div>

@@ -248,7 +248,7 @@ function initializeConfigUI() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', initializeConfigUI);
+document.addEventListener('componentsLoaded', initializeConfigUI);
 
 window.addEventListener('languageChanged', () => {
     loadConfig();

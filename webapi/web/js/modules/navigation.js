@@ -54,4 +54,4 @@ function initializeNavigation() {
     showView('view-dashboard');
 }
 
-document.addEventListener('DOMContentLoaded', initializeNavigation);
+document.addEventListener('componentsLoaded', initializeNavigation);

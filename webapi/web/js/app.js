@@ -9,10 +9,15 @@
 // 5. adblock.js - AdBlock functionality
 // 6. custom-settings.js - Custom settings management
 
-// Initialize app when i18n is ready
-window.addEventListener('languageChanged', () => {
-    console.log('App initialized with language:', i18n.getCurrentLanguage?.() || 'default');
-});
+// Wait for components to be loaded before initializing app
+document.addEventListener('componentsLoaded', () => {
+    console.log('Components loaded, initializing app...');
+    
+    // Initialize app when i18n is ready
+    window.addEventListener('languageChanged', () => {
+        console.log('App initialized with language:', i18n.getCurrentLanguage?.() || 'default');
+    });
 
-// Load config on startup
-loadConfig();
+    // Load config on startup
+    loadConfig();
+});

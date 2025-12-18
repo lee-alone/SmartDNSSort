@@ -1,6 +1,6 @@
-// i18n Initialization - Auto-init on DOMContentLoaded
+// i18n Initialization - Wait for components to load
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('componentsLoaded', () => {
     if (window.i18n && typeof window.i18n.init === 'function') {
         window.i18n.init();
     } else {
