@@ -19,11 +19,12 @@ func (s *Server) handleErrorCacheHit(w dns.ResponseWriter, r *dns.Msg, domain st
 		logger.Debugf("[handleQuery] NXDOMAIN 缓存命中: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
 
-		msg := new(dns.Msg)
+		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		msg.SetRcode(r, dns.RcodeNameError)
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return true
 	}
 	return false
@@ -112,7 +113,7 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	}
 
 	// 构造响应
-	msg := new(dns.Msg)
+	msg := s.msgPool.Get()
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
 	msg.Compress = false
@@ -122,6 +123,7 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 		s.buildDNSResponse(msg, domain, sorted.IPs, qtype, userTTL)
 	}
 	w.WriteMsg(msg)
+	s.msgPool.Put(msg)
 	return true
 }
 
@@ -170,7 +172,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	}
 	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, raw.IPs)
 
-	msg := new(dns.Msg)
+	msg := s.msgPool.Get()
 	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
@@ -182,6 +184,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, userTTL, authData)
 	}
 	w.WriteMsg(msg)
+	s.msgPool.Put(msg)
 
 	if raw.IsExpired() {
 		logger.Debugf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)",

@@ -41,6 +41,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		cfg:          cfg,
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
+		msgPool:      cache.NewMsgPool(),
 		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s, convertHealthCheckConfig(&cfg.Upstream.HealthCheck)),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback),
 		sortQueue:    sortQueue,

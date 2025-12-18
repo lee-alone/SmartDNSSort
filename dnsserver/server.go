@@ -24,6 +24,7 @@ type Server struct {
 	cfg                *config.Config
 	stats              *stats.Stats
 	cache              *cache.Cache
+	msgPool            *cache.MsgPool       // Used in: handler_query.go, handler_cache.go, handler_response.go - DNS 消息对象池
 	upstream           *upstream.Manager    // Used in: handler_query.go, handler_cname.go, refresh.go, server_config.go
 	pinger             *ping.Pinger         // Used in: sorting.go, server_config.go
 	sortQueue          *cache.SortQueue     // Used in: sorting.go, server_lifecycle.go, server_config.go

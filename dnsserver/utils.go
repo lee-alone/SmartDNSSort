@@ -3,6 +3,7 @@ package dnsserver
 import (
 	"fmt"
 	"net"
+	"smartdnssort/cache"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -10,18 +11,19 @@ import (
 
 // buildNXDomainResponse builds an NXDOMAIN response for blocked domains.
 // Used in: handler_adblock.go
-func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg) {
-	msg := new(dns.Msg)
+func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool) {
+	msg := msgPool.Get()
 	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeNameError)
 	msg.RecursionAvailable = true
 	w.WriteMsg(msg)
+	msgPool.Put(msg)
 }
 
 // buildZeroIPResponse builds a response with a zero IP address for blocked domains.
 // Used in: handler_adblock.go
-func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blockedTTL int) {
-	msg := new(dns.Msg)
+func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blockedTTL int, msgPool *cache.MsgPool) {
+	msg := msgPool.Get()
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
 
@@ -56,16 +58,18 @@ func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blo
 	}
 
 	w.WriteMsg(msg)
+	msgPool.Put(msg)
 }
 
 // buildRefuseResponse builds a REFUSED response for blocked domains.
 // Used in: handler_adblock.go
-func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg) {
-	msg := new(dns.Msg)
+func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool) {
+	msg := msgPool.Get()
 	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeRefused)
 	msg.RecursionAvailable = true
 	w.WriteMsg(msg)
+	msgPool.Put(msg)
 }
 
 // parseRcodeFromError extracts the DNS response code from an upstream query error.

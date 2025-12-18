@@ -22,7 +22,7 @@ func (s *Server) handleCustomResponse(w dns.ResponseWriter, r *dns.Msg, domain s
 
 	logger.Debugf("[CustomResponse] Matched: %s (type=%s), rules=%d", domain, dns.TypeToString[qtype], len(rules))
 
-	msg := new(dns.Msg)
+	msg := s.msgPool.Get()
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
 	msg.Compress = false
@@ -48,6 +48,7 @@ func (s *Server) handleCustomResponse(w dns.ResponseWriter, r *dns.Msg, domain s
 		rr.Target = dns.Fqdn(cnameRule.Value)
 		msg.Answer = append(msg.Answer, rr)
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return true
 	} else if len(aRules) > 0 {
 		// A/AAAA Response
@@ -65,8 +66,10 @@ func (s *Server) handleCustomResponse(w dns.ResponseWriter, r *dns.Msg, domain s
 			}
 		}
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return true
 	}
+	s.msgPool.Put(msg)
 
 	return false
 }

@@ -23,13 +23,14 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// ========== IPv6 开关检查 ==========
 	if qtype == dns.TypeAAAA && !currentCfg.DNS.EnableIPv6 {
 		logger.Debugf("[handleQuery] IPv6 已禁用，直接返回空响应: %s", domain)
-		msg := new(dns.Msg)
+		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		msg.Compress = false
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return
 	}
 
@@ -76,7 +77,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			currentStats.IncUpstreamFailures()
 		}
 
-		msg := new(dns.Msg)
+		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		msg.Compress = false
@@ -92,6 +93,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			msg.Answer = nil
 			w.WriteMsg(msg)
 		}
+		s.msgPool.Put(msg)
 		return
 	}
 
@@ -109,12 +111,13 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		finalResult, resolveErr := s.resolveCNAME(ctx, lastCNAME, qtype, r, currentCfg.Upstream.Dnssec)
 		if resolveErr != nil {
 			logger.Warnf("[handleQuery] CNAME 递归解析失败: %v", resolveErr)
-			msg := new(dns.Msg)
+			msg := s.msgPool.Get()
 			msg.SetReply(r)
 			msg.RecursionAvailable = true
 			msg.Compress = false
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(msg)
+			s.msgPool.Put(msg)
 			return
 		}
 
@@ -137,13 +140,14 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// 如果最终没有IP也没有CNAME，那就是 NODATA
 	if len(finalIPs) == 0 && len(fullCNAMEs) == 0 {
 		logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
-		msg := new(dns.Msg)
+		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		msg.Compress = false
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return
 	}
 
@@ -180,7 +184,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, finalIPs)
 	fastTTL := uint32(currentCfg.Cache.FastResponseTTL)
 
-	msg := new(dns.Msg)
+	msg := s.msgPool.Get()
 	msg.RecursionAvailable = true
 	msg.SetReply(r)
 	msg.Compress = false
@@ -217,6 +221,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, fastTTL, authData)
 	}
 	w.WriteMsg(msg)
+	s.msgPool.Put(msg)
 }
 
 // adjustTTL decrements the TTL of DNS resource records by the elapsed duration.
@@ -247,10 +252,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	currentStats.IncQueries()
 
 	if len(r.Question) == 0 {
-		msg := new(dns.Msg)
+		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
 		return
 	}
 
@@ -269,7 +275,8 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	// ========== 第 3 阶段: 本地规则检查 & 基础验证 ==========
-	msg := new(dns.Msg)
+	msg := s.msgPool.Get()
+	defer s.msgPool.Put(msg)
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
 	msg.Compress = false
