@@ -34,7 +34,7 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string
 		close(resultCh)
 	}()
 
-	var results []Result
+	results := make([]Result, 0, len(ips))
 	for r := range resultCh {
 		results = append(results, r)
 	}

@@ -33,6 +33,7 @@ type Pinger struct {
 	rttCache   map[string]*rttCacheEntry
 	rttCacheMu sync.RWMutex
 	stopChan   chan struct{}
+	bufferPool *sync.Pool // 新增: 复用 UDP 读取 buffer
 }
 
 // PingAndSort 执行并发 ping 测试并返回排序后的结果
@@ -51,11 +52,16 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	var toPing []string
 	var cached []Result
 
+	// 预分配容量，避免多次扩容
+	cached = make([]Result, 0, len(testIPs))
+	toPing = make([]string, 0, len(testIPs))
+
 	// 缓存检查
 	if p.rttCacheTtlSeconds > 0 {
+		now := time.Now() // 在循环外调用一次，避免重复系统调用
 		p.rttCacheMu.RLock()
 		for _, ip := range testIPs {
-			if e, ok := p.rttCache[ip]; ok && time.Now().Before(e.expiresAt) {
+			if e, ok := p.rttCache[ip]; ok && now.Before(e.expiresAt) {
 				cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: 0})
 			} else {
 				toPing = append(toPing, ip)

@@ -1,5 +1,9 @@
 package ping
 
+import (
+	"sync"
+)
+
 // NewPinger 创建新的 Pinger 实例
 // 参数：
 //   - count: 每个 IP 的测试次数
@@ -28,6 +32,11 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		enableHttpFallback: enableHttpFallback,
 		rttCache:           make(map[string]*rttCacheEntry),
 		stopChan:           make(chan struct{}),
+		bufferPool: &sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 512)
+			},
+		},
 	}
 
 	if rttCacheTtlSeconds > 0 {

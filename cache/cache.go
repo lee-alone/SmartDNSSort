@@ -62,11 +62,6 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 	}
 }
 
-// cacheKey 生成缓存键，包含查询类型
-func cacheKey(domain string, qtype uint16) string {
-	return domain + "#" + string(rune(qtype))
-}
-
 // SetPrefetcher 设置 prefetcher 实例，用于解耦
 func (c *Cache) SetPrefetcher(p PrefetchChecker) {
 	c.mu.Lock()

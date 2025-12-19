@@ -17,7 +17,7 @@ func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
 	// 第1步：先测 443 TCP（几乎所有现代服务都支持）
 	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
 		// 第2步：关键！TLS ClientHello 带 SNI，能干掉 163.com 那种"TCP通但实际不可用"的节点
-		if rtt2 := p.tlsHandshakeWithSNI(ctx, ip, domain); rtt2 >= 0 {
+		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
 			// 用 TLS 握手时间更准（包含加密协商延迟）
 			return rtt2
 		}
@@ -26,7 +26,7 @@ func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
 	}
 
 	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
-	if rtt := p.udpDnsPing(ctx, ip); rtt >= 0 {
+	if rtt := p.udpDnsPing(ip); rtt >= 0 {
 		return rtt
 	}
 
@@ -54,7 +54,7 @@ func (p *Pinger) tcpPingPort(ctx context.Context, ip, port string) int {
 
 // tlsHandshakeWithSNI 核心过滤器：TLS ClientHello 带 SNI（≈500 字节）
 // 能够识别 TCP 连接成功但 TLS 握手失败的节点
-func (p *Pinger) tlsHandshakeWithSNI(ctx context.Context, ip, domain string) int {
+func (p *Pinger) tlsHandshakeWithSNI(ip, domain string) int {
 	conf := &tls.Config{
 		ServerName:         domain,
 		InsecureSkipVerify: true, // 只测速度
@@ -72,8 +72,7 @@ func (p *Pinger) tlsHandshakeWithSNI(ctx context.Context, ip, domain string) int
 }
 
 // udpDnsPing 超轻量 UDP DNS 查询（80~200 字节）
-// ctx 用于支持上下文取消，虽然当前实现使用 DialTimeout，但保留以便未来改进
-func (p *Pinger) udpDnsPing(ctx context.Context, ip string) int {
+func (p *Pinger) udpDnsPing(ip string) int {
 	// 固定查询 www.google.com A 记录，30 字节
 	query := []byte{
 		0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
@@ -89,11 +88,17 @@ func (p *Pinger) udpDnsPing(ctx context.Context, ip string) int {
 	defer pc.Close()
 	pc.SetDeadline(time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond))
 
+	// 从池中获取 buffer
+	buf := p.bufferPool.Get().([]byte)
+	defer func() {
+		// 重置 buffer 长度为 0，防止脏数据污染
+		p.bufferPool.Put(buf[:0])
+	}()
+
 	start := time.Now()
 	if _, err = pc.Write(query); err != nil {
 		return -1
 	}
-	buf := make([]byte, 512)
 	if _, err = pc.Read(buf); err != nil {
 		return -1
 	}

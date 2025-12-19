@@ -12,6 +12,7 @@ type LRUCache struct {
 	capacity int
 	cache    map[string]*list.Element // key -> list.Element
 	list     *list.List               // 双向链表，头部为最新，尾部为最旧
+	elemPool *sync.Pool               // 新增: Element 对象池
 }
 
 // lruNode 链表中的节点
@@ -29,6 +30,11 @@ func NewLRUCache(capacity int) *LRUCache {
 		capacity: capacity,
 		cache:    make(map[string]*list.Element),
 		list:     list.New(),
+		elemPool: &sync.Pool{
+			New: func() interface{} {
+				return &list.Element{}
+			},
+		},
 	}
 }
 
@@ -62,7 +68,9 @@ func (lru *LRUCache) Set(key string, value any) {
 
 	// 创建新节点
 	node := &lruNode{key: key, value: value}
-	elem := lru.list.PushFront(node)
+	elem := lru.elemPool.Get().(*list.Element) // 从池中获取
+	elem.Value = node
+	lru.list.PushFront(elem)
 	lru.cache[key] = elem
 
 	// 如果超过容量，删除尾部元素（最久未使用）
@@ -78,6 +86,8 @@ func (lru *LRUCache) evictOne() {
 		lru.list.Remove(elem)
 		key := elem.Value.(*lruNode).key
 		delete(lru.cache, key)
+		elem.Value = nil       // 必须清理引用，防止内存泄漏
+		lru.elemPool.Put(elem) // 回收到池中
 	}
 }
 
@@ -96,6 +106,8 @@ func (lru *LRUCache) Delete(key string) {
 	if elem, exists := lru.cache[key]; exists {
 		lru.list.Remove(elem)
 		delete(lru.cache, key)
+		elem.Value = nil       // 必须清理引用，防止内存泄漏
+		lru.elemPool.Put(elem) // 回收到池中
 	}
 }
 
