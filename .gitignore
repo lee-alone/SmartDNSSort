@@ -21,6 +21,8 @@ vendor/
 # IDE
 .vscode/
 .idea/
+.agent/
+.kiro/
 *.swp
 *.swo
 *~

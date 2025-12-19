@@ -172,12 +172,24 @@
         </div>
     </div>
 
-    <!-- 7. Recent Queries (Full Width) -->
-    <div
-        class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
-        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-            <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
+    <!-- 7. Recent Queries and Recently Blocked (Side by Side) -->
+    <div class="col-span-1 md:col-span-2 xl:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Recent Queries -->
+        <div
+            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
+            </div>
+            <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
         </div>
-        <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
+
+        <!-- Recently Blocked -->
+        <div
+            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                <h2 class="font-bold text-lg" data-i18n="dashboard.recentlyBlocked">Recently Blocked</h2>
+            </div>
+            <div id="recently_blocked_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
+        </div>
     </div>
 </div>

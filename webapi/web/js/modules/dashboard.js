@@ -93,6 +93,9 @@ function updateDashboard() {
             const recentQueriesList = document.getElementById('recent_queries_list');
             recentQueriesList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
         });
+
+    // Fetch recently blocked domains
+    fetchRecentlyBlocked();
 }
 
 function initializeDashboardButtons() {
@@ -192,3 +195,27 @@ window.addEventListener('languageChanged', () => {
         window.dashboardInterval = setInterval(updateDashboard, 5000);
     }
 });
+
+
+function fetchRecentlyBlocked() {
+    fetch('/api/recent-blocked')
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load recently blocked'))
+        .then(data => {
+            const recentlyBlockedList = document.getElementById('recently_blocked_list');
+            recentlyBlockedList.innerHTML = '';
+            if (data && data.length > 0) {
+                data.forEach(domain => {
+                    const div = document.createElement('div');
+                    div.textContent = domain;
+                    recentlyBlockedList.appendChild(div);
+                });
+            } else {
+                recentlyBlockedList.innerHTML = `<div style="text-align:center;">${i18n.t('dashboard.noRecentlyBlocked')}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching recently blocked:', error);
+            const recentlyBlockedList = document.getElementById('recently_blocked_list');
+            recentlyBlockedList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
+        });
+}

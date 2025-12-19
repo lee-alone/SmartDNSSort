@@ -54,8 +54,10 @@ const resourcesEn = {
         "domain": "Domain",
         "count": "Count",
         "recentQueries": "Recent Queries",
+        "recentlyBlocked": "Recently Blocked",
         "noDomainData": "No domain data yet.",
         "noRecentQueries": "No recent queries.",
+        "noRecentlyBlocked": "No recently blocked domains.",
         "errorLoadingData": "Error loading data."
     },
     "config": {

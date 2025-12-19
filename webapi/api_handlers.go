@@ -233,3 +233,22 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		logger.Warn("No restart function configured. Please restart manually.")
 	}
 }
+
+// handleRecentlyBlocked 处理最近被拦截的域名请求
+func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	domains := s.dnsCache.GetRecentlyBlocked().GetAll()
+	if domains == nil {
+		domains = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(domains); err != nil {
+		logger.Errorf("Failed to encode recently blocked domains: %v", err)
+		s.writeJSONError(w, "Failed to encode recently blocked domains", http.StatusInternalServerError)
+	}
+}

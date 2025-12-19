@@ -30,9 +30,10 @@ type Cache struct {
 	msgCache     *LRUCache                     // DNSSEC 消息缓存（存储完整的 DNS 响应）
 
 	// 统计和其他字段
-	prefetcher PrefetchChecker // Prefetcher 实例，用于热点域名保护
-	hits       int64           // 缓存命中计数
-	misses     int64           // 缓存未命中计数
+	prefetcher      PrefetchChecker        // Prefetcher 实例，用于热点域名保护
+	recentlyBlocked RecentlyBlockedTracker // 最近被拦截的域名追踪器
+	hits            int64                  // 缓存命中计数
+	misses          int64                  // 缓存未命中计数
 }
 
 // NewCache 创建新的缓存实例
@@ -48,15 +49,16 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 	}
 
 	return &Cache{
-		config:       cfg,
-		maxEntries:   maxEntries,
-		rawCache:     NewLRUCache(maxEntries),
-		sortedCache:  NewLRUCache(maxEntries),
-		sortingState: make(map[string]*SortingState),
-		errorCache:   NewLRUCache(maxEntries),
-		blockedCache: make(map[string]*BlockedCacheEntry),
-		allowedCache: make(map[string]*AllowedCacheEntry),
-		msgCache:     NewLRUCache(msgCacheEntries),
+		config:          cfg,
+		maxEntries:      maxEntries,
+		rawCache:        NewLRUCache(maxEntries),
+		sortedCache:     NewLRUCache(maxEntries),
+		sortingState:    make(map[string]*SortingState),
+		errorCache:      NewLRUCache(maxEntries),
+		blockedCache:    make(map[string]*BlockedCacheEntry),
+		allowedCache:    make(map[string]*AllowedCacheEntry),
+		msgCache:        NewLRUCache(msgCacheEntries),
+		recentlyBlocked: NewRecentlyBlockedTracker(),
 	}
 }
 
@@ -70,6 +72,11 @@ func (c *Cache) SetPrefetcher(p PrefetchChecker) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.prefetcher = p
+}
+
+// GetRecentlyBlocked 获取最近被拦截的域名追踪器
+func (c *Cache) GetRecentlyBlocked() RecentlyBlockedTracker {
+	return c.recentlyBlocked
 }
 
 // RecordAccess 记录缓存访问（兼容性方法）
