@@ -52,32 +52,34 @@
                 <div id="adblock_test_result" class="text-sm mt-2 p-2 rounded-lg"></div>
             </div>
         </div>
-        <div class="pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-            <h3 class="text-lg font-medium" data-i18n="adblock.settings">AdBlock Settings
+        <div class="pt-4 border-t border-border-light dark:border-border-dark">
+            <h3 class="text-lg font-medium mb-4" data-i18n="adblock.settings">AdBlock Settings
             </h3>
-            <div class="form-group"><label for="adblock_update_interval_hours"
-                    data-i18n="adblock.updateInterval">Update Interval (Hours)</label><input
-                    type="number" id="adblock_update_interval_hours"
-                    name="update_interval_hours"
-                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-            </div>
-            <div class="form-group"><label for="adblock_max_cache_age_hours"
-                    data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label><input
-                    type="number" id="adblock_max_cache_age_hours"
-                    name="max_cache_age_hours"
-                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-            </div>
-            <div class="form-group"><label for="adblock_max_cache_size_mb"
-                    data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label><input
-                    type="number" id="adblock_max_cache_size_mb"
-                    name="max_cache_size_mb"
-                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-            </div>
-            <div class="form-group"><label for="adblock_blocked_ttl"
-                    data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label><input
-                    type="number" id="adblock_blocked_ttl"
-                    name="blocked_ttl"
-                    class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="form-group"><label for="adblock_update_interval_hours"
+                        data-i18n="adblock.updateInterval">Update Interval (Hours)</label><input
+                        type="number" id="adblock_update_interval_hours"
+                        name="update_interval_hours"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="adblock_max_cache_age_hours"
+                        data-i18n="adblock.maxCacheAge">Max Cache Age (Hours)</label><input
+                        type="number" id="adblock_max_cache_age_hours"
+                        name="max_cache_age_hours"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="adblock_max_cache_size_mb"
+                        data-i18n="adblock.maxCacheSize">Max Cache Size (MB)</label><input
+                        type="number" id="adblock_max_cache_size_mb"
+                        name="max_cache_size_mb"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="adblock_blocked_ttl"
+                        data-i18n="adblock.blockedTtl">Blocked Response TTL (Seconds)</label><input
+                        type="number" id="adblock_blocked_ttl"
+                        name="blocked_ttl"
+                        class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
             </div>
         </div>
     </div>

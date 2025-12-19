@@ -158,7 +158,7 @@ func setAdBlockDefaults(cfg *Config) {
 		cfg.AdBlock.MaxCacheSizeMB = 30
 	}
 	if cfg.AdBlock.BlockMode == "" {
-		cfg.AdBlock.BlockMode = "nxdomain"
+		cfg.AdBlock.BlockMode = "zero_ip"
 	}
 	if cfg.AdBlock.BlockedTTL == 0 {
 		cfg.AdBlock.BlockedTTL = 3600

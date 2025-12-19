@@ -149,7 +149,7 @@ adblock:
   update_interval_hours: 168
   max_cache_age_hours: 168
   max_cache_size_mb: 30
-  block_mode: nxdomain
+  block_mode: zero_ip
   blocked_ttl: 3600
 
 # 系统资源配置

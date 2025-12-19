@@ -73,6 +73,15 @@ function populateForm(config) {
 
         setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
         setValue('upstream.bootstrap_dns', (config.upstream.bootstrap_dns || []).join('\n'));
+
+        // Load AdBlock settings
+        if (config.adblock) {
+            setValue('adblock_update_interval_hours', config.adblock.update_interval_hours || 0);
+            setValue('adblock_max_cache_age_hours', config.adblock.max_cache_age_hours || 0);
+            setValue('adblock_max_cache_size_mb', config.adblock.max_cache_size_mb || 0);
+            setValue('adblock_blocked_ttl', config.adblock.blocked_ttl || 0);
+            setValue('adblock_block_mode', config.adblock.block_mode || 'nxdomain');
+        }
     } catch (e) {
         console.error("Error inside populateForm:", e);
         alert("An error occurred while displaying the configuration. Check developer console (F12).");
@@ -171,8 +180,31 @@ function saveConfig() {
             },
         };
 
+        // Handle AdBlock settings from form if they exist
         if (originalConfig && originalConfig.adblock) {
             data.adblock = originalConfig.adblock;
+            // Update from form if elements exist
+            const updateIntervalEl = document.getElementById('adblock_update_interval_hours');
+            const maxCacheAgeEl = document.getElementById('adblock_max_cache_age_hours');
+            const maxCacheSizeEl = document.getElementById('adblock_max_cache_size_mb');
+            const blockedTtlEl = document.getElementById('adblock_blocked_ttl');
+            const blockModeEl = document.getElementById('adblock_block_mode');
+            
+            if (updateIntervalEl && updateIntervalEl.value) {
+                data.adblock.update_interval_hours = parseInt(updateIntervalEl.value);
+            }
+            if (maxCacheAgeEl && maxCacheAgeEl.value) {
+                data.adblock.max_cache_age_hours = parseInt(maxCacheAgeEl.value);
+            }
+            if (maxCacheSizeEl && maxCacheSizeEl.value) {
+                data.adblock.max_cache_size_mb = parseInt(maxCacheSizeEl.value);
+            }
+            if (blockedTtlEl && blockedTtlEl.value) {
+                data.adblock.blocked_ttl = parseInt(blockedTtlEl.value);
+            }
+            if (blockModeEl && blockModeEl.value) {
+                data.adblock.block_mode = blockModeEl.value;
+            }
         }
         if (originalConfig && originalConfig.stats) {
             data.stats = originalConfig.stats;
