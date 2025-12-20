@@ -40,7 +40,7 @@ type UpstreamConfig struct {
 	// racing 策略中同时发起的最大竞争请求数（默认 2）
 	RacingMaxConcurrent int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
-	NxdomainForErrors bool `yaml:"nxdomain_for_errors" json:"nxdomain_for_errors"`
+
 	Dnssec            bool `yaml:"dnssec" json:"dnssec"`
 
 	// 健康检查配置
