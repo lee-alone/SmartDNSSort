@@ -139,3 +139,57 @@ func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string,
 		}
 	}
 }
+
+// buildGenericResponse 构造通用记录的 DNS 响应
+// 参数说明：
+//   - msg: DNS 响应消息（已设置 reply）
+//   - cnames: CNAME 链列表
+//   - records: 所有通用记录列表
+//   - qtype: 查询的记录类型
+//   - ttl: 响应 TTL
+//   - authData: DNSSEC 验证标记
+func (s *Server) buildGenericResponse(msg *dns.Msg, cnames []string, records []dns.RR, qtype uint16, ttl uint32, authData bool) {
+	logger.Debugf("[buildGenericResponse] 构造通用响应: %d 条 CNAME, %d 条记录, 类型=%s, TTL=%d",
+		len(cnames), len(records), dns.TypeToString[qtype], ttl)
+
+	if authData {
+		msg.AuthenticatedData = true
+	}
+
+	fqdn := dns.Fqdn(msg.Question[0].Name) // 原始查询域名
+
+	// 第一步：添加 CNAME 链
+	if len(cnames) > 0 {
+		currentName := fqdn
+		for _, target := range cnames {
+			targetFqdn := dns.Fqdn(target)
+			msg.Answer = append(msg.Answer, &dns.CNAME{
+				Hdr: dns.RR_Header{
+					Name:   currentName,
+					Rrtype: dns.TypeCNAME,
+					Class:  dns.ClassINET,
+					Ttl:    ttl,
+				},
+				Target: targetFqdn,
+			})
+			currentName = targetFqdn
+		}
+	}
+
+	// 第二步：添加目标记录（筛选匹配查询类型的记录）
+	for _, rr := range records {
+		if rr.Header().Rrtype == qtype {
+			// 创建记录的副本并更新 TTL
+			rrCopy := dns.Copy(rr)
+			rrCopy.Header().Ttl = ttl
+			msg.Answer = append(msg.Answer, rrCopy)
+		}
+	}
+
+	// 第三步：处理空响应（NODATA）
+	if len(msg.Answer) == 0 || (len(cnames) > 0 && len(msg.Answer) == len(cnames)) {
+		msg.SetRcode(msg, dns.RcodeSuccess) // 成功但无记录
+		logger.Debugf("[buildGenericResponse] NODATA 响应: %s (type=%s)",
+			msg.Question[0].Name, dns.TypeToString[qtype])
+	}
+}

@@ -70,8 +70,20 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 
 		// 处理查询成功
 		if reply.Rcode == dns.RcodeSuccess {
-			ips, cnames, ttl := extractIPs(reply)
-			result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
+			records, cnames, ttl := extractRecords(reply)
+
+			// 从 records 中提取 IPs
+			var ips []string
+			for _, r := range records {
+				switch rec := r.(type) {
+				case *dns.A:
+					ips = append(ips, rec.A.String())
+				case *dns.AAAA:
+					ips = append(ips, rec.AAAA.String())
+				}
+			}
+
+			result := &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
 			select {
 			case resultChan <- result:
 				logger.Debugf("[queryRacing] 主请求成功: %s", server.Address())
@@ -87,7 +99,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 		// 处理 NXDOMAIN - 确定性错误，立即返回
 		if reply.Rcode == dns.RcodeNameError {
 			ttl := extractNegativeTTL(reply)
-			result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
+			result := &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
 			select {
 			case resultChan <- result:
 				server.RecordSuccess()
@@ -174,8 +186,20 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 			}
 
 			if reply.Rcode == dns.RcodeSuccess {
-				ips, cnames, ttl := extractIPs(reply)
-				result := &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
+				records, cnames, ttl := extractRecords(reply)
+
+				// 从 records 中提取 IPs
+				var ips []string
+				for _, r := range records {
+					switch rec := r.(type) {
+					case *dns.A:
+						ips = append(ips, rec.A.String())
+					case *dns.AAAA:
+						ips = append(ips, rec.AAAA.String())
+					}
+				}
+
+				result := &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}
 				select {
 				case resultChan <- result:
 					logger.Debugf("[queryRacing] 备选请求成功: %s", server.Address())
@@ -190,7 +214,7 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 
 			if reply.Rcode == dns.RcodeNameError {
 				ttl := extractNegativeTTL(reply)
-				result := &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
+				result := &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}
 				select {
 				case resultChan <- result:
 					server.RecordSuccess()

@@ -11,6 +11,7 @@ import (
 
 // QueryResult 查询结果
 type QueryResult struct {
+	Records           []dns.RR // 通用记录列表（所有类型的 DNS 记录）
 	IPs               []string
 	CNAMEs            []string // 支持多 CNAME 记录
 	TTL               uint32   // 上游 DNS 返回的 TTL（对所有 IP 取最小值）
@@ -23,6 +24,7 @@ type QueryResult struct {
 
 // QueryResultWithTTL 带 TTL 信息的查询结果
 type QueryResultWithTTL struct {
+	Records           []dns.RR // 通用记录列表（所有类型的 DNS 记录）
 	IPs               []string
 	CNAMEs            []string // 支持多 CNAME 记录
 	TTL               uint32   // 上游 DNS 返回的 TTL
@@ -41,7 +43,7 @@ type Manager struct {
 	racingDelayMs       int // 竞速策略的起始延迟（毫秒）
 	racingMaxConcurrent int // 竞速策略中同时发起的最大请求数
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
-	cacheUpdateCallback func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32)
+	cacheUpdateCallback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32)
 }
 
 // NewManager 创建上游 DNS 管理器
@@ -81,7 +83,7 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 
 // SetCacheUpdateCallback 设置缓存更新回调函数
 // 用于在 parallel 模式下后台收集完所有响应后更新缓存
-func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32)) {
+func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32)) {
 	u.cacheUpdateCallback = callback
 }
 

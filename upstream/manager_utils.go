@@ -7,6 +7,41 @@ import (
 	"github.com/miekg/dns"
 )
 
+// ExtractRecords 从 DNS 响应中提取所有记录、CNAMEs 和最小 TTL（导出版本）
+// 返回值：记录列表、CNAME 列表、最小 TTL（秒）
+func ExtractRecords(msg *dns.Msg) ([]dns.RR, []string, uint32) {
+	return extractRecords(msg)
+}
+
+// extractRecords 从 DNS 响应中提取所有记录、CNAMEs 和最小 TTL
+// 返回值：记录列表、CNAME 列表、最小 TTL（秒）
+func extractRecords(msg *dns.Msg) ([]dns.RR, []string, uint32) {
+	var records []dns.RR
+	var cnames []string
+	var minTTL uint32 = 0 // 0 表示未设置
+
+	for _, answer := range msg.Answer {
+		records = append(records, answer) // 直接追加所有类型的记录
+
+		// 单独提取 CNAME 记录
+		if cname, ok := answer.(*dns.CNAME); ok {
+			cnames = append(cnames, cname.Target)
+		}
+
+		// 取最小 TTL
+		if minTTL == 0 || answer.Header().Ttl < minTTL {
+			minTTL = answer.Header().Ttl
+		}
+	}
+
+	// 如果没有找到任何记录，使用默认 TTL（60 秒）
+	if minTTL == 0 {
+		minTTL = 60
+	}
+
+	return records, cnames, minTTL
+}
+
 // extractIPs 从 DNS 响应中提取 IP 地址、CNAMEs 和最小 TTL
 // 返回值：IP 列表、CNAME 列表、最小 TTL（秒）
 func extractIPs(msg *dns.Msg) ([]string, []string, uint32) {

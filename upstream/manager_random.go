@@ -94,7 +94,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 			}
 			logger.Debugf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒",
 				attemptNum+1, server.Address(), ttl)
-			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
+			return &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
 		}
 
 		// 处理其他 DNS 错误响应码
@@ -110,16 +110,27 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		}
 
 		// 提取结果
-		ips, cnames, ttl := extractIPs(reply)
+		records, cnames, ttl := extractRecords(reply)
+
+		// 从 records 中提取 IPs
+		var ips []string
+		for _, r := range records {
+			switch rec := r.(type) {
+			case *dns.A:
+				ips = append(ips, rec.A.String())
+			case *dns.AAAA:
+				ips = append(ips, rec.AAAA.String())
+			}
+		}
 
 		// 验证结果是否有效
-		if len(ips) == 0 && len(cnames) == 0 {
+		if len(records) == 0 {
 			failureCount++
-			lastErr = fmt.Errorf("empty response: no IPs or CNAME found")
+			lastErr = fmt.Errorf("empty response: no records found")
 			logger.Warnf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果",
 				attemptNum+1, server.Address())
 			// 保存这个空结果,但继续尝试其他服务器
-			lastResult = &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, DnsMsg: reply.Copy()}
+			lastResult = &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, DnsMsg: reply.Copy()}
 			continue
 		}
 
@@ -129,10 +140,10 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 			u.stats.IncUpstreamSuccess(server.Address())
 		}
 
-		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
-			attemptNum+1, server.Address(), len(ips), cnames, ttl, ips)
+		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
+			attemptNum+1, server.Address(), len(records), cnames, ttl)
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
+		return &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}
 
 	// 所有服务器都失败了

@@ -74,8 +74,21 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 						Rcode:  reply.Rcode,
 					}
 				} else {
-					ips, cnames, ttl := extractIPs(reply)
+					records, cnames, ttl := extractRecords(reply)
+
+					// 从 records 中提取 IPs
+					var ips []string
+					for _, r := range records {
+						switch rec := r.(type) {
+						case *dns.A:
+							ips = append(ips, rec.A.String())
+						case *dns.AAAA:
+							ips = append(ips, rec.AAAA.String())
+						}
+					}
+
 					result = &QueryResult{
+						Records:           records,
 						IPs:               ips,
 						CNAMEs:            cnames,
 						TTL:               ttl,
@@ -95,7 +108,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			}
 
 			// 如果是第一个成功的响应，立即发送到快速响应通道
-			if result.Error == nil && len(result.IPs) > 0 {
+			if result.Error == nil && len(result.Records) > 0 {
 				fastResponseSent.Do(func() {
 					select {
 					case fastResponseChan <- result:
@@ -151,7 +164,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan)
 
 	// 立即返回第一个成功的响应
+	records, _, _ := extractRecords(fastResponse.DnsMsg) // 提取通用记录
 	return &QueryResultWithTTL{
+		Records:           records,
 		IPs:               fastResponse.IPs,
 		CNAMEs:            fastResponse.CNAMEs,
 		TTL:               fastResponse.TTL,
@@ -192,15 +207,15 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(result.Server)
 		}
-		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
-			result.Server, successCount, len(result.IPs), result.CNAMEs, result.TTL, result.IPs)
+		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
+			result.Server, successCount, len(result.Records), result.CNAMEs, result.TTL)
 
 		// 收集所有成功的结果
 		allSuccessResults = append(allSuccessResults, result)
 	}
 
-	// 汇总所有IP地址并去重
-	mergedIPs := u.mergeAndDeduplicateIPs(allSuccessResults)
+	// 合并所有通用记录（去重）
+	mergedRecords := u.mergeAndDeduplicateRecords(allSuccessResults)
 
 	// 选择最小的TTL(最保守的策略)
 	minTTL := fastResponse.TTL
@@ -210,32 +225,34 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 		}
 	}
 
-	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 个唯一IP (快速响应: %d 个IP, 汇总后: %d 个IP), CNAMEs=%v, TTL=%d秒",
-		successCount, len(mergedIPs), len(fastResponse.IPs), len(mergedIPs), fastResponse.CNAMEs, minTTL)
-	logger.Debugf("[collectRemainingResponses] 完整IP池: %v", mergedIPs)
+	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 条记录 (快速响应: %d 条, 汇总后: %d 条), CNAMEs=%v, TTL=%d秒",
+		successCount, len(mergedRecords), len(fastResponse.Records), len(mergedRecords), fastResponse.CNAMEs, minTTL)
 
 	// 如果设置了缓存更新回调，则调用它来更新缓存
 	if u.cacheUpdateCallback != nil {
-		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整IP池到缓存")
-		u.cacheUpdateCallback(domain, qtype, mergedIPs, fastResponse.CNAMEs, minTTL)
+		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整记录池到缓存")
+		u.cacheUpdateCallback(domain, qtype, mergedRecords, fastResponse.CNAMEs, minTTL)
 	} else {
 		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存")
 	}
 }
 
-// mergeAndDeduplicateIPs 汇总并去重多个查询结果中的IP地址
-func (u *Manager) mergeAndDeduplicateIPs(results []*QueryResult) []string {
-	ipSet := make(map[string]bool)
-	var mergedIPs []string
+// mergeAndDeduplicateRecords 合并并去重多个查询结果中的通用记录
+func (u *Manager) mergeAndDeduplicateRecords(results []*QueryResult) []dns.RR {
+	// 使用 map 来去重记录（基于记录的字符串表示）
+	recordSet := make(map[string]dns.RR)
+	var mergedRecords []dns.RR
 
 	for _, result := range results {
-		for _, ip := range result.IPs {
-			if !ipSet[ip] {
-				ipSet[ip] = true
-				mergedIPs = append(mergedIPs, ip)
+		for _, rr := range result.Records {
+			// 使用记录的字符串表示作为唯一键
+			key := rr.String()
+			if _, exists := recordSet[key]; !exists {
+				recordSet[key] = rr
+				mergedRecords = append(mergedRecords, rr)
 			}
 		}
 	}
 
-	return mergedIPs
+	return mergedRecords
 }

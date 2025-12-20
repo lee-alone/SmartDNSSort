@@ -81,8 +81,8 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			msg.SetRcode(r, dns.RcodeNameError)
 			w.WriteMsg(msg)
 		} else {
-			logger.Debugf("[handleQuery] SERVFAIL/超时错误，返回空响应（不缓存）: %s, Rcode=%d", domain, originalRcode)
-			msg.SetRcode(r, dns.RcodeSuccess)
+			logger.Debugf("[handleQuery] SERVFAIL/超时错误，返回 SERVFAIL 响应: %s, Rcode=%d", domain, originalRcode)
+			msg.SetRcode(r, dns.RcodeServerFailure)
 			msg.Answer = nil
 			w.WriteMsg(msg)
 		}
@@ -151,7 +151,12 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 
 	// [Fix] 为CNAME链中的每个域名都创建缓存和排序任务
 	// 总是保存实际的 AuthenticatedData 值到缓存，响应时根据配置决定是否转发
-	s.cache.SetRawWithDNSSEC(domain, qtype, finalIPs, fullCNAMEs, finalTTL, result.AuthenticatedData)
+	// 使用新的通用记录缓存方法
+	var finalRecords []dns.RR
+	if result.Records != nil {
+		finalRecords = result.Records
+	}
+	s.cache.SetRawRecordsWithDNSSEC(domain, qtype, finalRecords, fullCNAMEs, finalTTL, result.AuthenticatedData)
 	if len(finalIPs) > 0 {
 		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
 	}
@@ -162,7 +167,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		if i < len(fullCNAMEs)-1 {
 			subCNAMEs = fullCNAMEs[i+1:]
 		}
-		s.cache.SetRaw(cnameDomain, qtype, finalIPs, subCNAMEs, finalTTL)
+		s.cache.SetRawRecords(cnameDomain, qtype, finalRecords, subCNAMEs, finalTTL)
 		if len(finalIPs) > 0 {
 			go s.sortIPsAsync(cnameDomain, qtype, finalIPs, finalTTL, time.Now())
 		}
@@ -278,8 +283,15 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return // 请求已被本地规则处理
 	}
 
-	// 仅处理 A 和 AAAA 查询
+	// 仅处理 A 和 AAAA 查询（暂时保留限制，后续会移除）
 	if qtype != dns.TypeA && qtype != dns.TypeAAAA {
+		// 对于非 A/AAAA 查询，尝试通用处理
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if s.handleGenericQuery(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats, adblockMgr) {
+			return
+		}
+		// 如果通用处理失败，返回 NotImplemented
 		msg.SetRcode(r, dns.RcodeNotImplemented)
 		w.WriteMsg(msg)
 		return
@@ -334,4 +346,97 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	defer cancel()
 
 	s.handleCacheMiss(w, r, domain, question, ctx, currentUpstream, currentCfg, currentStats, adblockMgr)
+}
+
+// handleGenericQuery 处理非 A/AAAA 类型的通用查询
+func (s *Server) handleGenericQuery(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats, adblockMgr *adblock.AdBlockManager) bool {
+	logger.Debugf("[handleGenericQuery] 处理通用查询: %s (type=%s)", domain, dns.TypeToString[qtype])
+
+	// 检查错误缓存
+	if s.handleErrorCacheHit(w, r, domain, qtype, currentStats) {
+		return true
+	}
+
+	// 检查原始缓存中的通用记录
+	if s.handleRawCacheHitGeneric(w, r, domain, qtype, currentCfg, currentStats) {
+		return true
+	}
+
+	// 缓存未命中，执行通用查询
+	s.handleGenericCacheMiss(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats, adblockMgr)
+	return true
+}
+
+// handleGenericCacheMiss 处理通用查询的缓存未命中情况
+func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats, adblockMgr *adblock.AdBlockManager) {
+	currentStats.IncCacheMisses()
+
+	logger.Debugf("[handleGenericCacheMiss] 通用查询缓存未命中: %s (type=%s)", domain, dns.TypeToString[qtype])
+
+	// 使用配置的上游超时
+	maxTotalTimeout := 30 * time.Second
+	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs) * time.Millisecond
+	totalTimeout = min(totalTimeout, maxTotalTimeout)
+
+	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
+	defer cancel()
+
+	// 使用 singleflight 合并相同的并发请求
+	sfKey := fmt.Sprintf("generic_query:%s:%d", domain, qtype)
+
+	v, err, shared := s.requestGroup.Do(sfKey, func() (any, error) {
+		return currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
+	})
+
+	if shared {
+		logger.Debugf("[handleGenericCacheMiss] 合并并发请求: %s (type=%s)", domain, dns.TypeToString[qtype])
+	}
+
+	var result *upstream.QueryResultWithTTL
+	if err == nil {
+		result = v.(*upstream.QueryResultWithTTL)
+	}
+
+	if err != nil {
+		logger.Warnf("[handleGenericCacheMiss] 上游查询失败: %v", err)
+		originalRcode := parseRcodeFromError(err)
+		if originalRcode != dns.RcodeNameError {
+			currentStats.IncUpstreamFailures()
+		}
+
+		msg := s.msgPool.Get()
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Compress = false
+
+		if originalRcode == dns.RcodeNameError {
+			s.cache.SetError(domain, qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
+			logger.Debugf("[handleGenericCacheMiss] NXDOMAIN 错误，缓存并返回: %s", domain)
+			msg.SetRcode(r, dns.RcodeNameError)
+		} else {
+			logger.Debugf("[handleGenericCacheMiss] SERVFAIL/超时错误，返回 SERVFAIL 响应: %s, Rcode=%d", domain, originalRcode)
+			msg.SetRcode(r, dns.RcodeServerFailure)
+		}
+		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
+		return
+	}
+
+	// 缓存通用记录
+	currentStats.RecordDomainQuery(domain)
+	logger.Debugf("[handleGenericCacheMiss] 通用查询结果: %s (type=%s) 获得 %d 条记录, CNAMEs=%v (TTL=%d秒)",
+		domain, dns.TypeToString[qtype], len(result.Records), result.CNAMEs, result.TTL)
+
+	s.cache.SetRawRecordsWithDNSSEC(domain, qtype, result.Records, result.CNAMEs, result.TTL, result.AuthenticatedData)
+
+	// 构建通用响应
+	msg := s.msgPool.Get()
+	msg.SetReply(r)
+	msg.RecursionAvailable = true
+	msg.Compress = false
+	authData := result.AuthenticatedData && currentCfg.Upstream.Dnssec
+
+	s.buildGenericResponse(msg, result.CNAMEs, result.Records, qtype, result.TTL, authData)
+	w.WriteMsg(msg)
+	s.msgPool.Put(msg)
 }

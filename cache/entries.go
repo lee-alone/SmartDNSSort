@@ -8,7 +8,8 @@ import (
 
 // RawCacheEntry 原始缓存项（上游 DNS 的原始响应）
 type RawCacheEntry struct {
-	IPs               []string  // 原始 IP 列表
+	Records           []dns.RR  // 通用记录列表（所有类型的 DNS 记录）
+	IPs               []string  // 原始 IP 列表（Records 中 A/AAAA 记录的物化视图）
 	CNAMEs            []string  // CNAME 记录列表（支持多级 CNAME）
 	UpstreamTTL       uint32    // 上游 DNS 返回的原始 TTL（秒）
 	AcquisitionTime   time.Time // 从上游获取的时间

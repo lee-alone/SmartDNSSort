@@ -105,7 +105,7 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			}
 			logger.Debugf("[querySequential] 服务器 %s 返回 NXDOMAIN，立即返回", server.Address())
 			server.RecordSuccess()
-			return &QueryResultWithTTL{IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
+			return &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
 		}
 
 		// 处理其他 DNS 错误响应码
@@ -121,10 +121,21 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 		}
 
 		// 提取结果
-		ips, cnames, ttl := extractIPs(reply)
+		records, cnames, ttl := extractRecords(reply)
+
+		// 从 records 中提取 IPs
+		var ips []string
+		for _, r := range records {
+			switch rec := r.(type) {
+			case *dns.A:
+				ips = append(ips, rec.A.String())
+			case *dns.AAAA:
+				ips = append(ips, rec.AAAA.String())
+			}
+		}
 
 		// 验证结果
-		if len(ips) == 0 && len(cnames) == 0 {
+		if len(records) == 0 {
 			logger.Debugf("[querySequential] 服务器 %s 返回空结果，尝试下一个",
 				server.Address())
 			server.RecordError()
@@ -138,11 +149,11 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(server.Address())
 		}
-		logger.Debugf("[querySequential] ✅ 服务器 %s 成功，返回 %d 个IP: %v",
-			server.Address(), len(ips), ips)
+		logger.Debugf("[querySequential] ✅ 服务器 %s 成功，返回 %d 条记录",
+			server.Address(), len(records))
 		server.RecordSuccess()
 
-		return &QueryResultWithTTL{IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
+		return &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}
 
 	// 所有服务器都尝试失败

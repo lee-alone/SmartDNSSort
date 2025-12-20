@@ -57,18 +57,18 @@ func TestSortedCacheExpiration(t *testing.T) {
 // getDefaultCacheConfig provides a default cache configuration for testing.
 func getDefaultCacheConfig() *config.CacheConfig {
 	return &config.CacheConfig{
-		FastResponseTTL: 15,
-		UserReturnTTL:   600,
-		MinTTLSeconds:   0,
-		MaxTTLSeconds:   0,
-		NegativeTTLSeconds: 300,
-		ErrorCacheTTL:      30,
-		MaxMemoryMB:        128,
-		MsgCacheSizeMB:     1, // Small size for testing
-		DNSSECMsgCacheTTLSeconds: 300, // Default to 5 minutes
-		EvictionThreshold:  0.9,
-		EvictionBatchPercent: 0.1,
-		ProtectPrefetchDomains: false,
+		FastResponseTTL:           15,
+		UserReturnTTL:             600,
+		MinTTLSeconds:             0,
+		MaxTTLSeconds:             0,
+		NegativeTTLSeconds:        300,
+		ErrorCacheTTL:             30,
+		MaxMemoryMB:               128,
+		MsgCacheSizeMB:            1,   // Small size for testing
+		DNSSECMsgCacheTTLSeconds:  300, // Default to 5 minutes
+		EvictionThreshold:         0.9,
+		EvictionBatchPercent:      0.1,
+		ProtectPrefetchDomains:    false,
 		SaveToDiskIntervalMinutes: 60,
 	}
 }
@@ -148,7 +148,7 @@ func TestDNSSECCacheTTLEffective(t *testing.T) {
 	qtype := dns.TypeA
 
 	// Case 1: All records have high TTL, config caps it
-	cfg.DNSSECMsgCacheTTLSeconds = 60 // Configured TTL
+	cfg.DNSSECMsgCacheTTLSeconds = 60                                                     // Configured TTL
 	msgWithHighTTL := createTestDNSMsg(domain, qtype, "1.1.1.1", 300, true, false, false) // RRSIG has 30s, A has 300s
 	c.SetDNSSECMsg(domain, qtype, msgWithHighTTL)
 	retrievedEntry, ok := c.GetDNSSECMsg(domain, qtype)
@@ -316,4 +316,102 @@ func TestCleanExpired(t *testing.T) {
 
 	_, ok = c.GetSorted(validDomain, qtype)
 	assert.True(t, ok, "Valid entry should not have been cleaned")
+}
+
+// TestGenericRecordsCache tests the new generic records caching functionality
+func TestGenericRecordsCache(t *testing.T) {
+	c := NewCache(getDefaultCacheConfig())
+	domain := "generic.example.com"
+	qtype := dns.TypeMX
+
+	// Create test MX records
+	mx1 := &dns.MX{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(domain),
+			Rrtype: dns.TypeMX,
+			Class:  dns.ClassINET,
+			Ttl:    300,
+		},
+		Preference: 10,
+		Mx:         "mail1.example.com.",
+	}
+	mx2 := &dns.MX{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(domain),
+			Rrtype: dns.TypeMX,
+			Class:  dns.ClassINET,
+			Ttl:    300,
+		},
+		Preference: 20,
+		Mx:         "mail2.example.com.",
+	}
+
+	records := []dns.RR{mx1, mx2}
+	cnames := []string{}
+	ttl := uint32(300)
+
+	// Test SetRawRecords
+	c.SetRawRecords(domain, qtype, records, cnames, ttl)
+
+	// Test GetRaw
+	retrieved, ok := c.GetRaw(domain, qtype)
+	assert.True(t, ok, "Expected to find raw cache entry")
+	assert.NotNil(t, retrieved, "Retrieved entry should not be nil")
+	assert.Equal(t, len(records), len(retrieved.Records), "Records count should match")
+	// IPs should be empty or nil for MX records (no A/AAAA records)
+	assert.True(t, len(retrieved.IPs) == 0, "IPs should be empty for MX records")
+	assert.Equal(t, cnames, retrieved.CNAMEs, "CNAMEs should match")
+	assert.Equal(t, ttl, retrieved.UpstreamTTL, "TTL should match")
+
+	// Verify the records are correctly stored
+	if len(retrieved.Records) >= 2 {
+		mx1Retrieved, ok1 := retrieved.Records[0].(*dns.MX)
+		mx2Retrieved, ok2 := retrieved.Records[1].(*dns.MX)
+		assert.True(t, ok1, "First record should be MX type")
+		assert.True(t, ok2, "Second record should be MX type")
+		assert.Equal(t, uint16(10), mx1Retrieved.Preference, "First MX preference should match")
+		assert.Equal(t, uint16(20), mx2Retrieved.Preference, "Second MX preference should match")
+		assert.Equal(t, "mail1.example.com.", mx1Retrieved.Mx, "First MX target should match")
+		assert.Equal(t, "mail2.example.com.", mx2Retrieved.Mx, "Second MX target should match")
+	}
+}
+
+// TestGenericRecordsWithCNAME tests generic records with CNAME chains
+func TestGenericRecordsWithCNAME(t *testing.T) {
+	c := NewCache(getDefaultCacheConfig())
+	domain := "cname-generic.example.com"
+	qtype := dns.TypeTXT
+
+	// Create test TXT record
+	txt := &dns.TXT{
+		Hdr: dns.RR_Header{
+			Name:   "target.example.com.",
+			Rrtype: dns.TypeTXT,
+			Class:  dns.ClassINET,
+			Ttl:    300,
+		},
+		Txt: []string{"v=spf1 include:_spf.example.com ~all"},
+	}
+
+	records := []dns.RR{txt}
+	cnames := []string{"target.example.com"}
+	ttl := uint32(300)
+
+	// Test SetRawRecordsWithDNSSEC
+	c.SetRawRecordsWithDNSSEC(domain, qtype, records, cnames, ttl, true)
+
+	// Test GetRaw
+	retrieved, ok := c.GetRaw(domain, qtype)
+	assert.True(t, ok, "Expected to find raw cache entry")
+	assert.NotNil(t, retrieved, "Retrieved entry should not be nil")
+	assert.Equal(t, len(records), len(retrieved.Records), "Records count should match")
+	assert.Equal(t, cnames, retrieved.CNAMEs, "CNAMEs should match")
+	assert.True(t, retrieved.AuthenticatedData, "DNSSEC flag should be set")
+
+	// Verify the TXT record is correctly stored
+	if len(retrieved.Records) >= 1 {
+		txtRetrieved, ok := retrieved.Records[0].(*dns.TXT)
+		assert.True(t, ok, "Record should be TXT type")
+		assert.Equal(t, []string{"v=spf1 include:_spf.example.com ~all"}, txtRetrieved.Txt, "TXT content should match")
+	}
 }

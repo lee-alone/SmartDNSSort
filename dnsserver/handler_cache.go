@@ -196,3 +196,66 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	}
 	return true
 }
+
+// handleRawCacheHitGeneric 处理通用记录的原始缓存命中
+// 返回 true 表示请求已处理
+func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, cfg *config.Config, stats *stats.Stats) bool {
+	// 如果是 A/AAAA 查询，不在这里处理
+	if qtype == dns.TypeA || qtype == dns.TypeAAAA {
+		return false
+	}
+
+	raw, ok := s.cache.GetRaw(domain, qtype)
+	if !ok {
+		return false
+	}
+
+	s.cache.RecordAccess(domain, qtype)
+	s.prefetcher.RecordAccess(domain, raw.UpstreamTTL)
+	stats.IncCacheHits()
+	stats.RecordDomainQuery(domain)
+	logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存命中: %s (type=%s) -> %d 条记录, CNAMEs=%v (过期:%v)",
+		domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, raw.IsExpired())
+
+	// 计算 TTL
+	var userTTL uint32 = uint32(cfg.Cache.FastResponseTTL)
+
+	if !raw.IsExpired() {
+		elapsedRaw := time.Since(raw.AcquisitionTime)
+		remainingRaw := int(raw.UpstreamTTL) - int(elapsedRaw.Seconds())
+
+		if remainingRaw > 0 {
+			if cfg.Cache.UserReturnTTL > 0 {
+				cycleOffset := int(elapsedRaw.Seconds()) % cfg.Cache.UserReturnTTL
+				cappedTTL := cfg.Cache.UserReturnTTL - cycleOffset
+				if remainingRaw < cappedTTL {
+					userTTL = uint32(remainingRaw)
+				} else {
+					userTTL = uint32(cappedTTL)
+				}
+			} else {
+				userTTL = uint32(remainingRaw)
+			}
+		}
+	}
+
+	// 构建通用响应
+	msg := s.msgPool.Get()
+	msg.SetReply(r)
+	msg.RecursionAvailable = true
+	msg.Compress = false
+	authData := raw.AuthenticatedData && cfg.Upstream.Dnssec
+
+	s.buildGenericResponse(msg, raw.CNAMEs, raw.Records, qtype, userTTL, authData)
+	w.WriteMsg(msg)
+	s.msgPool.Put(msg)
+
+	if raw.IsExpired() {
+		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存已过期,触发异步刷新: %s (type=%s)",
+			domain, dns.TypeToString[qtype])
+		task := RefreshTask{Domain: domain, Qtype: qtype}
+		s.refreshQueue.Submit(task)
+	}
+
+	return true
+}

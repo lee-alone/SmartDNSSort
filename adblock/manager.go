@@ -84,10 +84,9 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 }
 
 func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	startTime := time.Now()
+
+	// Phase 1: Prepare - Download and parse rules WITHOUT holding the lock
 	sources := m.sourcesMgr.GetAllSources()
 	var wg sync.WaitGroup
 	failedSources := []string{}
@@ -130,21 +129,41 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 		// log error
 	}
 
-	// Reload all rules into the engine
+	// Phase 2: Load - Parse all rules into a new engine instance WITHOUT holding the lock
 	allRules, err := m.loader.LoadAllRules(sources)
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	if err := m.engine.LoadRules(allRules); err != nil {
+
+	// Create a new engine instance with the updated rules
+	var newEngine FilterEngine
+	switch strings.ToLower(m.cfg.Engine) {
+	case "urlfilter":
+		var err error
+		newEngine, err = NewURLFilterEngine()
+		if err != nil {
+			return UpdateResult{}, fmt.Errorf("error creating new urlfilter engine: %w", err)
+		}
+	case "simple":
+		newEngine = NewSimpleFilter()
+	default:
+		return UpdateResult{}, fmt.Errorf("unknown adblock engine: %s", m.cfg.Engine)
+	}
+
+	if err := newEngine.LoadRules(allRules); err != nil {
 		return UpdateResult{}, err
 	}
+
+	// Phase 3: Swap - Replace the engine with minimal lock holding time
+	m.mu.Lock()
+	m.engine = newEngine
+	m.lastUpdate = time.Now()
+	m.mu.Unlock()
 
 	totalRules = m.engine.Count()
 	if totalRules == 0 {
 		totalRules = len(allRules)
 	}
-
-	m.lastUpdate = time.Now()
 
 	return UpdateResult{
 		TotalRules:      totalRules,
@@ -214,23 +233,23 @@ func (m *AdBlockManager) AddSource(url string) error {
 }
 
 func (m *AdBlockManager) RemoveSource(url string) error {
-    m.sourcesMgr.RemoveSource(url)
-    return m.sourcesMgr.saveMeta()
+	m.sourcesMgr.RemoveSource(url)
+	return m.sourcesMgr.saveMeta()
 }
 
 func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
-    m.mu.Lock()
-    defer m.mu.Unlock()
-    m.sourcesMgr.SetEnabled(url, enabled)
-    if err := m.sourcesMgr.saveMeta(); err != nil {
-        return err
-    }
-    sources := m.sourcesMgr.GetAllSources()
-    allRules, err := m.loader.LoadAllRules(sources)
-    if err != nil {
-        return err
-    }
-    return m.engine.LoadRules(allRules)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourcesMgr.SetEnabled(url, enabled)
+	if err := m.sourcesMgr.saveMeta(); err != nil {
+		return err
+	}
+	sources := m.sourcesMgr.GetAllSources()
+	allRules, err := m.loader.LoadAllRules(sources)
+	if err != nil {
+		return err
+	}
+	return m.engine.LoadRules(allRules)
 }
 
 type TestResult struct {
