@@ -37,12 +37,15 @@ type Manager struct {
 	timeoutMs   int
 	concurrency int // 并行查询时的并发数
 	stats       *stats.Stats
+	// racing 策略配置
+	racingDelayMs       int // 竞速策略的起始延迟（毫秒）
+	racingMaxConcurrent int // 竞速策略中同时发起的最大请求数
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
 	cacheUpdateCallback func(domain string, qtype uint16, ips []string, cnames []string, ttl uint32)
 }
 
 // NewManager 创建上游 DNS 管理器
-func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats, healthConfig *HealthCheckConfig) *Manager {
+func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats, healthConfig *HealthCheckConfig, racingDelayMs int, racingMaxConcurrent int) *Manager {
 	if strategy == "" {
 		strategy = "random"
 	}
@@ -52,6 +55,12 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 	if concurrency <= 0 {
 		concurrency = 3
 	}
+	if racingDelayMs <= 0 {
+		racingDelayMs = 100 // 默认 100ms
+	}
+	if racingMaxConcurrent <= 0 {
+		racingMaxConcurrent = 2 // 默认 2
+	}
 
 	// 将普通 Upstream 包装为 HealthAwareUpstream
 	healthAwareServers := make([]*HealthAwareUpstream, len(servers))
@@ -60,11 +69,13 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 	}
 
 	return &Manager{
-		servers:     healthAwareServers,
-		strategy:    strategy,
-		timeoutMs:   timeoutMs,
-		concurrency: concurrency,
-		stats:       s,
+		servers:             healthAwareServers,
+		strategy:            strategy,
+		timeoutMs:           timeoutMs,
+		concurrency:         concurrency,
+		stats:               s,
+		racingDelayMs:       racingDelayMs,
+		racingMaxConcurrent: racingMaxConcurrent,
 	}
 }
 

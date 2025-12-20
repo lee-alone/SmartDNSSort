@@ -19,12 +19,11 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 	logger.Debugf("[queryRacing] 开始竞争查询 %s (type=%s)，可用服务器数=%d",
 		domain, dns.TypeToString[qtype], len(u.servers))
 
-	// 获取参数
-	raceDelay := time.Duration(100) * time.Millisecond // 默认 100ms
-	maxConcurrent := 2                                 // 默认 2
+	// 从 Manager 配置中获取参数
+	raceDelay := time.Duration(u.racingDelayMs) * time.Millisecond
+	maxConcurrent := u.racingMaxConcurrent
 
-	// 从配置中获取参数（如果在 Manager 结构体中添加了这些字段）
-	// 这里假设会在后续的改进中添加
+	logger.Debugf("[queryRacing] 竞速参数: 延迟=%v, 最大并发=%d", raceDelay, maxConcurrent)
 
 	sortedServers := u.getSortedHealthyServers()
 	if len(sortedServers) == 0 {

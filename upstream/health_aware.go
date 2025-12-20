@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -25,7 +26,9 @@ func NewHealthAwareUpstream(upstream Upstream, healthConfig *HealthCheckConfig) 
 
 // Exchange 执行 DNS 查询，并记录健康状态
 func (h *HealthAwareUpstream) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	startTime := time.Now()
 	reply, err := h.upstream.Exchange(ctx, msg)
+	latency := time.Since(startTime)
 
 	// 根据查询结果更新健康状态
 	if err != nil {
@@ -39,6 +42,8 @@ func (h *HealthAwareUpstream) Exchange(ctx context.Context, msg *dns.Msg) (*dns.
 		h.health.MarkFailure()
 	} else {
 		// RcodeSuccess 和 RcodeNameError (NXDOMAIN) 都视为成功
+		// 查询成功，记录延迟
+		h.health.RecordLatency(latency)
 		h.health.MarkSuccess()
 	}
 

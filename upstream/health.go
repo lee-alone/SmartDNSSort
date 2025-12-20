@@ -63,6 +63,12 @@ type ServerHealth struct {
 
 	// 配置
 	config *HealthCheckConfig
+
+	// 平均延迟（使用 EWMA 计算）
+	latency time.Duration
+
+	// EWMA 的 alpha 因子，例如 0.2
+	latencyAlpha float64
 }
 
 // NewServerHealth 创建服务器健康状态管理器
@@ -72,9 +78,11 @@ func NewServerHealth(address string, config *HealthCheckConfig) *ServerHealth {
 	}
 
 	return &ServerHealth{
-		address: address,
-		status:  HealthStatusHealthy,
-		config:  config,
+		address:      address,
+		status:       HealthStatusHealthy,
+		config:       config,
+		latency:      200 * time.Millisecond, // 初始延迟设为 200ms 的默认值
+		latencyAlpha: 0.2,                    // EWMA 的 alpha 因子
 	}
 }
 
@@ -191,4 +199,25 @@ func (h *ServerHealth) Reset() {
 	h.consecutiveSuccesses = 0
 	h.lastFailureTime = time.Time{}
 	h.circuitBreakerStartTime = time.Time{}
+}
+
+// RecordLatency 记录一次成功的查询延迟，并更新 EWMA 值
+func (h *ServerHealth) RecordLatency(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.latency == 0 { // 首次记录
+		h.latency = d
+	} else {
+		// EWMA 公式: new_avg = alpha * new_value + (1 - alpha) * old_avg
+		newLatency := time.Duration(h.latencyAlpha*float64(d) + (1.0-h.latencyAlpha)*float64(h.latency))
+		h.latency = newLatency
+	}
+}
+
+// GetLatency 获取当前的平均延迟（EWMA）
+func (h *ServerHealth) GetLatency() time.Duration {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.latency
 }

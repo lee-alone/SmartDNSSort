@@ -36,7 +36,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 			upstreams = append(upstreams, u)
 		}
 
-		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats, convertHealthCheckConfig(&newCfg.Upstream.HealthCheck))
+		newUpstream = upstream.NewManager(upstreams, newCfg.Upstream.Strategy, newCfg.Upstream.TimeoutMs, newCfg.Upstream.Concurrency, s.stats, convertHealthCheckConfig(&newCfg.Upstream.HealthCheck), newCfg.Upstream.RacingDelay, newCfg.Upstream.RacingMaxConcurrent)
 		// 设置缓存更新回调
 		s.setupUpstreamCallback(newUpstream)
 	}

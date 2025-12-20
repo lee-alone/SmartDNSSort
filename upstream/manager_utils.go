@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -61,10 +62,9 @@ func extractNegativeTTL(msg *dns.Msg) uint32 {
 	return 300
 }
 
-// getSortedHealthyServers 按健康度排序服务器
+// getSortedHealthyServers 按健康度和延迟排序服务器
 func (u *Manager) getSortedHealthyServers() []*HealthAwareUpstream {
-	// 简单实现：优先使用未熔断的服务器，然后按健康度排序
-	// 更复杂的实现可以基于响应时间、成功率等因素
+	// 简单实现：优先使用未熔断的服务器，然后按延迟升序排序
 	healthy := make([]*HealthAwareUpstream, 0, len(u.servers))
 	unhealthy := make([]*HealthAwareUpstream, 0)
 
@@ -75,6 +75,12 @@ func (u *Manager) getSortedHealthyServers() []*HealthAwareUpstream {
 			unhealthy = append(unhealthy, server)
 		}
 	}
+
+	// 核心改动：对"健康"列表按延迟升序排序
+	sort.Slice(healthy, func(i, j int) bool {
+		// 按延迟升序排序，延迟越低排越前
+		return healthy[i].GetHealth().GetLatency() < healthy[j].GetHealth().GetLatency()
+	})
 
 	// 健康的服务器优先，然后是不健康的
 	return append(healthy, unhealthy...)

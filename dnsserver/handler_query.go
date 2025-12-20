@@ -37,19 +37,12 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// ========== 阶段一：首次查询（无缓存）==========
 	logger.Debugf("[handleQuery] 首次查询，无缓存: %s (type=%s)", domain, dns.TypeToString[qtype])
 
-	// 计算动态超时时间: timeout_ms × 健康服务器数
-	healthyServerCount := currentUpstream.GetHealthyServerCount()
-	if healthyServerCount == 0 {
-		healthyServerCount = 1
-	}
-
-	// 设置最大总超时上限 (30秒),避免服务器太多时超时过长
+	// 使用配置的上游超时作为总超时（不与服务器数相乘，避免长时间等待）
 	maxTotalTimeout := 30 * time.Second
-	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs*healthyServerCount) * time.Millisecond
+	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs) * time.Millisecond
 	totalTimeout = min(totalTimeout, maxTotalTimeout)
 
-	logger.Debugf("[handleQuery] 动态超时计算: 健康服务器=%d, 单次超时=%dms, 总超时=%v",
-		healthyServerCount, currentCfg.Upstream.TimeoutMs, totalTimeout)
+	logger.Debugf("[handleQuery] 上游查询超时: %dms -> %v", currentCfg.Upstream.TimeoutMs, totalTimeout)
 
 	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
