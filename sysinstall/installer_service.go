@@ -9,23 +9,14 @@ import (
 
 // GenerateServiceFile 生成 systemd 服务文件内容
 func (si *SystemInstaller) GenerateServiceFile() string {
-	configPath := si.config.ConfigPath
-	if configPath == "" {
-		configPath = "/etc/SmartDNSSort/config.yaml"
-	}
-
-	workDir := si.config.WorkDir
-	if workDir == "" {
-		workDir = "/var/lib/SmartDNSSort"
-	}
-
+	workDir := DefaultDataDir
 	runUser := si.config.RunUser
 	if runUser == "" {
 		runUser = "root"
 	}
 
-	execStart := fmt.Sprintf("/usr/local/bin/SmartDNSSort -c %s -w %s",
-		configPath, workDir)
+	// 服务模式下不使用 -c 和 -w 参数，直接使用标准路径
+	execStart := DefaultBinaryPath()
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=SmartDNSSort DNS Server

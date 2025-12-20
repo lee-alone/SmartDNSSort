@@ -116,10 +116,10 @@ func (si *SystemInstaller) RemoveDirectories() error {
 		path string
 		desc string
 	}{
-		{"/etc/SmartDNSSort", "配置目录"},
-		{"/var/lib/SmartDNSSort", "数据目录"},
-		{"/var/log/SmartDNSSort", "日志目录"},
-		{"/usr/local/bin/SmartDNSSort", "二进制文件"},
+		{DefaultConfigDir, "配置目录"},
+		{DefaultDataDir, "数据目录"},
+		{DefaultLogDir, "日志目录"},
+		{DefaultBinaryPath(), "二进制文件"},
 	}
 
 	for _, dir := range dirs {

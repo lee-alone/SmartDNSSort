@@ -23,10 +23,10 @@ func (si *SystemInstaller) CreateDirectories() error {
 		mode os.FileMode
 		desc string
 	}{
-		{"/etc/SmartDNSSort", 0755, "配置目录"},
-		{"/var/lib/SmartDNSSort", 0755, "数据目录"},
-		{"/var/lib/SmartDNSSort/web", 0755, "Web UI 目录"},
-		{"/var/log/SmartDNSSort", 0755, "日志目录"},
+		{DefaultConfigDir, 0755, "配置目录"},
+		{DefaultDataDir, 0755, "数据目录"},
+		{DefaultDataDir + "/web", 0755, "Web UI 目录"},
+		{DefaultLogDir, 0755, "日志目录"},
 	}
 
 	for _, dir := range dirs {
@@ -48,7 +48,7 @@ func (si *SystemInstaller) CreateDirectories() error {
 func (si *SystemInstaller) GenerateDefaultConfig() error {
 	configPath := si.config.ConfigPath
 	if configPath == "" {
-		configPath = "/etc/SmartDNSSort/config.yaml"
+		configPath = DefaultConfigPath()
 	}
 
 	// 检查文件是否已存在

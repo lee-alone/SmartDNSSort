@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
@@ -35,7 +36,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 处理系统服务命令
+	// 处理系统服务命令（优先级最高）
 	if *serviceCmd != "" {
 		// 仅在 Linux 系统上支持
 		if runtime.GOOS != "linux" {
@@ -43,10 +44,12 @@ func main() {
 			os.Exit(1)
 		}
 
+		// 服务模式：强制使用标准绝对路径，忽略 -c 和 -w 参数
 		cfg := sysinstall.InstallerConfig{
-			ConfigPath: *configPath,
-			WorkDir:    *workDir,
+			ConfigPath: sysinstall.DefaultConfigPath(),
+			WorkDir:    sysinstall.DefaultDataDir,
 			RunUser:    *runUser,
+			BinaryPath: sysinstall.DefaultBinaryPath(),
 			DryRun:     *dryRun,
 			Verbose:    *verbose,
 		}
@@ -76,9 +79,26 @@ func main() {
 		os.Exit(0)
 	}
 
+	// 独立运行模式：确定工作目录和配置文件路径
+	effectiveWorkDir := *workDir
+	if effectiveWorkDir == "" {
+		var err error
+		effectiveWorkDir, err = os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误：无法获取当前工作目录：%v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// 确定配置文件路径 (如果 -c 是相对路径，则与工作目录拼接)
+	effectiveConfigPath := *configPath
+	if !filepath.IsAbs(effectiveConfigPath) {
+		effectiveConfigPath = filepath.Join(effectiveWorkDir, effectiveConfigPath)
+	}
+
 	// 正常的 DNS 服务器启动流程
 	// 加载配置（先加载配置以获取日志级别设置）
-	cfg, err := config.LoadConfig(*configPath)
+	cfg, err := config.LoadConfig(effectiveConfigPath)
 	if err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
@@ -87,8 +107,8 @@ func main() {
 	logger.SetLevel(cfg.System.LogLevel)
 
 	// 验证并修复配置文件
-	logger.Infof("Validating config file: %s", *configPath)
-	if err := config.ValidateAndRepairConfig(*configPath); err != nil {
+	logger.Infof("Validating config file: %s", effectiveConfigPath)
+	if err := config.ValidateAndRepairConfig(effectiveConfigPath); err != nil {
 		logger.Fatalf("Failed to validate/repair config: %v", err)
 	}
 
@@ -120,7 +140,7 @@ func main() {
 			restartService(dnsServer, webServer)
 		}
 
-		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, *configPath, restartFunc)
+		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, effectiveConfigPath, restartFunc)
 		go func() {
 			if err := webServer.Start(); err != nil {
 				logger.Errorf("Web API server error: %v", err)
@@ -172,7 +192,7 @@ func printHelp() {
   SmartDNSSort -c /etc/SmartDNSSort/config.yaml
 
   # 安装系统服务
-  sudo SmartDNSSort -s install -c /etc/SmartDNSSort/config.yaml
+  sudo SmartDNSSort -s install
 
   # 预览安装流程
   sudo SmartDNSSort -s install --dry-run

@@ -118,9 +118,9 @@ func (si *SystemInstaller) Install() error {
 	if !si.config.DryRun {
 		status, _ := si.GetServiceStatus()
 		fmt.Printf("✓ 服务状态：%s\n", status)
-		fmt.Printf("✓ 配置文件：/etc/SmartDNSSort/config.yaml\n")
-		fmt.Printf("✓ 数据目录：/var/lib/SmartDNSSort\n")
-		fmt.Printf("✓ 日志目录：/var/log/SmartDNSSort\n")
+		fmt.Printf("✓ 配置文件：%s\n", DefaultConfigPath())
+		fmt.Printf("✓ 数据目录：%s\n", DefaultDataDir)
+		fmt.Printf("✓ 日志目录：%s\n", DefaultLogDir)
 		fmt.Printf("✓ Web UI：http://localhost:8080\n")
 		fmt.Println("\n管理命令：")
 		fmt.Println("  查看状态：  sudo systemctl status SmartDNSSort")
