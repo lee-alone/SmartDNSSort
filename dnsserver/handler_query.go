@@ -79,11 +79,21 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			s.cache.SetError(domain, qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
 			logger.Debugf("[handleQuery] NXDOMAIN 错误，缓存并返回: %s", domain)
 			msg.SetRcode(r, dns.RcodeNameError)
+
+			// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+			msg.Ns = append(msg.Ns, soa)
+
 			w.WriteMsg(msg)
 		} else {
 			logger.Debugf("[handleQuery] SERVFAIL/超时错误，返回 SERVFAIL 响应: %s, Rcode=%d", domain, originalRcode)
 			msg.SetRcode(r, dns.RcodeServerFailure)
 			msg.Answer = nil
+
+			// 添加 SOA 记录到 Authority section（SERVFAIL 也应该有 SOA）
+			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+			msg.Ns = append(msg.Ns, soa)
+
 			w.WriteMsg(msg)
 		}
 		s.msgPool.Put(msg)
@@ -109,6 +119,11 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			msg.RecursionAvailable = true
 			msg.Compress = false
 			msg.SetRcode(r, dns.RcodeServerFailure)
+
+			// 添加 SOA 记录到 Authority section
+			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+			msg.Ns = append(msg.Ns, soa)
+
 			w.WriteMsg(msg)
 			s.msgPool.Put(msg)
 			return
@@ -130,15 +145,24 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		return // 请求被拦截
 	}
 
-	// 如果最终没有IP也没有CNAME，那就是 NODATA
+	// 如果最终没有IP也没有CNAME，那就是 NODATA（域名存在但无此类型记录）
 	if len(finalIPs) == 0 && len(fullCNAMEs) == 0 {
 		logger.Debugf("[handleQuery] 上游查询返回空结果 (NODATA): %s", domain)
+
+		// 缓存 NODATA 响应（使用 negative_ttl_seconds）
+		s.cache.SetError(domain, qtype, dns.RcodeSuccess, currentCfg.Cache.NegativeTTLSeconds)
+
 		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
 		msg.Compress = false
 		msg.SetRcode(r, dns.RcodeSuccess)
 		msg.Answer = nil
+
+		// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+		soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.NegativeTTLSeconds))
+		msg.Ns = append(msg.Ns, soa)
+
 		w.WriteMsg(msg)
 		s.msgPool.Put(msg)
 		return
@@ -288,7 +312,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		// 对于非 A/AAAA 查询，尝试通用处理
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if s.handleGenericQuery(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats, adblockMgr) {
+		if s.handleGenericQuery(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats) {
 			return
 		}
 		// 如果通用处理失败，返回 NotImplemented
@@ -349,7 +373,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 // handleGenericQuery 处理非 A/AAAA 类型的通用查询
-func (s *Server) handleGenericQuery(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats, adblockMgr *adblock.AdBlockManager) bool {
+func (s *Server) handleGenericQuery(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats) bool {
 	logger.Debugf("[handleGenericQuery] 处理通用查询: %s (type=%s)", domain, dns.TypeToString[qtype])
 
 	// 检查错误缓存
@@ -363,12 +387,12 @@ func (s *Server) handleGenericQuery(w dns.ResponseWriter, r *dns.Msg, domain str
 	}
 
 	// 缓存未命中，执行通用查询
-	s.handleGenericCacheMiss(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats, adblockMgr)
+	s.handleGenericCacheMiss(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats)
 	return true
 }
 
 // handleGenericCacheMiss 处理通用查询的缓存未命中情况
-func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats, adblockMgr *adblock.AdBlockManager) {
+func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, ctx context.Context, currentUpstream *upstream.Manager, currentCfg *config.Config, currentStats *stats.Stats) {
 	currentStats.IncCacheMisses()
 
 	logger.Debugf("[handleGenericCacheMiss] 通用查询缓存未命中: %s (type=%s)", domain, dns.TypeToString[qtype])
@@ -413,9 +437,16 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 			s.cache.SetError(domain, qtype, originalRcode, currentCfg.Cache.ErrorCacheTTL)
 			logger.Debugf("[handleGenericCacheMiss] NXDOMAIN 错误，缓存并返回: %s", domain)
 			msg.SetRcode(r, dns.RcodeNameError)
+			// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+			msg.Ns = append(msg.Ns, soa)
 		} else {
 			logger.Debugf("[handleGenericCacheMiss] SERVFAIL/超时错误，返回 SERVFAIL 响应: %s, Rcode=%d", domain, originalRcode)
 			msg.SetRcode(r, dns.RcodeServerFailure)
+
+			// 添加 SOA 记录到 Authority section
+			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+			msg.Ns = append(msg.Ns, soa)
 		}
 		w.WriteMsg(msg)
 		s.msgPool.Put(msg)

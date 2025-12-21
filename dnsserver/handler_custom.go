@@ -81,6 +81,9 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	if !strings.Contains(domain, ".") {
 		logger.Debugf("[QueryFilter] REFUSED: single-label domain query for '%s'", domain)
 		msg.SetRcode(r, dns.RcodeRefused)
+		// 添加 SOA 记录
+		soa := s.buildSOARecord(domain, 300)
+		msg.Ns = append(msg.Ns, soa)
 		w.WriteMsg(msg)
 		return true
 	}
@@ -104,6 +107,9 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	if strings.HasSuffix(domain, ".in-addr.arpa") || strings.HasSuffix(domain, ".ip6.arpa") {
 		logger.Debugf("[QueryFilter] REFUSED: reverse DNS query for '%s'", domain)
 		msg.SetRcode(r, dns.RcodeRefused)
+		// 添加 SOA 记录
+		soa := s.buildSOARecord(domain, 300)
+		msg.Ns = append(msg.Ns, soa)
 		w.WriteMsg(msg)
 		return true
 	}
@@ -127,6 +133,9 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 	if rcode, ok := blockedDomains[domain]; ok {
 		logger.Debugf("[QueryFilter] Rule match for '%s', responding with %s", domain, dns.RcodeToString[rcode])
 		msg.SetRcode(r, rcode)
+		// 添加 SOA 记录（REFUSED 和 NXDOMAIN 都需要）
+		soa := s.buildSOARecord(domain, 300)
+		msg.Ns = append(msg.Ns, soa)
 		w.WriteMsg(msg)
 		return true
 	}

@@ -11,18 +11,32 @@ import (
 	"github.com/miekg/dns"
 )
 
-// handleErrorCacheHit 处理错误缓存命中 (NXDOMAIN)
+// handleErrorCacheHit 处理错误缓存命中 (NXDOMAIN/NODATA/SERVFAIL等)
 // 返回 true 表示请求已处理
 func (s *Server) handleErrorCacheHit(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, stats *stats.Stats) bool {
-	if _, ok := s.cache.GetError(domain, qtype); ok {
+	if entry, ok := s.cache.GetError(domain, qtype); ok {
 		stats.IncCacheHits()
-		logger.Debugf("[handleQuery] NXDOMAIN 缓存命中: %s (type=%s)",
-			domain, dns.TypeToString[qtype])
+		logger.Debugf("[handleQuery] 错误缓存命中: %s (type=%s, rcode=%d)",
+			domain, dns.TypeToString[qtype], entry.Rcode)
 
 		msg := s.msgPool.Get()
 		msg.SetReply(r)
 		msg.RecursionAvailable = true
-		msg.SetRcode(r, dns.RcodeNameError)
+		msg.Compress = false
+		msg.SetRcode(r, entry.Rcode)
+
+		// 计算剩余TTL（确保至少为1秒）
+		elapsed := int(time.Since(entry.CachedAt).Seconds() + 0.5) // 四舍五入
+		remainingTTL := uint32(max(1, entry.TTL-elapsed))
+
+		// 根据 RFC 2308，为负响应添加 SOA 记录到 Authority section
+		// 这样客户端就知道应该缓存负响应多久
+		soa := s.buildSOARecord(domain, remainingTTL)
+		msg.Ns = append(msg.Ns, soa)
+
+		logger.Debugf("[handleQuery] 返回负响应，TTL=%d秒: %s (type=%s)",
+			remainingTTL, domain, dns.TypeToString[qtype])
+
 		w.WriteMsg(msg)
 		s.msgPool.Put(msg)
 		return true

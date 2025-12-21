@@ -11,11 +11,19 @@ import (
 
 // buildNXDomainResponse builds an NXDOMAIN response for blocked domains.
 // Used in: handler_adblock.go
-func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool) {
+func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool, srv *Server, ttl int) {
 	msg := msgPool.Get()
 	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeNameError)
 	msg.RecursionAvailable = true
+
+	// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+	if len(r.Question) > 0 {
+		domain := strings.TrimRight(r.Question[0].Name, ".")
+		soa := srv.buildSOARecord(domain, uint32(ttl))
+		msg.Ns = append(msg.Ns, soa)
+	}
+
 	w.WriteMsg(msg)
 	msgPool.Put(msg)
 }
@@ -63,11 +71,19 @@ func buildZeroIPResponse(w dns.ResponseWriter, r *dns.Msg, blockedIP string, blo
 
 // buildRefuseResponse builds a REFUSED response for blocked domains.
 // Used in: handler_adblock.go
-func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool) {
+func buildRefuseResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool, srv *Server, ttl int) {
 	msg := msgPool.Get()
 	msg.SetReply(r)
 	msg.SetRcode(r, dns.RcodeRefused)
 	msg.RecursionAvailable = true
+
+	// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+	if len(r.Question) > 0 {
+		domain := strings.TrimRight(r.Question[0].Name, ".")
+		soa := srv.buildSOARecord(domain, uint32(ttl))
+		msg.Ns = append(msg.Ns, soa)
+	}
+
 	w.WriteMsg(msg)
 	msgPool.Put(msg)
 }

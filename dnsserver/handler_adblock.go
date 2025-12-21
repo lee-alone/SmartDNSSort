@@ -27,13 +27,13 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 		// 根据配置返回拦截响应
 		switch cfg.AdBlock.BlockMode {
 		case "nxdomain":
-			buildNXDomainResponse(w, r, s.msgPool)
+			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		case "zero_ip":
 			buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
 		case "refuse":
-			buildRefuseResponse(w, r, s.msgPool)
+			buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		default:
-			buildNXDomainResponse(w, r, s.msgPool)
+			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		}
 		return true
 	}
@@ -64,13 +64,13 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 		// 根据配置返回拦截响应
 		switch cfg.AdBlock.BlockMode {
 		case "nxdomain":
-			buildNXDomainResponse(w, r, s.msgPool)
+			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		case "zero_ip":
 			buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
 		case "refuse":
-			buildRefuseResponse(w, r, s.msgPool)
+			buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		default:
-			buildNXDomainResponse(w, r, s.msgPool)
+			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 		}
 		return true
 	}
@@ -110,13 +110,13 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 			// 返回拦截响应
 			switch cfg.AdBlock.BlockMode {
 			case "nxdomain":
-				buildNXDomainResponse(w, r, s.msgPool)
+				buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 			case "zero_ip":
 				buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
 			case "refuse":
-				buildRefuseResponse(w, r, s.msgPool)
+				buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 			default:
-				buildNXDomainResponse(w, r, s.msgPool)
+				buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
 			}
 			return true
 		}

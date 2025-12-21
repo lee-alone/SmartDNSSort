@@ -3,9 +3,36 @@ package dnsserver
 import (
 	"net"
 	"smartdnssort/logger"
+	"time"
 
 	"github.com/miekg/dns"
 )
+
+// buildSOARecord 构造 SOA 记录用于负响应（NXDOMAIN/NODATA）
+// 根据 RFC 2308，负响应应在 Authority section 包含 SOA 记录
+// SOA 记录的 MINIMUM 字段指示客户端应缓存负响应的时间
+func (s *Server) buildSOARecord(domain string, ttl uint32) *dns.SOA {
+	// 使用本地权威服务器名称
+	// 这些值可以后续移到配置文件中
+	mname := "ns.smartdnssort.local."
+	rname := "admin.smartdnssort.local."
+
+	return &dns.SOA{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(domain),
+			Rrtype: dns.TypeSOA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Ns:      mname,
+		Mbox:    rname,
+		Serial:  uint32(time.Now().Unix()),
+		Refresh: 3600,
+		Retry:   600,
+		Expire:  86400,
+		Minttl:  ttl, // 这个字段指示负缓存的 TTL
+	}
+}
 
 // buildDNSResponse 构造 DNS 响应
 func (s *Server) buildDNSResponse(msg *dns.Msg, domain string, ips []string, qtype uint16, ttl uint32) {
