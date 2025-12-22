@@ -64,6 +64,8 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 		for _, ip := range testIPs {
 			if e, ok := p.rttCache[ip]; ok && now.Before(e.expiresAt) {
 				cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: 0})
+				// 缓存命中也视为一次成功，维持活跃状态
+				p.RecordIPSuccess(ip)
 			} else {
 				toPing = append(toPing, ip)
 			}
@@ -75,6 +77,15 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 
 	// 并发测
 	results := p.concurrentPing(ctx, toPing, domain)
+
+	// 记录失效权重
+	for _, r := range results {
+		if r.Loss == 100 {
+			p.RecordIPFailure(r.IP)
+		} else {
+			p.RecordIPSuccess(r.IP)
+		}
+	}
 
 	// 更新缓存（只缓存完全成功的）
 	if p.rttCacheTtlSeconds > 0 {
@@ -99,6 +110,7 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 // Stop 停止 Pinger 的后台任务
 func (p *Pinger) Stop() {
 	close(p.stopChan)
+	p.SaveIPFailureWeights()
 }
 
 // RecordIPFailure 记录IP失效（应用层调用）
