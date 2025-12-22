@@ -84,7 +84,7 @@ ping:
   # 并发 Ping 数量
   concurrency: 16
   # 选择策略：min（选择最小延迟），avg（选择平均延迟）
-  strategy: "min"
+  strategy: "avg"
   # 每个域名测试的 IP 数量，0 表示不限制
   max_test_ips: 0
   # 缓存 IP 的 RTT (延迟) 结果的时间（秒）
@@ -102,7 +102,7 @@ cache:
   # 最大 TTL（秒）
   # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 max > 0 时只减小过大的 TTL
   max_ttl_seconds: 84600
-  # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 300
+  # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 30
   negative_ttl_seconds: 300
   # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒），默认值 30
   error_cache_ttl_seconds: 30
