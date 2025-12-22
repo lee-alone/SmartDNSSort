@@ -45,7 +45,7 @@ function updateDashboard() {
                 servers.forEach(server => {
                     const stats = data.upstream_stats[server];
                     const row = upstreamTable.insertRow();
-                    row.innerHTML = `<td>${server}</td><td class="value">${stats.success || 0}</td><td class="value">${stats.failure || 0}</td>`;
+                    row.innerHTML = `<td class="px-6 py-3">${server}</td><td class="px-6 py-3 value">${stats.success || 0}</td><td class="px-6 py-3 value">${stats.failure || 0}</td>`;
                 });
             }
             const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
@@ -53,10 +53,10 @@ function updateDashboard() {
             if (data.top_domains && data.top_domains.length > 0) {
                 data.top_domains.forEach(item => {
                     const row = hotDomainsTable.insertRow();
-                    row.innerHTML = `<td>${item.Domain}</td><td class="value">${item.Count}</td>`;
+                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
                 });
             } else {
-                hotDomainsTable.innerHTML = `<tr><td colspan="2" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
+                hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
             }
             // Update status indicator
             const statusEl = document.getElementById('status');
