@@ -6,7 +6,7 @@ import (
 )
 
 func TestPinger(t *testing.T) {
-	p := NewPinger(2, 1000, 4, 0, 0, false)
+	p := NewPinger(2, 1000, 4, 0, 0, false, "")
 	if p == nil {
 		t.Fatal("NewPinger returned nil")
 	}
@@ -17,7 +17,7 @@ func TestPinger(t *testing.T) {
 }
 
 func TestPingAndSort(t *testing.T) {
-	p := NewPinger(1, 500, 2, 0, 0, false)
+	p := NewPinger(1, 500, 2, 0, 0, false, "")
 
 	// 测试 ping 本地 IP（需要网络连接）
 	ctx := context.Background()

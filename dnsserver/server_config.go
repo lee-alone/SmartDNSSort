@@ -44,7 +44,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newPinger *ping.Pinger
 	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
 		logger.Info("Reloading Pinger due to configuration changes.")
-		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.EnableHttpFallback)
+		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json")
 	}
 
 	var newSortQueue *cache.SortQueue

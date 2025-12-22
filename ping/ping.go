@@ -30,10 +30,11 @@ type Pinger struct {
 	rttCacheTtlSeconds int
 	enableHttpFallback bool // 是否对纯 HTTP(80) 做补充探测，默认关闭
 
-	rttCache   map[string]*rttCacheEntry
-	rttCacheMu sync.RWMutex
-	stopChan   chan struct{}
-	bufferPool *sync.Pool // 新增: 复用 UDP 读取 buffer
+	rttCache         map[string]*rttCacheEntry
+	rttCacheMu       sync.RWMutex
+	stopChan         chan struct{}
+	bufferPool       *sync.Pool // 新增: 复用 UDP 读取 buffer
+	failureWeightMgr *IPFailureWeightManager
 }
 
 // PingAndSort 执行并发 ping 测试并返回排序后的结果
@@ -98,4 +99,42 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 // Stop 停止 Pinger 的后台任务
 func (p *Pinger) Stop() {
 	close(p.stopChan)
+}
+
+// RecordIPFailure 记录IP失效（应用层调用）
+func (p *Pinger) RecordIPFailure(ip string) {
+	if p.failureWeightMgr != nil {
+		p.failureWeightMgr.RecordFailure(ip)
+	}
+}
+
+// RecordIPSuccess 记录IP成功（应用层调用）
+func (p *Pinger) RecordIPSuccess(ip string) {
+	if p.failureWeightMgr != nil {
+		p.failureWeightMgr.RecordSuccess(ip)
+	}
+}
+
+// SaveIPFailureWeights 保存IP失效权重到磁盘
+func (p *Pinger) SaveIPFailureWeights() error {
+	if p.failureWeightMgr != nil {
+		return p.failureWeightMgr.SaveToDisk()
+	}
+	return nil
+}
+
+// GetIPFailureRecord 获取IP的失效记录
+func (p *Pinger) GetIPFailureRecord(ip string) *IPFailureRecord {
+	if p.failureWeightMgr != nil {
+		return p.failureWeightMgr.GetRecord(ip)
+	}
+	return &IPFailureRecord{IP: ip}
+}
+
+// GetAllIPFailureRecords 获取所有IP的失效记录
+func (p *Pinger) GetAllIPFailureRecords() []*IPFailureRecord {
+	if p.failureWeightMgr != nil {
+		return p.failureWeightMgr.GetAllRecords()
+	}
+	return nil
 }

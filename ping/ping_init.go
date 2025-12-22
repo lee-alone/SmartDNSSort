@@ -12,7 +12,8 @@ import (
 //   - maxTestIPs: 最多测试的 IP 数量（0 表示测试所有）
 //   - rttCacheTtlSeconds: RTT 缓存过期时间（秒）
 //   - enableHttpFallback: 是否启用 HTTP 备选探测
-func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int, enableHttpFallback bool) *Pinger {
+//   - failureWeightPersistFile: IP失效权重持久化文件路径（空字符串表示不持久化）
+func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int, enableHttpFallback bool, failureWeightPersistFile string) *Pinger {
 	if count <= 0 {
 		count = 3
 	}
@@ -37,6 +38,7 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 				return make([]byte, 512)
 			},
 		},
+		failureWeightMgr: NewIPFailureWeightManager(failureWeightPersistFile),
 	}
 
 	if rttCacheTtlSeconds > 0 {
