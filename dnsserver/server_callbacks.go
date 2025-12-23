@@ -32,7 +32,7 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 		}
 
 		// 如果后台收集的 IP 数量比之前多，需要重新排序
-		if newIPCount > oldIPCount && qtype == dns.TypeA || qtype == dns.TypeAAAA {
+		if (newIPCount > oldIPCount) && (qtype == dns.TypeA || qtype == dns.TypeAAAA) {
 			logger.Debugf("[CacheUpdateCallback] 后台收集到更多IP (%d -> %d)，清除旧排序状态并重新排序",
 				oldIPCount, newIPCount)
 
