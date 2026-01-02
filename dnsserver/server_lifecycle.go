@@ -55,6 +55,14 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() {
 	logger.Info("[Server] 开始关闭服务器...")
 
+	// 保存缓存到磁盘
+	logger.Info("[Cache] Saving cache to disk...")
+	if err := s.cache.SaveToDisk("dns_cache.json"); err != nil {
+		logger.Errorf("[Cache] Failed to save cache: %v", err)
+	} else {
+		logger.Info("[Cache] Cache saved successfully.")
+	}
+
 	if s.udpServer != nil {
 		if err := s.udpServer.Shutdown(); err != nil {
 			logger.Errorf("[Server] UDP server shutdown error: %v", err)
