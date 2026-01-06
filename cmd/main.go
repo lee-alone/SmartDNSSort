@@ -11,6 +11,7 @@ import (
 	"smartdnssort/config"
 	"smartdnssort/dnsserver"
 	"smartdnssort/logger"
+	"smartdnssort/resolver"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
@@ -112,6 +113,11 @@ func main() {
 		logger.Fatalf("Failed to validate/repair config: %v", err)
 	}
 
+	// 执行完整配置验证（包含递归模块逻辑）
+	if err := cfg.ValidateConfig(); err != nil {
+		logger.Fatalf("Configuration validation failed: %v", err)
+	}
+
 	logger.Infof("Log level set to: %s", cfg.System.LogLevel)
 
 	// 设置 GOMAXPROCS
@@ -123,6 +129,34 @@ func main() {
 	// 初始化统计模块
 	s := stats.NewStats(&cfg.Stats)
 	defer s.Stop()
+
+	// 初始化并启动递归 DNS 服务器 (如果启用)
+	var recursiveServer *resolver.Server
+	if cfg.Recursive.Enabled {
+		logger.Infof("Initializing Recursive DNS server...")
+
+		// 加载 Root Hints
+		rootHintsFile := cfg.Recursive.RootHintsFile
+		if !filepath.IsAbs(rootHintsFile) {
+			rootHintsFile = filepath.Join(effectiveWorkDir, rootHintsFile)
+		}
+
+		rootHints, err := resolver.LoadRootHints(rootHintsFile)
+		if err != nil {
+			logger.Warnf("Failed to load root hints from %s, using defaults: %v", rootHintsFile, err)
+		}
+
+		recursiveServer, err = resolver.NewServer(&cfg.Recursive, rootHints)
+		if err != nil {
+			logger.Errorf("Failed to create recursive server: %v", err)
+		} else {
+			go func() {
+				if err := recursiveServer.Start(); err != nil {
+					logger.Errorf("Recursive DNS server error: %v", err)
+				}
+			}()
+		}
+	}
 
 	// 启动 DNS 服务器
 	dnsServer := dnsserver.NewServer(cfg, s)
@@ -137,7 +171,7 @@ func main() {
 
 		// 定义重启回调函数
 		restartFunc := func() {
-			restartService(dnsServer, webServer)
+			restartService(dnsServer, webServer, recursiveServer)
 		}
 
 		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, effectiveConfigPath, restartFunc)
@@ -164,6 +198,11 @@ func main() {
 
 	// 停止服务
 	dnsServer.Shutdown()
+
+	if recursiveServer != nil {
+		logger.Info("Stopping Recursive DNS server...")
+		recursiveServer.Stop()
+	}
 
 	logger.Info("Server gracefully stopped.")
 }
@@ -205,7 +244,7 @@ func printHelp() {
 `)
 }
 
-func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
+func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server, recursiveServer *resolver.Server) {
 	logger.Info("Restarting service...")
 
 	// Add a small delay to ensure configuration is flushed to disk
@@ -226,17 +265,23 @@ func restartService(dnsServer *dnsserver.Server, webServer *webapi.Server) {
 	logger.Info("Stopping DNS server...")
 	dnsServer.Shutdown()
 
+	// 3. 停止递归 DNS 服务 (如果存在)
+	if recursiveServer != nil {
+		logger.Info("Stopping Recursive DNS server...")
+		recursiveServer.Stop()
+	}
+
 	// Add delay after shutdown
 	time.Sleep(500 * time.Millisecond)
 
-	// 3. 检查是否为 systemd 服务 (仅 Linux)
+	// 4. 检查是否为 systemd 服务 (仅 Linux)
 	// systemd 会设置 INVOCATION_ID 环境变量
 	if runtime.GOOS == "linux" && os.Getenv("INVOCATION_ID") != "" {
 		logger.Info("Detected systemd environment. Exiting to trigger systemd restart...")
 		os.Exit(0)
 	}
 
-	// 4. 手动重启 (Windows 或 Linux 手动运行)
+	// 5. 手动重启 (Windows 或 Linux 手动运行)
 	executable, err := os.Executable()
 	if err != nil {
 		logger.Fatalf("Failed to get executable path: %v", err)

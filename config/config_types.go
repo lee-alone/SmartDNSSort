@@ -1,16 +1,21 @@
 package config
 
+import (
+	"gopkg.in/yaml.v3"
+)
+
 // Config 主配置结构
 type Config struct {
-	DNS      DNSConfig      `yaml:"dns" json:"dns"`
-	Upstream UpstreamConfig `yaml:"upstream" json:"upstream"`
-	Ping     PingConfig     `yaml:"ping" json:"ping"`
-	Cache    CacheConfig    `yaml:"cache" json:"cache"`
-	Prefetch PrefetchConfig `yaml:"prefetch" json:"prefetch"`
-	WebUI    WebUIConfig    `yaml:"webui" json:"webui"`
-	AdBlock  AdBlockConfig  `yaml:"adblock" json:"adblock"`
-	System   SystemConfig   `yaml:"system" json:"system"`
-	Stats    StatsConfig    `yaml:"stats" json:"stats"`
+	DNS       DNSConfig       `yaml:"dns" json:"dns"`
+	Upstream  UpstreamConfig  `yaml:"upstream" json:"upstream"`
+	Ping      PingConfig      `yaml:"ping" json:"ping"`
+	Cache     CacheConfig     `yaml:"cache" json:"cache"`
+	Prefetch  PrefetchConfig  `yaml:"prefetch" json:"prefetch"`
+	WebUI     WebUIConfig     `yaml:"webui" json:"webui"`
+	AdBlock   AdBlockConfig   `yaml:"adblock" json:"adblock"`
+	System    SystemConfig    `yaml:"system" json:"system"`
+	Stats     StatsConfig     `yaml:"stats" json:"stats"`
+	Recursive RecursiveConfig `yaml:"-" json:"recursive"`
 }
 
 // DNSConfig DNS 服务器配置
@@ -22,7 +27,8 @@ type DNSConfig struct {
 
 // UpstreamConfig 上游 DNS 服务器配置
 type UpstreamConfig struct {
-	Servers []string `yaml:"servers,omitempty" json:"servers"`
+	Servers    []UpstreamServerConfig `yaml:"servers,omitempty" json:"servers"`
+	ServersOld []string               `yaml:"servers_old,omitempty" json:"-"` // 用于后向兼容
 	// [新增] 引导 DNS，用于解析 DoH/DoT 的域名
 	// 必须是纯 IP，如 "223.5.5.5:53"
 	BootstrapDNS []string `yaml:"bootstrap_dns,omitempty" json:"bootstrap_dns"`
@@ -40,11 +46,45 @@ type UpstreamConfig struct {
 	// racing 策略中同时发起的最大竞争请求数（默认 2）
 	RacingMaxConcurrent int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
-
-	Dnssec            bool `yaml:"dnssec" json:"dnssec"`
+	Dnssec bool `yaml:"dnssec" json:"dnssec"`
 
 	// 健康检查配置
 	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`
+}
+
+// UnmarshalYAML 实现自定义的反序列化，以支持旧的字符串数组格式
+func (u *UpstreamConfig) UnmarshalYAML(value *yaml.Node) error {
+	type Alias UpstreamConfig
+	var aux struct {
+		Servers []yaml.Node `yaml:"servers"`
+		*Alias  `yaml:",inline"`
+	}
+
+	if err := value.Decode(&aux); err != nil {
+		return err
+	}
+
+	*u = UpstreamConfig(*(aux.Alias))
+	u.Servers = make([]UpstreamServerConfig, 0, len(aux.Servers))
+
+	for _, node := range aux.Servers {
+		var server UpstreamServerConfig
+		// 尝试解析为结构体
+		if err := node.Decode(&server); err == nil && server.Address != "" {
+			u.Servers = append(u.Servers, server)
+		} else {
+			// 尝试解析为字符串
+			var s string
+			if err := node.Decode(&s); err == nil {
+				u.Servers = append(u.Servers, UpstreamServerConfig{
+					Address: s,
+					Type:    "external",
+				})
+			}
+		}
+	}
+
+	return nil
 }
 
 // HealthCheckConfig 健康检查配置
@@ -134,4 +174,40 @@ type StatsConfig struct {
 	HotDomainsBucketMinutes int `yaml:"hot_domains_bucket_minutes,omitempty" json:"hot_domains_bucket_minutes"`
 	HotDomainsShardCount    int `yaml:"hot_domains_shard_count,omitempty" json:"hot_domains_shard_count"`
 	HotDomainsMaxPerBucket  int `yaml:"hot_domains_max_per_bucket,omitempty" json:"hot_domains_max_per_bucket"`
+}
+
+// UpstreamServerConfig 单个上游服务器配置
+type UpstreamServerConfig struct {
+	Address  string `yaml:"address" json:"address"`
+	Type     string `yaml:"type,omitempty" json:"type"` // local_recursive, external
+	Priority int    `yaml:"priority,omitempty" json:"priority"`
+}
+
+// UnmarshalYAML 支持从字符串或对象反序列化
+func (s *UpstreamServerConfig) UnmarshalYAML(value *yaml.Node) error {
+	var address string
+	if err := value.Decode(&address); err == nil {
+		s.Address = address
+		s.Type = "external"
+		return nil
+	}
+
+	type Alias UpstreamServerConfig
+	var aux Alias
+	if err := value.Decode(&aux); err != nil {
+		return err
+	}
+	*s = UpstreamServerConfig(aux)
+	return nil
+}
+
+// RecursiveConfig 递归模块配置
+type RecursiveConfig struct {
+	Enabled              bool     `yaml:"enabled" json:"enabled"`
+	Port                 int      `yaml:"port,omitempty" json:"port"`
+	RootHintsFile        string   `yaml:"root_hints_file,omitempty" json:"root_hints_file"`
+	QueryTimeout         int      `yaml:"query_timeout,omitempty" json:"query_timeout"`
+	CacheTTL             int      `yaml:"cache_ttl,omitempty" json:"cache_ttl"`
+	MaxConcurrentQueries int      `yaml:"max_concurrent_queries,omitempty" json:"max_concurrent_queries"`
+	RootHints            []string `yaml:"root_hints,omitempty" json:"root_hints"` // 可选的硬编码根服务器
 }

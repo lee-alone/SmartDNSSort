@@ -96,6 +96,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/custom/blocked", s.handleCustomBlocked)
 	mux.HandleFunc("/api/custom/response", s.handleCustomResponse)
 
+	// Resolver API 路由
+	mux.HandleFunc("/api/resolver/status", s.handleResolverStatus)
+	mux.HandleFunc("/api/resolver/control", s.handleResolverControl)
+	mux.HandleFunc("/api/resolver/stats", s.handleResolverStats)
+	mux.HandleFunc("/api/resolver/stats/clear", s.handleResolverStatsClear)
+	mux.HandleFunc("/api/resolver/config", s.handleResolverConfig)
+	mux.HandleFunc("/api/resolver/trace", s.handleResolverTrace)
+	mux.HandleFunc("/api/resolver/diagnose", s.handleResolverDiagnose)
+
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {

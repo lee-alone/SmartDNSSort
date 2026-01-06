@@ -1,0 +1,163 @@
+<div id="resolver-panel" class="space-y-6">
+  <!-- 状态卡片 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">递归解析器</h2>
+      <div id="resolver-status-badge" class="px-4 py-2 rounded-full text-white text-sm font-semibold bg-gray-400">
+        未知
+      </div>
+    </div>
+
+    <!-- 状态信息 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-gray-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">状态</div>
+        <div id="resolver-status-text" class="text-lg font-semibold text-gray-800">-</div>
+      </div>
+      <div class="bg-gray-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">运行时间</div>
+        <div id="resolver-uptime" class="text-lg font-semibold text-gray-800">-</div>
+      </div>
+      <div class="bg-gray-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">监听端口</div>
+        <div id="resolver-port" class="text-lg font-semibold text-gray-800">-</div>
+      </div>
+      <div class="bg-gray-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">查询超时</div>
+        <div id="resolver-query-timeout" class="text-lg font-semibold text-gray-800">-</div>
+      </div>
+    </div>
+
+    <!-- 控制按钮 -->
+    <div class="flex gap-3">
+      <button id="resolver-start-btn" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+        启动
+      </button>
+      <button id="resolver-stop-btn" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
+        停止
+      </button>
+      <button id="resolver-restart-btn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+        重启
+      </button>
+    </div>
+  </div>
+
+  <!-- 统计信息 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-xl font-bold text-gray-800 mb-4">统计信息</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="bg-blue-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">总查询数</div>
+        <div id="resolver-total-queries" class="text-2xl font-bold text-blue-600">0</div>
+      </div>
+      <div class="bg-green-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">成功查询</div>
+        <div id="resolver-success-queries" class="text-2xl font-bold text-green-600">0</div>
+      </div>
+      <div class="bg-red-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">失败查询</div>
+        <div id="resolver-failed-queries" class="text-2xl font-bold text-red-600">0</div>
+      </div>
+      <div class="bg-purple-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">成功率</div>
+        <div id="resolver-success-rate" class="text-2xl font-bold text-purple-600">0%</div>
+      </div>
+      <div class="bg-yellow-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">平均延迟</div>
+        <div id="resolver-avg-latency" class="text-2xl font-bold text-yellow-600">0ms</div>
+      </div>
+      <div class="bg-indigo-50 p-4 rounded">
+        <div class="text-gray-600 text-sm">缓存命中率</div>
+        <div id="resolver-cache-hit-rate" class="text-2xl font-bold text-indigo-600">0%</div>
+      </div>
+    </div>
+    <button id="resolver-clear-stats-btn" class="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition">
+      清空统计
+    </button>
+  </div>
+
+  <!-- 迭代路径跟踪 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-xl font-bold text-gray-800 mb-4">迭代路径跟踪</h3>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-gray-700 text-sm font-semibold mb-2">域名</label>
+        <input id="resolver-trace-domain" type="text" placeholder="输入要查询的域名，如 example.com" 
+               class="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-gray-700 text-sm font-semibold mb-2">查询类型</label>
+        <select id="resolver-trace-type" class="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+          <option value="A">A (IPv4)</option>
+          <option value="AAAA">AAAA (IPv6)</option>
+          <option value="MX">MX (邮件交换)</option>
+          <option value="NS">NS (名称服务器)</option>
+          <option value="CNAME">CNAME (别名)</option>
+          <option value="TXT">TXT (文本记录)</option>
+        </select>
+      </div>
+      <button id="resolver-trace-btn" class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+        开始跟踪
+      </button>
+    </div>
+    <div id="resolver-trace-result" class="mt-4 hidden">
+      <div class="bg-gray-50 p-4 rounded max-h-96 overflow-y-auto">
+        <pre id="resolver-trace-output" class="text-sm text-gray-700 font-mono"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- 性能对比 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-xl font-bold text-gray-800 mb-4">性能对比</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="border-l-4 border-blue-500 pl-4">
+        <h4 class="font-semibold text-gray-800 mb-2">本地递归解析</h4>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-gray-600">平均延迟:</span>
+            <span id="local-avg-latency" class="font-semibold text-gray-800">-</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">缓存命中率:</span>
+            <span id="local-cache-hit-rate" class="font-semibold text-gray-800">-</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">隐私等级:</span>
+            <span class="font-semibold text-green-600">完全隐私</span>
+          </div>
+        </div>
+      </div>
+      <div class="border-l-4 border-gray-400 pl-4">
+        <h4 class="font-semibold text-gray-800 mb-2">外部 DNS</h4>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-gray-600">平均延迟:</span>
+            <span id="external-avg-latency" class="font-semibold text-gray-800">-</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">缓存命中率:</span>
+            <span id="external-cache-hit-rate" class="font-semibold text-gray-800">-</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">隐私等级:</span>
+            <span class="font-semibold text-red-600">可能泄露</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 自动提示 -->
+  <div id="resolver-auto-hint" class="hidden bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+    <div class="flex items-start">
+      <div class="flex-1">
+        <h4 class="font-semibold text-blue-900 mb-2">💡 提示</h4>
+        <p id="resolver-hint-text" class="text-blue-800 text-sm"></p>
+      </div>
+      <button id="resolver-hint-action-btn" class="ml-4 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition">
+        操作
+      </button>
+    </div>
+  </div>
+</div>

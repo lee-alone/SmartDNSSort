@@ -29,9 +29,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// Initialize Upstream Interfaces
 	var upstreams []upstream.Upstream
 	for _, serverUrl := range cfg.Upstream.Servers {
-		u, err := upstream.NewUpstream(serverUrl, boot)
+		u, err := upstream.NewUpstream(serverUrl.Address, boot)
 		if err != nil {
-			logger.Errorf("Failed to create upstream for %s: %v", serverUrl, err)
+			logger.Errorf("Failed to create upstream for %s: %v", serverUrl.Address, err)
 			continue
 		}
 		upstreams = append(upstreams, u)

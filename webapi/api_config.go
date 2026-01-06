@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"strings"
@@ -96,6 +97,13 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	logger.Infof("✓ Configuration written to %s successfully", s.configPath)
 
+	// 保存递归模块配置文件 (recursive.json)
+	recursivePath := filepath.Join(filepath.Dir(s.configPath), "recursive.json")
+	if err := config.SaveRecursiveConfig(recursivePath, &newCfg.Recursive); err != nil {
+		logger.Errorf("Failed to save recursive config: %v", err)
+		// 不作为致命错误返回给前端，但记录日志
+	}
+
 	// 应用新配置到运行中的服务器
 	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
 		logger.Errorf("✗ Failed to apply new configuration: %v", err)
@@ -114,8 +122,8 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	}
 
 	// Sanitize Upstream Servers (remove quotes and spaces)
-	for i, server := range cfg.Upstream.Servers {
-		cfg.Upstream.Servers[i] = strings.Trim(server, "' ")
+	for i := range cfg.Upstream.Servers {
+		cfg.Upstream.Servers[i].Address = strings.Trim(cfg.Upstream.Servers[i].Address, "' ")
 	}
 	// Sanitize Bootstrap DNS
 	for i, server := range cfg.Upstream.BootstrapDNS {
@@ -189,5 +197,7 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
 	}
-	return nil
+
+	// 执行完整配置验证（包含递归模块逻辑）
+	return cfg.ValidateConfig()
 }

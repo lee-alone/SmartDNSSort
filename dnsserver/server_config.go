@@ -28,9 +28,9 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 		var upstreams []upstream.Upstream
 		for _, serverUrl := range newCfg.Upstream.Servers {
-			u, err := upstream.NewUpstream(serverUrl, boot)
+			u, err := upstream.NewUpstream(serverUrl.Address, boot)
 			if err != nil {
-				logger.Errorf("Failed to create upstream for %s: %v", serverUrl, err)
+				logger.Errorf("Failed to create upstream for %s: %v", serverUrl.Address, err)
 				continue
 			}
 			upstreams = append(upstreams, u)

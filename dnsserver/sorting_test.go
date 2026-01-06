@@ -33,15 +33,22 @@ func newTestServerForSorting(cfg *config.Config) *Server {
 	if cfg.Ping.Count <= 0 { // 确保 Count 至少为 1，以触发 pinger 逻辑
 		cfg.Ping.Count = 1
 	}
-	cfg.Ping.TimeoutMs = 10 // 为环回地址设置一个小的非零超时
+	cfg.Ping.TimeoutMs = 10  // 为环回地址设置一个小的非零超时
 	cfg.Ping.Concurrency = 1 // 最小并发
 
 	// NewServer 需要完整的 Config，所以填充一些默认或最小化的值
-	if cfg.DNS.ListenPort == 0 { cfg.DNS.ListenPort = 5353 }
-	if len(cfg.Upstream.Servers) == 0 { cfg.Upstream.Servers = []string{"127.0.0.1:53"} }
-	if cfg.Upstream.Strategy == "" { cfg.Upstream.Strategy = "random" }
-	if cfg.Upstream.TimeoutMs == 0 { cfg.Upstream.TimeoutMs = 100 }
-
+	if cfg.DNS.ListenPort == 0 {
+		cfg.DNS.ListenPort = 5353
+	}
+	if len(cfg.Upstream.Servers) == 0 {
+		cfg.Upstream.Servers = []config.UpstreamServerConfig{{Address: "127.0.0.1:53"}}
+	}
+	if cfg.Upstream.Strategy == "" {
+		cfg.Upstream.Strategy = "random"
+	}
+	if cfg.Upstream.TimeoutMs == 0 {
+		cfg.Upstream.TimeoutMs = 100
+	}
 
 	s := NewServer(cfg, mockStats)
 	return s
@@ -105,7 +112,7 @@ func TestPerformPingSort(t *testing.T) {
 		// 对于环回 IP，smartPing 应该返回一个非常低的 RTT (例如 0 或 1ms)。
 		// 由于所有 IP 都将具有相似的低 RTTs，ping.sortResults 将主要根据 IP 字符串排序。
 		expectedSortedIPs := []string{"127.0.0.1", "127.0.0.2", "127.0.0.3"} // 字母顺序排序
-		
+
 		if !reflect.DeepEqual(sortedIPs, expectedSortedIPs) {
 			t.Errorf("预期排序后的 IP 为 %v (按字母顺序), 却得到 %v", expectedSortedIPs, sortedIPs)
 		}
@@ -114,7 +121,7 @@ func TestPerformPingSort(t *testing.T) {
 		}
 		for idx, rtt := range rtts { // Changed 'i' to 'idx'
 			// 预期所有 RTTs 都为 999999，因为 smartPing 在测试环境中无法连接到环回地址的指定端口
-			if rtt != 999999 { 
+			if rtt != 999999 {
 				t.Errorf("预期所有 RTTs 都为 999999, 却得到 RTTs[%d]=%d", idx, rtt)
 				break
 			}

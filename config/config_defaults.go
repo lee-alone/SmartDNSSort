@@ -44,6 +44,9 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 
 	// Stats 配置默认值
 	setStatsDefaults(cfg)
+
+	// Recursive 配置默认值
+	setRecursiveDefaults(cfg)
 }
 
 // setHealthCheckDefaults 设置健康检查配置的默认值
@@ -196,5 +199,24 @@ func setStatsDefaults(cfg *Config) {
 	}
 	if cfg.Stats.HotDomainsMaxPerBucket == 0 {
 		cfg.Stats.HotDomainsMaxPerBucket = 5000
+	}
+}
+
+// setRecursiveDefaults 设置递归模块配置的默认值
+func setRecursiveDefaults(cfg *Config) {
+	if cfg.Recursive.Port == 0 {
+		cfg.Recursive.Port = 5335
+	}
+	if cfg.Recursive.RootHintsFile == "" {
+		cfg.Recursive.RootHintsFile = "named.cache"
+	}
+	if cfg.Recursive.QueryTimeout == 0 {
+		cfg.Recursive.QueryTimeout = 5000
+	}
+	if cfg.Recursive.CacheTTL == 0 {
+		cfg.Recursive.CacheTTL = 300
+	}
+	if cfg.Recursive.MaxConcurrentQueries == 0 {
+		cfg.Recursive.MaxConcurrentQueries = 100
 	}
 }

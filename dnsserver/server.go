@@ -9,6 +9,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
+	"smartdnssort/resolver"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 
@@ -38,6 +39,16 @@ type Server struct {
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 	customRespManager  *CustomResponseManager  // 自定义回复管理器
 	requestGroup       singleflight.Group      // Used in: handler_query.go, handler_cache.go - 用于合并并发请求
+	recursiveResolver  *resolver.Resolver      // 递归解析器
+	resolverStats      *resolver.Stats         // 递归解析器统计
+	resolverMu         sync.RWMutex            // 递归解析器锁
+	// API 回调函数
+	GetResolverStats   func() map[string]interface{}
+	StartResolver      func() error
+	StopResolver       func() error
+	ClearResolverStats func()
+	IsResolverRunning  func() bool
+	TraceResolve       func(domain, qtype string) (interface{}, error)
 }
 
 // GetCustomResponseManager returns the custom response manager instance

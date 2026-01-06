@@ -36,6 +36,11 @@ function showView(viewId) {
     if (mobileNav) {
         mobileNav.style.display = 'none';
     }
+
+    // Initialize module-specific logic
+    if (viewId === 'view-resolver' && window.resolverModule) {
+        window.resolverModule.init();
+    }
 }
 
 function toggleMobileMenu() {
@@ -49,10 +54,12 @@ function initializeNavigation() {
     const navDashboard = document.getElementById('nav-dashboard');
     const navConfig = document.getElementById('nav-config');
     const navRules = document.getElementById('nav-rules');
+    const navResolver = document.getElementById('nav-resolver');
     
     const navDashboardMobile = document.getElementById('nav-dashboard-mobile');
     const navConfigMobile = document.getElementById('nav-config-mobile');
     const navRulesMobile = document.getElementById('nav-rules-mobile');
+    const navResolverMobile = document.getElementById('nav-resolver-mobile');
     
     const mobileMenuToggle = document.getElementById('mobileMenuToggle');
 
@@ -73,6 +80,12 @@ function initializeNavigation() {
         navRules.addEventListener('click', (e) => {
             e.preventDefault();
             showView('view-rules');
+        });
+    }
+    if (navResolver) {
+        navResolver.addEventListener('click', (e) => {
+            e.preventDefault();
+            showView('view-resolver');
         });
     }
 
@@ -96,10 +109,21 @@ function initializeNavigation() {
             showView('view-rules');
         });
     }
+    if (navResolverMobile) {
+        navResolverMobile.addEventListener('click', (e) => {
+            e.preventDefault();
+            showView('view-resolver');
+        });
+    }
 
     // Mobile menu toggle
     if (mobileMenuToggle) {
         mobileMenuToggle.addEventListener('click', toggleMobileMenu);
+    }
+
+    // Initialize Resolver module
+    if (window.ResolverModule) {
+        window.resolverModule = new ResolverModule();
     }
 
     // Show dashboard by default

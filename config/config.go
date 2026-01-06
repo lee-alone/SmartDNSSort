@@ -1,7 +1,11 @@
 ﻿package config
 
 import (
+	"encoding/json"
+	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -78,5 +82,88 @@ func LoadConfig(filePath string) (*Config, error) {
 	// 设置默认值
 	setDefaultValues(&cfg, data)
 
+	// 加载独立的递归配置
+	recursiveCfgPath := filepath.Join(filepath.Dir(filePath), "recursive.json")
+	if recCfg, err := LoadRecursiveConfig(recursiveCfgPath); err == nil {
+		cfg.Recursive = *recCfg
+	}
+
 	return &cfg, nil
+}
+
+// LoadRecursiveConfig 从 JSON 文件加载递归模块配置
+func LoadRecursiveConfig(filePath string) (*RecursiveConfig, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 如果不存在，返回默认配置但不报错误（可能用户不需要递归）
+			return &RecursiveConfig{}, nil
+		}
+		return nil, err
+	}
+
+	var cfg RecursiveConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+
+// SaveRecursiveConfig 将递归配置保存到 JSON 文件
+func SaveRecursiveConfig(filePath string, cfg *RecursiveConfig) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// ValidateConfig 验证完整配置及其关联性
+func (c *Config) ValidateConfig() error {
+	// 检查上游配置中的本地递归项
+	hasLocalRecursive := false
+	var localRecursivePort int
+
+	for _, s := range c.Upstream.Servers {
+		if s.Type == "local_recursive" {
+			hasLocalRecursive = true
+			// 尝试从地址中提取端口
+			_, portStr, err := net.SplitHostPort(s.Address)
+			if err == nil {
+				fmt.Sscanf(portStr, "%d", &localRecursivePort)
+			}
+			break
+		}
+	}
+
+	if hasLocalRecursive {
+		// 如果指定了本地递归上游，则必须启用递归模块
+		if !c.Recursive.Enabled {
+			return fmt.Errorf("configuration conflict: local_recursive is specified in upstreams but recursive module is disabled")
+		}
+
+		// 验证端口匹配
+		if localRecursivePort != 0 && localRecursivePort != c.Recursive.Port {
+			return fmt.Errorf("configuration mismatch: local_recursive upstream port (%d) does not match recursive module port (%d)",
+				localRecursivePort, c.Recursive.Port)
+		}
+
+		// 验证端口可用性
+		if err := checkPortAvailable(c.Recursive.Port); err != nil {
+			return fmt.Errorf("recursive module port %d is not available: %v", c.Recursive.Port, err)
+		}
+	}
+
+	return nil
+}
+
+// checkPortAvailable 检查端口是否可用
+func checkPortAvailable(port int) error {
+	ln, err := net.Listen("udp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return err
+	}
+	ln.Close()
+	return nil
 }

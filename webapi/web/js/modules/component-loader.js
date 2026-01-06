@@ -48,6 +48,7 @@ const ComponentLoader = {
             { path: 'components/dashboard.html', containerId: 'view-dashboard' },
             { path: 'components/config.html', containerId: 'view-config' },
             { path: 'components/custom-rules.html', containerId: 'view-rules' },
+            { path: 'components/resolver-config.html', containerId: 'view-resolver' },
             { path: 'components/footer.html', containerId: 'footer-container' },
         ];
 
