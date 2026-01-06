@@ -54,17 +54,36 @@ type UpstreamConfig struct {
 
 // UnmarshalYAML 实现自定义的反序列化，以支持旧的字符串数组格式
 func (u *UpstreamConfig) UnmarshalYAML(value *yaml.Node) error {
-	type Alias UpstreamConfig
-	var aux struct {
-		Servers []yaml.Node `yaml:"servers"`
-		*Alias  `yaml:",inline"`
+	type Alias struct {
+		Servers             []yaml.Node       `yaml:"servers"`
+		ServersOld          []string          `yaml:"servers_old,omitempty"`
+		BootstrapDNS        []string          `yaml:"bootstrap_dns,omitempty"`
+		Strategy            string            `yaml:"strategy,omitempty"`
+		TimeoutMs           int               `yaml:"timeout_ms,omitempty"`
+		Concurrency         int               `yaml:"concurrency,omitempty"`
+		SequentialTimeout   int               `yaml:"sequential_timeout,omitempty"`
+		RacingDelay         int               `yaml:"racing_delay,omitempty"`
+		RacingMaxConcurrent int               `yaml:"racing_max_concurrent,omitempty"`
+		Dnssec              bool              `yaml:"dnssec"`
+		HealthCheck         HealthCheckConfig `yaml:"health_check,omitempty"`
 	}
 
+	var aux Alias
 	if err := value.Decode(&aux); err != nil {
 		return err
 	}
 
-	*u = UpstreamConfig(*(aux.Alias))
+	u.ServersOld = aux.ServersOld
+	u.BootstrapDNS = aux.BootstrapDNS
+	u.Strategy = aux.Strategy
+	u.TimeoutMs = aux.TimeoutMs
+	u.Concurrency = aux.Concurrency
+	u.SequentialTimeout = aux.SequentialTimeout
+	u.RacingDelay = aux.RacingDelay
+	u.RacingMaxConcurrent = aux.RacingMaxConcurrent
+	u.Dnssec = aux.Dnssec
+	u.HealthCheck = aux.HealthCheck
+
 	u.Servers = make([]UpstreamServerConfig, 0, len(aux.Servers))
 
 	for _, node := range aux.Servers {
