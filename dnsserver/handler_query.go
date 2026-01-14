@@ -227,6 +227,10 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		if result.DnsMsg != nil {
 			logger.Debugf("[handleQuery] 将完整 DNSSEC 消息存储到 msgCache: %s (type=%s)", domain, dns.TypeToString[qtype])
 
+			// [Fix] 在缓存前去除重复记录
+			// 上游服务器可能会返回重复的记录，如果不清理，缓存后会直接服务给客户端
+			s.deduplicateDNSMsg(result.DnsMsg)
+
 			// Helper to set DNSSEC message to cache for a given domain/qtype
 			setDNSSECMsgToCache := func(d string, qt uint16, msg *dns.Msg) {
 				s.cache.SetDNSSECMsg(d, qt, msg)

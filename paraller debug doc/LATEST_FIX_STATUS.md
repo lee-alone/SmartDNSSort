@@ -1,4 +1,73 @@
-# 最新修复状态 - 第四阶段
+# 最新修复状态 - 第五阶段 (最终修复?)
+
+## 问题回顾
+
+上一阶段 (第四阶段) 我们在所有响应构建函数中添加了去重，但用户反馈仍然存在重复IP。
+
+## 根本原因再分析
+
+经过再次排查，我们发现了一个 **"旁路" (Bypass)**：
+
+1. 当启用 DNSSEC (`Dnssec: true`) 时，系统会使用 `msgCache` (完整消息缓存) 来加速响应。
+2. 这个缓存直接存储了来自上游的原始 `dns.Msg`。
+3. `dnsserver/handler_query.go` 在命中这个缓存时，会直接拷贝并返回消息：
+   ```go
+   if entry, found := s.cache.GetDNSSECMsg(domain, qtype); found {
+       responseMsg := entry.Message.Copy()
+       w.WriteMsg(responseMsg) // <--- 直接返回，绕过了 buildDNSResponse... 中的去重逻辑！
+       return
+   }
+   ```
+4. 如果上游服务器返回了重复IP (如 `DUPLICATE_IP_ROOT_CAUSE.md` 中所述)，这个脏数据会被存入缓存，并直接服务给用户，导致我们的去重修复无效。
+
+## 最新修复 (第五阶段)
+
+### 改动内容
+
+1. **`dnsserver/handler_response.go`**: 新增 `deduplicateDNSMsg` 工具函数，用于原地清理 `dns.Msg` 中的重复记录。
+2. **`dnsserver/handler_query.go`**: 在将 `result.DnsMsg` 存入缓存**之前**，先调用 `s.deduplicateDNSMsg(result.DnsMsg)` 进行清洗。
+
+```go
+// handler_query.go
+if result.DnsMsg != nil {
+    // [Fix] 在缓存前去除重复记录
+    s.deduplicateDNSMsg(result.DnsMsg)
+    setDNSSECMsgToCache(domain, qtype, result.DnsMsg)
+}
+```
+
+### 改动统计
+
+| 文件 | 改动 | 状态 |
+|------|------|------|
+| dnsserver/handler_response.go | 添加 deduplicateDNSMsg | ✅ |
+| dnsserver/handler_query.go | 在缓存前调用去重 | ✅ |
+
+---
+
+## 编译验证
+
+✅ **编译成功**
+
+```
+✓ Windows x64 -> bin/SmartDNSSort-windows-x64.exe
+✓ 编译完成！
+```
+
+---
+
+## 为什么这才是终极修复
+
+之前的修复只关注了 "构建新响应" 的路径，却忽略了 "直接转发缓存响应" 的路径。现在的修复确保了：
+1. 构建新响应时：使用 `buildDNSResponse...` 进行去重。
+2. 缓存原始响应时：使用 `deduplicateDNSMsg` 进行清洗。
+
+无论走哪条路，客户端都应该收到干净的数据。
+
+---
+
+**修复日期**: 2026-01-14
+**状态**: ✅ 已修复旁路缓存问题，编译完成
 
 ## 问题回顾
 

@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"fmt"
 	"net"
 	"smartdnssort/logger"
 	"time"
@@ -277,4 +278,53 @@ func (s *Server) buildGenericResponse(msg *dns.Msg, cnames []string, records []d
 		logger.Debugf("[buildGenericResponse] NODATA 响应: %s (type=%s)",
 			msg.Question[0].Name, dns.TypeToString[qtype])
 	}
+}
+
+// deduplicateDNSMsg 去除 DNS 消息中的重复记录
+func (s *Server) deduplicateDNSMsg(msg *dns.Msg) {
+	if msg == nil {
+		return
+	}
+	msg.Answer = s.deduplicateRecords(msg.Answer)
+	msg.Ns = s.deduplicateRecords(msg.Ns)
+	msg.Extra = s.deduplicateRecords(msg.Extra)
+}
+
+// deduplicateRecords 去除记录列表中的重复项
+func (s *Server) deduplicateRecords(records []dns.RR) []dns.RR {
+	if len(records) == 0 {
+		return records
+	}
+
+	uniqueRecords := make([]dns.RR, 0, len(records))
+	seen := make(map[string]bool)
+
+	for _, rr := range records {
+		// 生成去重键
+		// 对于 A/AAAA/CNAME，我们只关心核心内容，忽略 TTL
+		key := ""
+		header := rr.Header()
+
+		switch r := rr.(type) {
+		case *dns.A:
+			key = fmt.Sprintf("A:%s:%s", header.Name, r.A.String())
+		case *dns.AAAA:
+			key = fmt.Sprintf("AAAA:%s:%s", header.Name, r.AAAA.String())
+		case *dns.CNAME:
+			key = fmt.Sprintf("CNAME:%s:%s", header.Name, r.Target)
+		default:
+			// 对于其他记录，临时将 TTL 设为 0 来生成键
+			originalTTL := header.Ttl
+			header.Ttl = 0
+			key = rr.String()
+			header.Ttl = originalTTL
+		}
+
+		if !seen[key] {
+			seen[key] = true
+			uniqueRecords = append(uniqueRecords, rr)
+		}
+	}
+
+	return uniqueRecords
 }
