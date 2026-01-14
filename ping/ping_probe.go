@@ -5,35 +5,48 @@ import (
 	"crypto/tls"
 	"net"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 // smartPing 核心：智能混合探测（流量极小，准确率极高）
-// 探测顺序：
-// 1. TCP 443（HTTPS）
-// 2. TLS 握手验证（带 SNI）
-// 3. UDP DNS 查询（端口 53）
+// 新的探测顺序（基于用户洞察）：
+// 1. ICMP ping（最直接，最能代表 IP 可达性）
+// 2. TCP 443（HTTPS）+ TLS 握手验证（带 SNI）
+// 3. UDP DNS 查询（端口 53，备选方案，增加 500ms 惩罚）
 // 4. TCP 80（HTTP，可选）
 func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
-	// 第1步：先测 443 TCP（几乎所有现代服务都支持）
+	// 第1步：ICMP ping（最直接，最能代表 IP 可达性）
+	// 如果 ICMP 不通，说明 IP 根本不可达或被 ISP 拦截
+	if rtt := p.icmpPing(ip); rtt >= 0 {
+		return rtt
+	}
+
+	// 第2步：先测 443 TCP（几乎所有现代服务都支持）
 	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
-		// 第2步：关键！TLS ClientHello 带 SNI，能干掉 163.com 那种"TCP通但实际不可用"的节点
+		// 第2.1步：关键！TLS ClientHello 带 SNI，能干掉 163.com 那种"TCP通但实际不可用"的节点
 		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
 			// 用 TLS 握手时间更准（包含加密协商延迟）
-			return rtt2
+			// TCP 成功增加 100ms 惩罚（相比 ICMP）
+			return rtt2 + 100
 		}
 		// TLS 失败直接判死刑（防止假阳性）
 		return -1
 	}
 
 	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
+	// 注意：UDP DNS 只能代表 DNS 服务可用，不代表 IP 真正可用
+	// 对 UDP 结果增加 500ms 惩罚，降低其优先级
 	if rtt := p.udpDnsPing(ip); rtt >= 0 {
-		return rtt
+		return rtt + 500
 	}
 
 	// 第4步（可选）：用户打开开关才测 80
 	if p.enableHttpFallback {
 		if rtt := p.tcpPingPort(ctx, ip, "80"); rtt >= 0 {
-			return rtt
+			// HTTP 增加 300ms 惩罚
+			return rtt + 300
 		}
 	}
 
@@ -103,4 +116,91 @@ func (p *Pinger) udpDnsPing(ip string) int {
 		return -1
 	}
 	return int(time.Since(start).Milliseconds())
+}
+
+// icmpPing 使用 ICMP echo request/reply 测试 IP 可达性
+// 这是最直接的 IP 可达性测试，不受端口和应用层限制
+// 如果 ICMP 不通，说明 IP 根本不可达或被 ISP 拦截
+func (p *Pinger) icmpPing(ip string) int {
+	// 创建 ICMP 连接
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		// 如果无法创建 ICMP 连接，返回 -1（不可达）
+		return -1
+	}
+	defer conn.Close()
+
+	// 设置超时
+	conn.SetDeadline(time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond))
+
+	// 创建 ICMP echo request
+	msg := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   1,
+			Seq:  1,
+			Data: []byte("ping"),
+		},
+	}
+
+	// 编码消息
+	b, err := msg.Marshal(nil)
+	if err != nil {
+		return -1
+	}
+
+	// 发送 ICMP echo request
+	start := time.Now()
+	_, err = conn.WriteTo(b, &net.IPAddr{IP: net.ParseIP(ip)})
+	if err != nil {
+		return -1
+	}
+
+	// 接收 ICMP echo reply
+	reply := make([]byte, 1500)
+	_, _, err = conn.ReadFrom(reply)
+	if err != nil {
+		return -1
+	}
+
+	// 计算 RTT
+	rtt := int(time.Since(start).Milliseconds())
+	return rtt
+}
+
+// smartPingWithMethod 智能混合探测，同时返回探测方法
+// 用于标记每个 IP 使用的探测方法，便于调试和监控
+func (p *Pinger) smartPingWithMethod(ctx context.Context, ip, domain string) (int, string) {
+	// 第1步：ICMP ping（最直接，最能代表 IP 可达性）
+	if rtt := p.icmpPing(ip); rtt >= 0 {
+		return rtt, "icmp"
+	}
+
+	// 第2步：先测 443 TCP（几乎所有现代服务都支持）
+	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
+		// 第2.1步：关键！TLS ClientHello 带 SNI
+		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
+			// TCP 成功增加 100ms 惩罚（相比 ICMP）
+			return rtt2 + 100, "tls"
+		}
+		// TLS 失败直接判死刑
+		return -1, ""
+	}
+
+	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
+	if rtt := p.udpDnsPing(ip); rtt >= 0 {
+		// UDP 增加 500ms 惩罚
+		return rtt + 500, "udp53"
+	}
+
+	// 第4步（可选）：用户打开开关才测 80
+	if p.enableHttpFallback {
+		if rtt := p.tcpPingPort(ctx, ip, "80"); rtt >= 0 {
+			// HTTP 增加 300ms 惩罚
+			return rtt + 300, "tcp80"
+		}
+	}
+
+	return -1, ""
 }

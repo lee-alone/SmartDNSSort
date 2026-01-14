@@ -8,9 +8,10 @@ import (
 
 // Result 表示单个 IP 的 ping 结果
 type Result struct {
-	IP   string
-	RTT  int // 毫秒，999999 表示不可达
-	Loss float64
+	IP          string
+	RTT         int // 毫秒，999999 表示不可达
+	Loss        float64
+	ProbeMethod string // 探测方法：icmp, tcp443, tls, udp53, tcp80, none
 }
 
 // rttCacheEntry 缓存条目
@@ -63,7 +64,7 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 		p.rttCacheMu.RLock()
 		for _, ip := range testIPs {
 			if e, ok := p.rttCache[ip]; ok && now.Before(e.expiresAt) {
-				cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: 0})
+				cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: 0, ProbeMethod: "cached"})
 				// 缓存命中也视为一次成功，维持活跃状态
 				p.RecordIPSuccess(ip)
 			} else {

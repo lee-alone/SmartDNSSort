@@ -42,12 +42,17 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string
 }
 
 // sortResults 综合得分排序（推荐）
-// 排序规则：RTT + Loss*权重 + IP失效权重
-// 权重为 18，表示 1% 丢包相当于 18ms 延迟
+// 排序规则：RTT + Loss*权重 + 探测方法权重 + IP失效权重
+// 权重为 30，表示 1% 丢包相当于 30ms 延迟（从 18 提高到 30，加强对不稳定 IP 的惩罚）
+// 探测方法权重：ICMP(0) < TCP(100) < HTTP(300) < UDP(500)
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
-		scoreI := results[i].RTT + int(results[i].Loss*18) // 权重可调
-		scoreJ := results[j].RTT + int(results[j].Loss*18)
+		scoreI := results[i].RTT + int(results[i].Loss*30) // 权重从 18 改为 30
+		scoreJ := results[j].RTT + int(results[j].Loss*30)
+
+		// 根据探测方法调整权重
+		scoreI += p.getProbeMethodPenalty(results[i].ProbeMethod)
+		scoreJ += p.getProbeMethodPenalty(results[j].ProbeMethod)
 
 		// 加入IP失效权重
 		if p.failureWeightMgr != nil {
@@ -60,4 +65,23 @@ func (p *Pinger) sortResults(results []Result) {
 		}
 		return results[i].IP < results[j].IP
 	})
+}
+
+// getProbeMethodPenalty 根据探测方法返回权重惩罚
+// ICMP 最优（权重 0），TCP 次优（权重 100），HTTP 备选（权重 300），UDP 最差（权重 500）
+func (p *Pinger) getProbeMethodPenalty(method string) int {
+	switch method {
+	case "icmp":
+		return 0 // 无惩罚，最优
+	case "tls", "tcp443":
+		return 100 // TCP 增加 100ms
+	case "tcp80":
+		return 300 // HTTP 增加 300ms
+	case "udp53":
+		return 500 // UDP 增加 500ms
+	case "none":
+		return 999999 // 完全失败
+	default:
+		return 0
+	}
 }
