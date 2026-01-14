@@ -47,22 +47,35 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string
 // 探测方法权重：ICMP(0) < TCP(100) < HTTP(300) < UDP(500)
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
-		scoreI := results[i].RTT + int(results[i].Loss*30) // 权重从 18 改为 30
-		scoreJ := results[j].RTT + int(results[j].Loss*30)
+		// 计算实际失效次数（从百分比还原，用于阶梯式惩罚）
+		failCountI := int(results[i].Loss*float64(p.count)/100.0 + 0.5)
+		failCountJ := int(results[j].Loss*float64(p.count)/100.0 + 0.5)
 
-		// 根据探测方法调整权重
+		// 1. 基础得分：真实 RTT + 强力失效率惩罚（每次失败加 2000ms）
+		// 这样 1 次丢包（即使 RTT 只有 10ms）也会排在 0 丢包（即使 RTT 是 1000ms）的后面
+		scoreI := results[i].RTT + failCountI*2000
+		scoreJ := results[j].RTT + failCountJ*2000
+
+		// 2. 根据探测方法增加权重惩罚
 		scoreI += p.getProbeMethodPenalty(results[i].ProbeMethod)
 		scoreJ += p.getProbeMethodPenalty(results[j].ProbeMethod)
 
-		// 加入IP失效权重
+		// 3. 加入历史 IP 失效权重（带有衰减）
 		if p.failureWeightMgr != nil {
 			scoreI += p.failureWeightMgr.GetWeight(results[i].IP)
 			scoreJ += p.failureWeightMgr.GetWeight(results[j].IP)
 		}
 
-		if scoreI != scoreJ {
-			return scoreI < scoreJ
+		// 4. 5ms 分箱（Binning）去噪：消除 1ms 级别的随机波动
+		roundedScoreI := (scoreI / 5) * 5
+		roundedScoreJ := (scoreJ / 5) * 5
+
+		if roundedScoreI != roundedScoreJ {
+			return roundedScoreI < roundedScoreJ
 		}
+
+		// 5. 最终稳定性保障：如果分箱得分相同，按 IP 字符串字典序排
+		// 这保证了只要网络质量微差，结果绝对不会上下跳变
 		return results[i].IP < results[j].IP
 	})
 }

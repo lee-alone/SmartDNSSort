@@ -103,10 +103,11 @@ func (p *Pinger) udpDnsPing(ip string) int {
 
 	// 从池中获取 buffer
 	buf := p.bufferPool.Get().([]byte)
-	defer func() {
-		// 重置 buffer 长度为 0，防止脏数据污染
-		p.bufferPool.Put(buf[:0])
-	}()
+	if cap(buf) < 512 {
+		buf = make([]byte, 512)
+	}
+	buf = buf[:512] // 确保长度足够
+	defer p.bufferPool.Put(buf)
 
 	start := time.Now()
 	if _, err = pc.Write(query); err != nil {
@@ -122,51 +123,65 @@ func (p *Pinger) udpDnsPing(ip string) int {
 // 这是最直接的 IP 可达性测试，不受端口和应用层限制
 // 如果 ICMP 不通，说明 IP 根本不可达或被 ISP 拦截
 func (p *Pinger) icmpPing(ip string) int {
-	// 创建 ICMP 连接
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
-		// 如果无法创建 ICMP 连接，返回 -1（不可达）
 		return -1
 	}
 	defer conn.Close()
 
-	// 设置超时
-	conn.SetDeadline(time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond))
+	destIP := net.ParseIP(ip)
+	// 使用随机 ID 区分并发探测
+	id := int(time.Now().UnixNano() & 0xffff)
 
-	// 创建 ICMP echo request
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
 		Body: &icmp.Echo{
-			ID:   1,
+			ID:   id,
 			Seq:  1,
 			Data: []byte("ping"),
 		},
 	}
 
-	// 编码消息
 	b, err := msg.Marshal(nil)
 	if err != nil {
 		return -1
 	}
 
-	// 发送 ICMP echo request
 	start := time.Now()
-	_, err = conn.WriteTo(b, &net.IPAddr{IP: net.ParseIP(ip)})
-	if err != nil {
+	if _, err = conn.WriteTo(b, &net.IPAddr{IP: destIP}); err != nil {
 		return -1
 	}
 
-	// 接收 ICMP echo reply
+	// 持续读取直到捕获到正确的应答或超时
 	reply := make([]byte, 1500)
-	_, _, err = conn.ReadFrom(reply)
-	if err != nil {
-		return -1
-	}
+	for {
+		conn.SetReadDeadline(time.Now().Add(time.Duration(p.timeoutMs) * time.Millisecond))
+		n, from, err := conn.ReadFrom(reply)
+		if err != nil {
+			return -1
+		}
 
-	// 计算 RTT
-	rtt := int(time.Since(start).Milliseconds())
-	return rtt
+		// 1. 校验来源 IP
+		if from.String() != ip {
+			continue
+		}
+
+		// 2. 解析 ICMP 报文
+		rm, err := icmp.ParseMessage(1, reply[:n])
+		if err != nil {
+			continue
+		}
+
+		// 3. 校验报文类型和 ID
+		if rm.Type == ipv4.ICMPTypeEchoReply {
+			if echo, ok := rm.Body.(*icmp.Echo); ok {
+				if echo.ID == id {
+					return int(time.Since(start).Milliseconds())
+				}
+			}
+		}
+	}
 }
 
 // smartPingWithMethod 智能混合探测，同时返回探测方法

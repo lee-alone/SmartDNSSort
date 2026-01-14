@@ -31,14 +31,10 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 	}
 
 	avgRTT := int(totalRTT / int64(successCount))
-	penalty := (p.count - successCount) * 150 // 惩罚降低一点，防止误伤
-	finalRTT := avgRTT + penalty
-	// 删除 RTT 上限，让高丢包 IP 的 RTT 真实反映其不稳定性
-	// 如果丢包率高，RTT 会自然很高，无需人为限制
 
 	return &Result{
 		IP:          ip,
-		RTT:         finalRTT,
+		RTT:         avgRTT, // 返回真实平均 RTT，不再预加惩罚
 		Loss:        float64(p.count-successCount) / float64(p.count) * 100,
 		ProbeMethod: probeMethod,
 	}
