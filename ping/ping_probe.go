@@ -17,40 +17,8 @@ import (
 // 3. UDP DNS 查询（端口 53，备选方案，增加 500ms 惩罚）
 // 4. TCP 80（HTTP，可选）
 func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
-	// 第1步：ICMP ping（最直接，最能代表 IP 可达性）
-	// 如果 ICMP 不通，说明 IP 根本不可达或被 ISP 拦截
-	if rtt := p.icmpPing(ip); rtt >= 0 {
-		return rtt
-	}
-
-	// 第2步：先测 443 TCP（几乎所有现代服务都支持）
-	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
-		// 第2.1步：关键！TLS ClientHello 带 SNI，能干掉 163.com 那种"TCP通但实际不可用"的节点
-		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
-			// 用 TLS 握手时间更准（包含加密协商延迟）
-			// TCP 成功增加 100ms 惩罚（相比 ICMP）
-			return rtt2 + 100
-		}
-		// TLS 失败直接判死刑（防止假阳性）
-		return -1
-	}
-
-	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
-	// 注意：UDP DNS 只能代表 DNS 服务可用，不代表 IP 真正可用
-	// 对 UDP 结果增加 500ms 惩罚，降低其优先级
-	if rtt := p.udpDnsPing(ip); rtt >= 0 {
-		return rtt + 500
-	}
-
-	// 第4步（可选）：用户打开开关才测 80
-	if p.enableHttpFallback {
-		if rtt := p.tcpPingPort(ctx, ip, "80"); rtt >= 0 {
-			// HTTP 增加 300ms 惩罚
-			return rtt + 300
-		}
-	}
-
-	return -1
+	rtt, _ := p.smartPingWithMethod(ctx, ip, domain)
+	return rtt
 }
 
 // tcpPingPort 通用 TCP 端口探测（443/80/853 都行）
@@ -187,33 +155,28 @@ func (p *Pinger) icmpPing(ip string) int {
 // smartPingWithMethod 智能混合探测，同时返回探测方法
 // 用于标记每个 IP 使用的探测方法，便于调试和监控
 func (p *Pinger) smartPingWithMethod(ctx context.Context, ip, domain string) (int, string) {
-	// 第1步：ICMP ping（最直接，最能代表 IP 可达性）
+	// 第1步：ICMP ping (0ms 权重)
 	if rtt := p.icmpPing(ip); rtt >= 0 {
 		return rtt, "icmp"
 	}
 
-	// 第2步：先测 443 TCP（几乎所有现代服务都支持）
+	// 第2步：TCP 443 + TLS (100ms 权重)
 	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
-		// 第2.1步：关键！TLS ClientHello 带 SNI
 		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
-			// TCP 成功增加 100ms 惩罚（相比 ICMP）
-			return rtt2 + 100, "tls"
+			return rtt2, "tls" // 只返回原始 RTT，惩罚分由排序逻辑统一加
 		}
-		// TLS 失败直接判死刑
 		return -1, ""
 	}
 
-	// 第3步：443 完全不通的，尝试 53 UDP（公共 DNS 场景）
+	// 第3步：UDP 53 (500ms 权重)
 	if rtt := p.udpDnsPing(ip); rtt >= 0 {
-		// UDP 增加 500ms 惩罚
-		return rtt + 500, "udp53"
+		return rtt, "udp53"
 	}
 
-	// 第4步（可选）：用户打开开关才测 80
+	// 第4步：TCP 80 (300ms 权重)
 	if p.enableHttpFallback {
 		if rtt := p.tcpPingPort(ctx, ip, "80"); rtt >= 0 {
-			// HTTP 增加 300ms 惩罚
-			return rtt + 300, "tcp80"
+			return rtt, "tcp80"
 		}
 	}
 
