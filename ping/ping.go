@@ -12,6 +12,7 @@ type Result struct {
 	RTT         int // 毫秒，999999 表示不可达
 	Loss        float64
 	ProbeMethod string // 探测方法：icmp, tcp443, tls, udp53, tcp80, none
+	FastFail    bool   // 标记是否触发了快速失败（避免两重记录）
 }
 
 // rttCacheEntry 缓存条目
@@ -79,8 +80,12 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	// 并发测
 	results := p.concurrentPing(ctx, toPing, domain)
 
-	// 记录失效权重
+	// 记录失效权重（避免两重记录）
 	for _, r := range results {
+		if r.FastFail {
+			// 已经在 pingIP 中通过 RecordIPFastFail 记录过了，跳过以避免重复
+			continue
+		}
 		if r.Loss == 100 {
 			p.RecordIPFailure(r.IP)
 		} else {
@@ -125,6 +130,13 @@ func (p *Pinger) RecordIPFailure(ip string) {
 func (p *Pinger) RecordIPSuccess(ip string) {
 	if p.failureWeightMgr != nil {
 		p.failureWeightMgr.RecordSuccess(ip)
+	}
+}
+
+// RecordIPFastFail 记录IP快速失败（第一次探测就超时）
+func (p *Pinger) RecordIPFastFail(ip string) {
+	if p.failureWeightMgr != nil {
+		p.failureWeightMgr.RecordFastFail(ip)
 	}
 }
 

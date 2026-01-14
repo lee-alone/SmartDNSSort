@@ -30,13 +30,13 @@ func TestPingAndSort(t *testing.T) {
 }
 
 func TestSortResults(t *testing.T) {
-	p := &Pinger{}
+	p := &Pinger{count: 3} // 初始化 count
 
 	results := []Result{
-		{IP: "1.1.1.1", RTT: 200, Loss: 0},
-		{IP: "2.2.2.2", RTT: 20, Loss: 30}, // Low RTT but has loss
-		{IP: "3.3.3.3", RTT: 500, Loss: 0},
-		{IP: "4.4.4.4", RTT: 9999, Loss: 100},
+		{IP: "1.1.1.1", RTT: 200, Loss: 0, FastFail: false},
+		{IP: "2.2.2.2", RTT: 20, Loss: 30, FastFail: false}, // Low RTT but has loss
+		{IP: "3.3.3.3", RTT: 500, Loss: 0, FastFail: false},
+		{IP: "4.4.4.4", RTT: 9999, Loss: 100, FastFail: false},
 	}
 
 	p.sortResults(results)

@@ -15,6 +15,7 @@ type IPFailureRecord struct {
 	SuccessCount    int       `json:"success_count"`     // 连续成功次数
 	TotalAttempts   int       `json:"total_attempts"`    // 总尝试次数
 	FailureRate     float64   `json:"failure_rate"`      // 失效率
+	FastFailCount   int       `json:"fast_fail_count"`   // 快速失败次数（第一次探测就超时）
 }
 
 // IPFailureWeightManager IP失效权重管理器
@@ -82,6 +83,29 @@ func (m *IPFailureWeightManager) RecordSuccess(ip string) {
 	}
 }
 
+// RecordFastFail 记录IP快速失败（第一次探测就超时）
+// 这表示 IP 丢包严重，应该被大幅降权
+func (m *IPFailureWeightManager) RecordFastFail(ip string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, exists := m.records[ip]
+	if !exists {
+		record = &IPFailureRecord{IP: ip}
+		m.records[ip] = record
+	}
+
+	record.FastFailCount++
+	record.FailureCount++
+	if record.FailureCount > m.maxFailureCount {
+		record.FailureCount = m.maxFailureCount
+	}
+	record.LastFailureTime = time.Now()
+	record.SuccessCount = 0 // 重置成功计数
+	record.TotalAttempts++
+	m.updateFailureRate(record)
+}
+
 // updateFailureRate 更新失效率
 func (m *IPFailureWeightManager) updateFailureRate(record *IPFailureRecord) {
 	if record.TotalAttempts > 0 {
@@ -102,6 +126,10 @@ func (m *IPFailureWeightManager) GetWeight(ip string) int {
 
 	// 基础权重：每次失效增加50ms
 	weight := record.FailureCount * 50
+
+	// 快速失败惩罚：每次快速失败增加 500ms（比普通失效强 10 倍）
+	// 这反映了快速失败 IP 的严重性：第一次就超时，说明网络质量极差
+	weight += record.FastFailCount * 500
 
 	// 时间衰减：距离最后失效越久，权重越低
 	if !record.LastFailureTime.IsZero() {
