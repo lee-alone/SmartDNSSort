@@ -217,6 +217,25 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 	// 合并所有通用记录（去重）
 	mergedRecords := u.mergeAndDeduplicateRecords(allSuccessResults)
 
+	// 轻量级验证 (写入前)
+	if len(mergedRecords) == 0 {
+		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 去重后没有记录，不更新缓存")
+		return
+	}
+
+	// 计算去重率
+	totalRecordsBefore := 0
+	for _, result := range allSuccessResults {
+		totalRecordsBefore += len(result.Records)
+	}
+	dedupeRate := 0.0
+	if totalRecordsBefore > 0 {
+		dedupeRate = float64(totalRecordsBefore-len(mergedRecords)) / float64(totalRecordsBefore) * 100
+	}
+
+	logger.Debugf("[collectRemainingResponses] 去重统计: 去重前 %d 条记录, 去重后 %d 条记录, 去重率 %.1f%%",
+		totalRecordsBefore, len(mergedRecords), dedupeRate)
+
 	// 选择最小的TTL(最保守的策略)
 	minTTL := fastResponse.TTL
 	for _, result := range allSuccessResults {
@@ -228,7 +247,7 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 条记录 (快速响应: %d 条, 汇总后: %d 条), CNAMEs=%v, TTL=%d秒",
 		successCount, len(mergedRecords), len(fastResponse.Records), len(mergedRecords), fastResponse.CNAMEs, minTTL)
 
-	// 如果设置了缓存更新回调，则调用它来更新缓存
+	// 通过验证后，调用缓存更新回调
 	if u.cacheUpdateCallback != nil {
 		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整记录池到缓存")
 		u.cacheUpdateCallback(domain, qtype, mergedRecords, fastResponse.CNAMEs, minTTL)
@@ -238,18 +257,46 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 }
 
 // mergeAndDeduplicateRecords 合并并去重多个查询结果中的通用记录
+// mergeAndDeduplicateRecords 合并并去重多个查询结果中的通用记录
+// 策略：
+// 1. IP记录（A/AAAA）：基于IP地址去重
+// 2. CNAME记录：基于Target去重
+// 3. 其他记录：仅保留第一个收到的记录，避免完全重复
 func (u *Manager) mergeAndDeduplicateRecords(results []*QueryResult) []dns.RR {
-	// 使用 map 来去重记录（基于记录的字符串表示）
-	recordSet := make(map[string]dns.RR)
+	ipSet := make(map[string]bool)
+	cnameSet := make(map[string]bool)
+	otherRecordSet := make(map[string]bool) // 用于去重其他记录
 	var mergedRecords []dns.RR
 
 	for _, result := range results {
 		for _, rr := range result.Records {
-			// 使用记录的字符串表示作为唯一键
-			key := rr.String()
-			if _, exists := recordSet[key]; !exists {
-				recordSet[key] = rr
-				mergedRecords = append(mergedRecords, rr)
+			switch rec := rr.(type) {
+			case *dns.A:
+				ipStr := rec.A.String()
+				if !ipSet[ipStr] {
+					ipSet[ipStr] = true
+					mergedRecords = append(mergedRecords, rr)
+				}
+			case *dns.AAAA:
+				ipStr := rec.AAAA.String()
+				if !ipSet[ipStr] {
+					ipSet[ipStr] = true
+					mergedRecords = append(mergedRecords, rr)
+				}
+			case *dns.CNAME:
+				cnameStr := rec.Target
+				if !cnameSet[cnameStr] {
+					cnameSet[cnameStr] = true
+					mergedRecords = append(mergedRecords, rr)
+				}
+			default:
+				// 其他记录（SOA、NS等）：仅保留第一个收到的记录
+				// 使用记录的完整字符串表示作为去重键
+				recordKey := rr.String()
+				if !otherRecordSet[recordKey] {
+					otherRecordSet[recordKey] = true
+					mergedRecords = append(mergedRecords, rr)
+				}
 			}
 		}
 	}

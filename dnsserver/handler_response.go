@@ -51,11 +51,20 @@ func (s *Server) buildDNSResponseWithDNSSEC(msg *dns.Msg, domain string, ips []s
 			domain, dns.TypeToString[qtype], len(ips), ttl)
 	}
 
+	// 进行IP去重
+	ipSet := make(map[string]bool)
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)
 		if parsedIP == nil {
 			continue
 		}
+
+		// 对IP进行去重
+		ipStr := parsedIP.String()
+		if ipSet[ipStr] {
+			continue // 跳过重复的IP
+		}
+		ipSet[ipStr] = true
 
 		switch qtype {
 		case dns.TypeA:
@@ -114,8 +123,18 @@ func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string,
 
 	currentName := dns.Fqdn(domain)
 
+	// 第一步：添加 CNAME 链（去重）
+	cnameSet := make(map[string]bool)
 	for _, target := range cnames {
 		targetFqdn := dns.Fqdn(target)
+
+		// 检查是否已经添加过这个CNAME
+		cnamePair := currentName + "->" + targetFqdn
+		if cnameSet[cnamePair] {
+			continue // 跳过重复的CNAME
+		}
+		cnameSet[cnamePair] = true
+
 		msg.Answer = append(msg.Answer, &dns.CNAME{
 			Hdr: dns.RR_Header{
 				Name:   currentName,
@@ -129,12 +148,20 @@ func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string,
 	}
 
 	// The IPs belong to the LAST CNAME target
-	// 2. 然后添加目标域名的 A/AAAA 记录
+	// 2. 然后添加目标域名的 A/AAAA 记录（进行IP去重）
+	ipSet := make(map[string]bool) // 用于去重IP
 	for _, ip := range ips {
 		parsedIP := net.ParseIP(ip)
 		if parsedIP == nil {
 			continue
 		}
+
+		// 对IP进行去重
+		ipStr := parsedIP.String()
+		if ipSet[ipStr] {
+			continue // 跳过重复的IP
+		}
+		ipSet[ipStr] = true
 
 		switch qtype {
 		case dns.TypeA:
@@ -185,11 +212,20 @@ func (s *Server) buildGenericResponse(msg *dns.Msg, cnames []string, records []d
 
 	fqdn := dns.Fqdn(msg.Question[0].Name) // 原始查询域名
 
-	// 第一步：添加 CNAME 链
+	// 第一步：添加 CNAME 链（去重）
 	if len(cnames) > 0 {
 		currentName := fqdn
+		cnameSet := make(map[string]bool)
 		for _, target := range cnames {
 			targetFqdn := dns.Fqdn(target)
+
+			// 检查是否已经添加过这个CNAME
+			cnamePair := currentName + "->" + targetFqdn
+			if cnameSet[cnamePair] {
+				continue // 跳过重复的CNAME
+			}
+			cnameSet[cnamePair] = true
+
 			msg.Answer = append(msg.Answer, &dns.CNAME{
 				Hdr: dns.RR_Header{
 					Name:   currentName,
@@ -203,13 +239,35 @@ func (s *Server) buildGenericResponse(msg *dns.Msg, cnames []string, records []d
 		}
 	}
 
-	// 第二步：添加目标记录（筛选匹配查询类型的记录）
+	// 第二步：添加目标记录（筛选匹配查询类型的记录，并进行IP去重）
+	ipSet := make(map[string]bool) // 用于去重IP
 	for _, rr := range records {
 		if rr.Header().Rrtype == qtype {
-			// 创建记录的副本并更新 TTL
-			rrCopy := dns.Copy(rr)
-			rrCopy.Header().Ttl = ttl
-			msg.Answer = append(msg.Answer, rrCopy)
+			// 对A和AAAA记录进行IP去重
+			shouldAdd := true
+			switch rec := rr.(type) {
+			case *dns.A:
+				ipStr := rec.A.String()
+				if ipSet[ipStr] {
+					shouldAdd = false
+				} else {
+					ipSet[ipStr] = true
+				}
+			case *dns.AAAA:
+				ipStr := rec.AAAA.String()
+				if ipSet[ipStr] {
+					shouldAdd = false
+				} else {
+					ipSet[ipStr] = true
+				}
+			}
+
+			if shouldAdd {
+				// 创建记录的副本并更新 TTL
+				rrCopy := dns.Copy(rr)
+				rrCopy.Header().Ttl = ttl
+				msg.Answer = append(msg.Answer, rrCopy)
+			}
 		}
 	}
 

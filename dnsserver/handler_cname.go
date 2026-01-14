@@ -19,6 +19,9 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16, 
 
 	var finalResult *upstream.QueryResultWithTTL
 
+	// 用于CNAME去重
+	cnameSet := make(map[string]bool)
+
 	for i := range maxRedirects {
 		logger.Debugf("[resolveCNAME] 递归查询 #%d: %s (type=%s)", i+1, currentDomain, dns.TypeToString[qtype])
 
@@ -40,9 +43,14 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16, 
 			return nil, fmt.Errorf("cname resolution failed for %s: %v", queryDomain, err)
 		}
 
-		// 累加发现的 CNAME
+		// 累加发现的 CNAME（去重）
 		if len(result.CNAMEs) > 0 {
-			accumulatedCNAMEs = append(accumulatedCNAMEs, result.CNAMEs...)
+			for _, cname := range result.CNAMEs {
+				if !cnameSet[cname] {
+					cnameSet[cname] = true
+					accumulatedCNAMEs = append(accumulatedCNAMEs, cname)
+				}
+			}
 		}
 
 		// 如果找到了 IP，解析结束

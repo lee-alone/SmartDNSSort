@@ -130,8 +130,17 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		}
 
 		finalIPs = finalResult.IPs
-		// 完整链 = 初始链 + 递归解析出的链
-		fullCNAMEs = append(result.CNAMEs, finalResult.CNAMEs...)
+		// 完整链 = 初始链 + 递归解析出的链（去重）
+		cnameSet := make(map[string]bool)
+		for _, cname := range result.CNAMEs {
+			cnameSet[cname] = true
+			fullCNAMEs = append(fullCNAMEs, cname)
+		}
+		for _, cname := range finalResult.CNAMEs {
+			if !cnameSet[cname] {
+				fullCNAMEs = append(fullCNAMEs, cname)
+			}
+		}
 		finalTTL = finalResult.TTL
 	} else {
 		// 场景2: 直接获得了 IP (可能也带了 CNAME) 或 空结果

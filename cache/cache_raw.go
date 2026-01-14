@@ -48,25 +48,35 @@ func (c *Cache) SetRawRecords(domain string, qtype uint16, records []dns.RR, cna
 
 // SetRawRecordsWithDNSSEC 设置带 DNSSEC 标记的通用记录原始缓存
 // 注意：IPs 字段会从 records 中自动派生（A/AAAA 记录的物化视图）
+// 同时进行IP级别去重，确保IPs列表中没有重复
 func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []dns.RR, cnames []string, upstreamTTL uint32, authData bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 从 records 中提取 A/AAAA 记录的 IP 字符串
+	// 从 records 中提取 A/AAAA 记录的 IP 字符串（去重）
+	ipSet := make(map[string]bool)
 	var ips []string
 	for _, r := range records {
 		switch rec := r.(type) {
 		case *dns.A:
-			ips = append(ips, rec.A.String())
+			ipStr := rec.A.String()
+			if !ipSet[ipStr] {
+				ipSet[ipStr] = true
+				ips = append(ips, ipStr)
+			}
 		case *dns.AAAA:
-			ips = append(ips, rec.AAAA.String())
+			ipStr := rec.AAAA.String()
+			if !ipSet[ipStr] {
+				ipSet[ipStr] = true
+				ips = append(ips, ipStr)
+			}
 		}
 	}
 
 	key := cacheKey(domain, qtype)
 	entry := &RawCacheEntry{
 		Records:           records,
-		IPs:               ips, // 从 records 派生
+		IPs:               ips, // 从 records 派生，已去重
 		CNAMEs:            cnames,
 		UpstreamTTL:       upstreamTTL,
 		AcquisitionTime:   timeNow(),

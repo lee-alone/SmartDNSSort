@@ -22,13 +22,22 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 		}
 
 		// 更新原始缓存中的记录列表
-		// 注意：SetRawRecords 会自动从 records 中派生 IPs
+		// 注意：SetRawRecords 会自动从 records 中派生 IPs（已去重）
 		s.cache.SetRawRecords(domain, qtype, records, cnames, ttl)
 
 		// 获取新的 IP 数量
 		var newIPCount int
 		if newEntry, exists := s.cache.GetRaw(domain, qtype); exists {
 			newIPCount = len(newEntry.IPs)
+		}
+
+		// 事后验证：记录IP变化和统计信息
+		if oldIPCount > 0 {
+			ipChangeRate := float64(newIPCount-oldIPCount) / float64(oldIPCount) * 100
+			logger.Debugf("[CacheUpdateCallback] IP变化: %d -> %d (变化率: %.1f%%)",
+				oldIPCount, newIPCount, ipChangeRate)
+		} else {
+			logger.Debugf("[CacheUpdateCallback] IP数量: %d (新增)", newIPCount)
 		}
 
 		// 如果后台收集的 IP 数量比之前多，需要重新排序

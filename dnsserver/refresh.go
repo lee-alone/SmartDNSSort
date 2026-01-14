@@ -52,7 +52,17 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 		}
 
 		finalIPs = finalResult.IPs
-		fullCNAMEs = append(result.CNAMEs, finalResult.CNAMEs...)
+		// 合并CNAME链（去重）
+		cnameSet := make(map[string]bool)
+		for _, cname := range result.CNAMEs {
+			cnameSet[cname] = true
+			fullCNAMEs = append(fullCNAMEs, cname)
+		}
+		for _, cname := range finalResult.CNAMEs {
+			if !cnameSet[cname] {
+				fullCNAMEs = append(fullCNAMEs, cname)
+			}
+		}
 		finalTTL = finalResult.TTL
 	} else {
 		// Scenario 2: Got IPs directly, or an empty result
