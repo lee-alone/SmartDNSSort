@@ -63,6 +63,14 @@ func (s *Server) Shutdown() {
 		logger.Info("[Cache] Cache saved successfully.")
 	}
 
+	// 关闭缓存系统，清理异步处理 goroutine
+	logger.Info("[Cache] Closing cache system...")
+	if err := s.cache.Close(); err != nil {
+		logger.Errorf("[Cache] Failed to close cache: %v", err)
+	} else {
+		logger.Info("[Cache] Cache system closed successfully.")
+	}
+
 	if s.udpServer != nil {
 		if err := s.udpServer.Shutdown(); err != nil {
 			logger.Errorf("[Server] UDP server shutdown error: %v", err)

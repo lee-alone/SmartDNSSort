@@ -5,10 +5,8 @@ import (
 )
 
 // GetError 获取错误缓存
+// 注意：errorCache 内部已实现线程安全，无需全局锁
 func (c *Cache) GetError(domain string, qtype uint16) (*ErrorCacheEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	key := cacheKey(domain, qtype)
 	value, exists := c.errorCache.Get(key)
 	if !exists {
@@ -28,10 +26,8 @@ func (c *Cache) GetError(domain string, qtype uint16) (*ErrorCacheEntry, bool) {
 }
 
 // SetError 设置错误缓存
+// 注意：errorCache 内部已实现线程安全，无需全局锁
 func (c *Cache) SetError(domain string, qtype uint16, rcode int, ttl int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	key := cacheKey(domain, qtype)
 	entry := &ErrorCacheEntry{
 		Rcode:    rcode,

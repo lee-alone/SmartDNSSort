@@ -3,15 +3,23 @@ package cache
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 )
 
-// LRUCache 标准的 LRU 缓存实现
+// LRUCache 读友好的 LRU 缓存实现
 // 使用哈希表 + 双向链表实现，O(1) 时间复杂度的 Get 和 Set 操作
+// 改进：Get 操作使用 RLock，访问顺序更新通过异步机制处理
 type LRUCache struct {
 	mu       sync.RWMutex
 	capacity int
 	cache    map[string]*list.Element // key -> *list.Element
 	list     *list.List               // 双向链表，头部为最新，尾部为最旧
+
+	// 异步访问记录机制
+	accessChan chan string // 接收访问记录的 channel
+	stopChan   chan struct{}
+	wg         sync.WaitGroup
+	pending    int32 // 待处理的访问记录数
 }
 
 // lruNode 链表中的节点
@@ -25,26 +33,78 @@ func NewLRUCache(capacity int) *LRUCache {
 	if capacity <= 0 {
 		capacity = 10000 // 默认容量
 	}
-	return &LRUCache{
-		capacity: capacity,
-		cache:    make(map[string]*list.Element),
-		list:     list.New(),
+
+	lru := &LRUCache{
+		capacity:   capacity,
+		cache:      make(map[string]*list.Element),
+		list:       list.New(),
+		accessChan: make(chan string, 1000), // 缓冲 channel，避免阻塞
+		stopChan:   make(chan struct{}),
+	}
+
+	// 启动异步访问记录处理 goroutine
+	lru.wg.Add(1)
+	go lru.processAccessRecords()
+
+	return lru
+}
+
+// processAccessRecords 异步处理访问记录，批量更新 LRU 链表
+func (lru *LRUCache) processAccessRecords() {
+	defer lru.wg.Done()
+
+	for {
+		select {
+		case key := <-lru.accessChan:
+			atomic.AddInt32(&lru.pending, -1)
+			lru.mu.Lock()
+			if elem, exists := lru.cache[key]; exists {
+				lru.list.MoveToFront(elem)
+			}
+			lru.mu.Unlock()
+
+		case <-lru.stopChan:
+			// 处理剩余的访问记录
+			for {
+				select {
+				case key := <-lru.accessChan:
+					atomic.AddInt32(&lru.pending, -1)
+					lru.mu.Lock()
+					if elem, exists := lru.cache[key]; exists {
+						lru.list.MoveToFront(elem)
+					}
+					lru.mu.Unlock()
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
-// Get 获取一个值，并将其移动到链表头部（标记为最新）
+// Get 获取一个值，使用读锁，访问顺序更新异步处理
 func (lru *LRUCache) Get(key string) (any, bool) {
-	lru.mu.Lock()
-	defer lru.mu.Unlock()
-
+	lru.mu.RLock()
 	elem, exists := lru.cache[key]
 	if !exists {
+		lru.mu.RUnlock()
 		return nil, false
 	}
+	value := elem.Value.(*lruNode).value
+	lru.mu.RUnlock()
 
-	// 将访问的元素移动到链表头部（最新）
-	lru.list.MoveToFront(elem)
-	return elem.Value.(*lruNode).value, true
+	// 异步记录访问，不阻塞读操作
+	if exists {
+		atomic.AddInt32(&lru.pending, 1)
+		select {
+		case lru.accessChan <- key:
+		default:
+			// channel 满，丢弃此次记录（可选：使用非阻塞发送）
+			atomic.AddInt32(&lru.pending, -1)
+		}
+	}
+
+	return value, true
 }
 
 // Set 添加或更新一个值
@@ -105,4 +165,16 @@ func (lru *LRUCache) Clear() {
 	defer lru.mu.Unlock()
 	lru.cache = make(map[string]*list.Element)
 	lru.list = list.New()
+}
+
+// Close 关闭缓存，停止异步处理 goroutine
+func (lru *LRUCache) Close() error {
+	close(lru.stopChan)
+	lru.wg.Wait()
+	return nil
+}
+
+// GetPendingAccess 获取待处理的访问记录数（用于监控）
+func (lru *LRUCache) GetPendingAccess() int32 {
+	return atomic.LoadInt32(&lru.pending)
 }

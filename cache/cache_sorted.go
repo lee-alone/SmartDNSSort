@@ -5,10 +5,8 @@ import (
 )
 
 // GetSorted 获取排序后的缓存
+// 注意：sortedCache 内部已实现线程安全，无需全局锁
 func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	key := cacheKey(domain, qtype)
 	value, exists := c.sortedCache.Get(key)
 	if !exists {
@@ -28,10 +26,8 @@ func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool)
 }
 
 // SetSorted 设置排序后的缓存
+// 注意：sortedCache 内部已实现线程安全，无需全局锁
 func (c *Cache) SetSorted(domain string, qtype uint16, entry *SortedCacheEntry) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	key := cacheKey(domain, qtype)
 	c.sortedCache.Set(key, entry)
 }
