@@ -161,13 +161,24 @@ func (c *Cache) RecordAccess(domain string, qtype uint16) {
 }
 
 // CleanExpired 清理过期缓存
-// 新策略：
-// 1. 使用 container/heap 精确定位过期数据
-// 2. 引入 minHardLimit 保证异步刷新有足够时间窗口
-// 3. Get 负责刷新：Fresh → Stale 的转化由 Get 操作处理
+// 新策略：压力驱动 + 时间兜底
+// 1. 获取当前内存使用率
+// 2. 低压力下（<80%）：只清理超过 24 小时的古老数据
+// 3. 高压力下（>=80%）：激进清理所有过期数据
+// 4. 最终保险丝：LRU 会在内存真的满时自动驱逐最不常用的数据
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	usage := c.getMemoryUsagePercentLocked()
+	now := timeNow().Unix()
+
+	// 压力阈值：80%
+	const pressureThreshold = 0.8
+	isHighPressure := usage >= pressureThreshold
+
+	// 兜底时间：24 小时（86400 秒）
+	const ancientLimit = 86400
 
 	// 计算 Hard Limit 容忍期（秒）
 	// 过期数据在达到 Hard Limit 之前会被保留，以支持 Stale-While-Revalidate (SWR)
@@ -178,23 +189,28 @@ func (c *Cache) CleanExpired() {
 		hardLimitBuffer = minHardLimit
 	}
 
-	now := timeNow().Unix()
-
 	// 堆是按 EffectiveTTL 过期时间排序的
-	// 我们只删除那些 (过期时间 + 容忍期) 已经早于当前时间的数据
+	// 我们只删除那些满足清理条件的数据
 	for len(c.expiredHeap) > 0 {
 		entry := c.expiredHeap[0]
 
-		// 如果该条目即便算上容忍期也还没到清理时间，后续条目（过期更晚）更不用处理
-		if entry.expiry+hardLimitBuffer > now {
+		// 逻辑 A：非高压下，给冷数据 24 小时宽限期
+		if !isHighPressure && (entry.expiry+ancientLimit > now) {
+			// 因为堆是按过期时间排序的，堆顶不删，后续就不用看了，直接退出
 			break
 		}
 
-		// 彻底删除数据
-		c.rawCache.Delete(entry.key)
-
-		// 弹出堆顶
-		heap.Pop(&c.expiredHeap)
+		// 逻辑 B：执行删除的判定
+		// 1. 如果数据已经彻底超过了 Stale 容忍期 (hardLimitBuffer) -> 必删
+		// 2. 如果内存压力大，且数据已经处于"语义过期"状态 (entry.expiry <= now) -> 激进删
+		if (entry.expiry+hardLimitBuffer <= now) || (isHighPressure && entry.expiry <= now) {
+			c.rawCache.Delete(entry.key)
+			heap.Pop(&c.expiredHeap)
+		} else {
+			// 关键：如果还没到过期时间，即使压力大也不能删，直接退出
+			// (因为堆是按过期时间排序的)
+			break
+		}
 	}
 
 	// 清理辅助缓存（排序、错误等）
@@ -214,6 +230,14 @@ func (c *Cache) GetMemoryUsagePercent() float64 {
 		return 0
 	}
 	return float64(c.GetCurrentEntries()) / float64(c.maxEntries)
+}
+
+// getMemoryUsagePercentLocked 获取当前内存使用百分比（已持有锁）
+func (c *Cache) getMemoryUsagePercentLocked() float64 {
+	if c.maxEntries == 0 {
+		return 0
+	}
+	return float64(c.rawCache.Len()) / float64(c.maxEntries)
 }
 
 // GetExpiredEntries 统计已过期的条目数

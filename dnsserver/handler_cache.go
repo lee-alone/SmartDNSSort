@@ -65,7 +65,13 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	dnsExpired := !hasRaw || raw.IsExpired()
 
 	// 3. 计算用户视角下的 TTL
-	userTTL := s.calculateUserTTL(sorted.TTL, elapsed, cfg, rttStale)
+	// 如果 DNS 已过期，强制返回 fast_response_ttl
+	var userTTL uint32
+	if dnsExpired {
+		userTTL = uint32(cfg.Cache.FastResponseTTL)
+	} else {
+		userTTL = s.calculateUserTTL(sorted.TTL, elapsed, cfg, rttStale)
+	}
 
 	// 4. 异步刷新策略：精准决策
 	if rttStale {
@@ -144,8 +150,14 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 		domain, dns.TypeToString[qtype], raw.IPs, raw.CNAMEs, raw.IsExpired())
 
 	// 3. 计算用户视角下的 TTL
+	// 如果数据已过期，强制返回 fast_response_ttl
 	elapsed := time.Since(raw.AcquisitionTime)
-	userTTL := s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, raw.IsExpired())
+	var userTTL uint32
+	if raw.IsExpired() {
+		userTTL = uint32(cfg.Cache.FastResponseTTL)
+	} else {
+		userTTL = s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, false)
+	}
 
 	// 使用历史数据进行兜底排序 (Fallback Rank)
 	// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
@@ -201,8 +213,14 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 		domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, raw.IsExpired())
 
 	// 计算 TTL
+	// 如果数据已过期，强制返回 fast_response_ttl
 	elapsed := time.Since(raw.AcquisitionTime)
-	userTTL := s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, raw.IsExpired())
+	var userTTL uint32
+	if raw.IsExpired() {
+		userTTL = uint32(cfg.Cache.FastResponseTTL)
+	} else {
+		userTTL = s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, false)
+	}
 
 	// 构建通用响应
 	msg := s.msgPool.Get()
