@@ -1,12 +1,38 @@
 package cache
 
 import (
+	"container/heap"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"smartdnssort/config"
 )
+
+// expireEntry 过期堆中的条目
+type expireEntry struct {
+	key    string
+	expiry int64
+}
+
+// expireHeap 实现 container/heap.Interface
+type expireHeap []expireEntry
+
+func (h expireHeap) Len() int           { return len(h) }
+func (h expireHeap) Less(i, j int) bool { return h[i].expiry < h[j].expiry }
+func (h expireHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *expireHeap) Push(x interface{}) {
+	*h = append(*h, x.(expireEntry))
+}
+
+func (h *expireHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
 
 // PrefetchChecker 定义了检查域名是否为热点域名的接口
 // dnsserver 包中的 Prefetcher 将实现此接口
@@ -34,6 +60,15 @@ type Cache struct {
 	recentlyBlocked RecentlyBlockedTracker // 最近被拦截的域名追踪器
 	hits            int64                  // 缓存命中计数
 	misses          int64                  // 缓存未命中计数
+
+	// 过期数据堆（使用 container/heap）
+	// 按过期时间排序，清理时只处理超过 Hard Limit 的数据
+	expiredHeap expireHeap
+
+	// 异步堆写入机制（消除 Set 路径上的全局锁）
+	addHeapChan  chan expireEntry
+	stopHeapChan chan struct{}
+	heapWg       sync.WaitGroup
 }
 
 // NewCache 创建新的缓存实例
@@ -48,7 +83,7 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		msgCacheEntries = max(msgCacheEntries, 10) // 最小 10 条
 	}
 
-	return &Cache{
+	c := &Cache{
 		config:          cfg,
 		maxEntries:      maxEntries,
 		rawCache:        NewShardedCache(maxEntries, 64), // 使用分片缓存获得 10x+ 性能提升
@@ -59,6 +94,49 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		allowedCache:    make(map[string]*AllowedCacheEntry),
 		msgCache:        NewLRUCache(msgCacheEntries),
 		recentlyBlocked: NewRecentlyBlockedTracker(),
+		expiredHeap:     make(expireHeap, 0),
+		addHeapChan:     make(chan expireEntry, 1000), // 缓冲 channel，避免阻塞
+		stopHeapChan:    make(chan struct{}),
+	}
+
+	// 启动后台堆维护协程
+	c.startHeapWorker()
+
+	return c
+}
+
+// 启动后台堆维护协程
+func (c *Cache) startHeapWorker() {
+	c.heapWg.Add(1)
+	go c.heapWorker()
+}
+
+// heapWorker 后台协程，负责异步维护过期堆
+// 消除 Set 路径上的全局锁竞争
+func (c *Cache) heapWorker() {
+	defer c.heapWg.Done()
+
+	for {
+		select {
+		case entry := <-c.addHeapChan:
+			// 获取全局锁，添加到堆中
+			c.mu.Lock()
+			heap.Push(&c.expiredHeap, entry)
+			c.mu.Unlock()
+
+		case <-c.stopHeapChan:
+			// 处理剩余的条目
+			for {
+				select {
+				case entry := <-c.addHeapChan:
+					c.mu.Lock()
+					heap.Push(&c.expiredHeap, entry)
+					c.mu.Unlock()
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -83,10 +161,42 @@ func (c *Cache) RecordAccess(domain string, qtype uint16) {
 }
 
 // CleanExpired 清理过期缓存
-// LRUCache 自动管理容量限制，这个方法仅清理辅助缓存（排序、错误等）中的过期项
+// 新策略：
+// 1. 使用 container/heap 精确定位过期数据
+// 2. 引入 minHardLimit 保证异步刷新有足够时间窗口
+// 3. Get 负责刷新：Fresh → Stale 的转化由 Get 操作处理
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// 计算 Hard Limit（TTL 的 2 倍，单位秒）
+	// 但不低于 minHardLimit（600秒），确保异步刷新有足够时间
+	const minHardLimit = 600 // 最少保留 10 分钟
+	hardLimitSeconds := int64(c.config.MaxTTLSeconds) * 2
+	if hardLimitSeconds < minHardLimit {
+		hardLimitSeconds = minHardLimit
+	}
+
+	now := timeNow().Unix()
+
+	// 从堆顶开始删除超过 Hard Limit 的数据
+	// 由于堆是最小堆，堆顶是最早过期的数据
+	for len(c.expiredHeap) > 0 {
+		entry := c.expiredHeap[0]
+
+		// 如果堆顶还没到 Hard Limit，后续都不用删
+		if entry.expiry > now+hardLimitSeconds {
+			break
+		}
+
+		// 删除数据
+		c.rawCache.Delete(entry.key)
+
+		// 弹出堆顶
+		heap.Pop(&c.expiredHeap)
+	}
+
+	// 清理辅助缓存（排序、错误等）
 	c.cleanAuxiliaryCaches()
 }
 
@@ -185,6 +295,10 @@ func (c *Cache) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// 关闭堆维护协程
+	close(c.stopHeapChan)
+	c.heapWg.Wait()
+
 	// 关闭 ShardedCache 的异步处理
 	if c.rawCache != nil {
 		c.rawCache.Close()
@@ -221,4 +335,22 @@ func (c *Cache) cleanAuxiliaryCaches() {
 // timeNow 返回当前时间（便于测试 mock）
 func timeNow() time.Time {
 	return time.Now()
+}
+
+// addToExpiredHeap 将过期数据添加到堆中（异步化）
+// 使用 channel 发送，避免 Set 路径上的全局锁
+// 这是情况 1 的核心改进：消除高频操作上的全局锁
+func (c *Cache) addToExpiredHeap(key string, expiryTime int64) {
+	entry := expireEntry{
+		key:    key,
+		expiry: expiryTime,
+	}
+
+	// 非阻塞发送，如果 channel 满则丢弃
+	// 这是可接受的，因为大多数条目会被记录
+	select {
+	case c.addHeapChan <- entry:
+	default:
+		// channel 满，丢弃此次记录
+	}
 }

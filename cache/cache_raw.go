@@ -35,6 +35,10 @@ func (c *Cache) SetRawWithDNSSEC(domain string, qtype uint16, ips []string, cnam
 		AuthenticatedData: authData,
 	}
 	c.rawCache.Set(key, entry)
+
+	// 将过期数据添加到堆中（异步化，无全局锁）
+	expiryTime := timeNow().Unix() + int64(upstreamTTL)
+	c.addToExpiredHeap(key, expiryTime)
 }
 
 // SetRawRecords 设置通用记录的原始缓存
@@ -77,6 +81,10 @@ func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []d
 		AuthenticatedData: authData,
 	}
 	c.rawCache.Set(key, entry)
+
+	// 将过期数据添加到堆中（异步化，无全局锁）
+	expiryTime := timeNow().Unix() + int64(upstreamTTL)
+	c.addToExpiredHeap(key, expiryTime)
 }
 
 // getRawCacheSnapshot 获取 rawCache 中所有值的快照（仅供内部使用）
