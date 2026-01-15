@@ -12,11 +12,11 @@ import (
 func TestShardedCacheBasicOperations(t *testing.T) {
 	cache := newShardedRttCache(16)
 
-	// 测试 set 和 get
 	entry := &rttCacheEntry{
 		rtt:       50,
 		loss:      0,
-		expiresAt: time.Now().Add(1 * time.Minute),
+		staleAt:   time.Now().Add(1 * time.Minute),
+		expiresAt: time.Now().Add(2 * time.Minute),
 	}
 
 	cache.set("8.8.8.8", entry)
@@ -108,6 +108,7 @@ func TestShardedCacheExpiration(t *testing.T) {
 	expiredEntry := &rttCacheEntry{
 		rtt:       50,
 		loss:      0,
+		staleAt:   time.Now().Add(-2 * time.Second),
 		expiresAt: time.Now().Add(-1 * time.Second), // 已过期
 	}
 
@@ -115,7 +116,8 @@ func TestShardedCacheExpiration(t *testing.T) {
 	validEntry := &rttCacheEntry{
 		rtt:       50,
 		loss:      0,
-		expiresAt: time.Now().Add(1 * time.Minute), // 未过期
+		staleAt:   time.Now().Add(1 * time.Minute),
+		expiresAt: time.Now().Add(2 * time.Minute), // 未过期
 	}
 
 	cache.set("8.8.8.8", expiredEntry)
@@ -165,7 +167,8 @@ func TestShardedCacheConcurrentAccess(t *testing.T) {
 				entry := &rttCacheEntry{
 					rtt:       50 + goroutineID,
 					loss:      0,
-					expiresAt: time.Now().Add(1 * time.Minute),
+					staleAt:   time.Now().Add(1 * time.Minute),
+					expiresAt: time.Now().Add(2 * time.Minute),
 				}
 				cache.set(ip, entry)
 			}
@@ -228,7 +231,8 @@ func TestShardedCacheLockContention(t *testing.T) {
 				entry := &rttCacheEntry{
 					rtt:       50,
 					loss:      0,
-					expiresAt: time.Now().Add(1 * time.Minute),
+					staleAt:   time.Now().Add(1 * time.Minute),
+					expiresAt: time.Now().Add(2 * time.Minute),
 				}
 
 				// 混合读写操作
@@ -262,7 +266,8 @@ func TestShardedCacheClear(t *testing.T) {
 		entry := &rttCacheEntry{
 			rtt:       50,
 			loss:      0,
-			expiresAt: time.Now().Add(1 * time.Minute),
+			staleAt:   time.Now().Add(1 * time.Minute),
+			expiresAt: time.Now().Add(2 * time.Minute),
 		}
 		cache.set(ip, entry)
 	}
@@ -291,7 +296,8 @@ func TestShardedCacheGetAllEntries(t *testing.T) {
 		entry := &rttCacheEntry{
 			rtt:       50,
 			loss:      0,
-			expiresAt: time.Now().Add(1 * time.Minute),
+			staleAt:   time.Now().Add(1 * time.Minute),
+			expiresAt: time.Now().Add(2 * time.Minute),
 		}
 		cache.set(ip, entry)
 	}
@@ -323,7 +329,8 @@ func BenchmarkShardedCacheGet(b *testing.B) {
 		entry := &rttCacheEntry{
 			rtt:       50,
 			loss:      0,
-			expiresAt: time.Now().Add(1 * time.Minute),
+			staleAt:   time.Now().Add(1 * time.Minute),
+			expiresAt: time.Now().Add(2 * time.Minute),
 		}
 		cache.set(ip, entry)
 	}
@@ -347,7 +354,8 @@ func BenchmarkShardedCacheSet(b *testing.B) {
 	entry := &rttCacheEntry{
 		rtt:       50,
 		loss:      0,
-		expiresAt: time.Now().Add(1 * time.Minute),
+		staleAt:   time.Now().Add(1 * time.Minute),
+		expiresAt: time.Now().Add(2 * time.Minute),
 	}
 
 	b.ResetTimer()

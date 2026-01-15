@@ -75,7 +75,7 @@ func setPingDefaults(cfg *Config, rawData []byte) {
 	}
 	// MaxTestIPs: 0 means unlimited, so we don't need to set a default if it's 0.
 	if cfg.Ping.RttCacheTtlSeconds == 0 {
-		cfg.Ping.RttCacheTtlSeconds = 60 // 与 DefaultConfigContent 保持一致
+		cfg.Ping.RttCacheTtlSeconds = 600 // 与 DefaultConfigContent 保持一致
 	}
 	// Set default for Ping.Enabled.
 	// If the config file exists but doesn't specify 'ping.enabled',

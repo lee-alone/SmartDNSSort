@@ -21,8 +21,8 @@ type Result struct {
 type rttCacheEntry struct {
 	rtt       int
 	loss      float64   // 丢包率，用于负向缓存
-	expiresAt time.Time // 硬过期时间：超过此时间，缓存完全失效
-	staleAt   time.Time // 软过期时间：超过此时间但在硬过期前，返回旧数据并异步更新
+	staleAt   time.Time // 软过期时间：超过此时间，缓存变为陈旧，返回旧数据并异步刷新
+	expiresAt time.Time // 硬过期时间：超过此时间，缓存完全失效并被清理
 }
 
 // Pinger DNS IP 延迟测量和排序工具
@@ -73,18 +73,18 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 		now := time.Now() // 在循环外调用一次，避免重复系统调用
 		for _, ip := range testIPs {
 			if e, ok := p.rttCache.get(ip); ok {
-				if now.Before(e.expiresAt) {
-					// 缓存未过期：直接返回
+				if now.Before(e.staleAt) {
+					// 缓存未过期（Fresh）：直接返回
 					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "cached"})
 					p.RecordIPSuccess(ip)
-				} else if now.Before(e.staleAt) {
-					// 缓存处于软过期期间：返回旧数据，异步更新
+				} else if now.Before(e.expiresAt) {
+					// 缓存处于软过期期间（Stale）：返回旧数据，异步更新
 					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "stale"})
 					p.RecordIPSuccess(ip)
-					// 异步触发更新，避免阻塞当前请求
+					// 异步触发更新
 					p.triggerStaleRevalidate(ip, domain)
 				} else {
-					// 缓存完全过期：需要重新探测
+					// 缓存完全过期（Expired）：需要重新探测
 					toPing = append(toPing, ip)
 				}
 			} else {
@@ -115,22 +115,24 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	if p.rttCacheTtlSeconds > 0 {
 		for _, r := range results {
 			ttl := p.calculateDynamicTTL(r)
-			expiresAt := time.Now().Add(ttl)
-			// 软过期时间：硬过期前 30 秒（或 TTL 的 10%，取较小值）
+			staleAt := time.Now().Add(ttl)
+
+			// 软过期容忍期（Grace Period）
 			gracePeriod := p.staleGracePeriod
 			if gracePeriod == 0 {
 				gracePeriod = 30 * time.Second
 			}
-			if ttl < gracePeriod*10 {
-				gracePeriod = ttl / 10
+			// 确保容忍期不会超过 TTL 的 50%，避免陈旧数据存在太久
+			if gracePeriod > ttl/2 {
+				gracePeriod = ttl / 2
 			}
-			staleAt := expiresAt.Add(gracePeriod)
+			expiresAt := staleAt.Add(gracePeriod)
 
 			p.rttCache.set(r.IP, &rttCacheEntry{
 				rtt:       r.RTT,
 				loss:      r.Loss,
-				expiresAt: expiresAt,
 				staleAt:   staleAt,
+				expiresAt: expiresAt,
 			})
 		}
 	}
@@ -226,14 +228,19 @@ func (p *Pinger) calculateDynamicTTL(r Result) time.Duration {
 		// 中等丢包（20-50%）：0.5 倍基础 TTL
 		ratio = 0.5
 	} else if r.Loss < 100 {
-		// 严重丢包（50-100%）：0.17 倍基础 TTL
-		ratio = 0.17
+		// 严重丢包（50-100%）：0.3 倍基础 TTL (提高比例，避免清理太快)
+		ratio = 0.3
 	} else {
-		// 完全失败（100% 丢包）：0.08 倍基础 TTL
-		ratio = 0.08
+		// 完全失败（100% 丢包）：0.2 倍基础 TTL (提高比例，避免清理太快)
+		ratio = 0.2
 	}
 
-	return time.Duration(float64(baseTTL) * ratio)
+	ttl := time.Duration(float64(baseTTL) * ratio)
+	// 强制最小 TTL 为 15 秒，避免在低频次访问下缓存瞬间消失
+	if ttl < 15*time.Second {
+		ttl = 15 * time.Second
+	}
+	return ttl
 }
 
 // triggerStaleRevalidate 触发异步软过期更新
@@ -280,21 +287,22 @@ func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
 		// 更新缓存
 		if p.rttCacheTtlSeconds > 0 {
 			ttl := p.calculateDynamicTTL(*result)
-			expiresAt := time.Now().Add(ttl)
+			staleAt := time.Now().Add(ttl)
+
 			gracePeriod := p.staleGracePeriod
 			if gracePeriod == 0 {
 				gracePeriod = 30 * time.Second
 			}
-			if ttl < gracePeriod*10 {
-				gracePeriod = ttl / 10
+			if gracePeriod > ttl/2 {
+				gracePeriod = ttl / 2
 			}
-			staleAt := expiresAt.Add(gracePeriod)
+			expiresAt := staleAt.Add(gracePeriod)
 
 			p.rttCache.set(ip, &rttCacheEntry{
 				rtt:       result.RTT,
 				loss:      result.Loss,
-				expiresAt: expiresAt,
 				staleAt:   staleAt,
+				expiresAt: expiresAt,
 			})
 		}
 	}()
