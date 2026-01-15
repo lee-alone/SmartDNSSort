@@ -3,6 +3,7 @@ package cache
 import (
 	"hash/fnv"
 	"sync"
+	"sync/atomic"
 )
 
 // ShardedCache 分片缓存，通过将缓存分成多个独立的分片来降低锁竞争
@@ -10,6 +11,7 @@ import (
 type ShardedCache struct {
 	shards []*CacheShard
 	mask   uint32 // 用于快速计算分片索引
+	dirty  uint64 // 变更计数器，用于持久化决策
 }
 
 // CacheShard 单个缓存分片
@@ -110,6 +112,16 @@ func (sc *ShardedCache) Get(key string) (any, bool) {
 	return value, true
 }
 
+// GetDirtyCount 获取缓存的变更计数
+func (sc *ShardedCache) GetDirtyCount() uint64 {
+	return atomic.LoadUint64(&sc.dirty)
+}
+
+// markDirty 增加变更计数
+func (sc *ShardedCache) markDirty() {
+	atomic.AddUint64(&sc.dirty, 1)
+}
+
 // Set 设置值
 func (sc *ShardedCache) Set(key string, value any) {
 	shard := sc.getShard(key)
@@ -132,6 +144,7 @@ func (sc *ShardedCache) Set(key string, value any) {
 	if shard.list.len > shard.capacity {
 		shard.evictOne()
 	}
+	sc.markDirty()
 }
 
 // evictOne 删除链表尾部的元素（在持有写锁的情况下调用）
@@ -153,6 +166,7 @@ func (sc *ShardedCache) Delete(key string) {
 	if node, exists := shard.cache[key]; exists {
 		shard.list.remove(node)
 		delete(shard.cache, key)
+		sc.markDirty()
 	}
 }
 
@@ -175,6 +189,7 @@ func (sc *ShardedCache) Clear() {
 		shard.list = &CacheList{}
 		shard.mu.Unlock()
 	}
+	sc.markDirty()
 }
 
 // Close 关闭所有分片的异步处理
@@ -210,6 +225,28 @@ func (sc *ShardedCache) GetAllKeys() []string {
 		shard.mu.RUnlock()
 	}
 	return keys
+}
+
+// SnapshotEntry 快照条目
+type SnapshotEntry struct {
+	Key   string
+	Value any
+}
+
+// GetSnapshot 获取所有缓存条目的一次性一致性快照（按分片锁定）
+func (sc *ShardedCache) GetSnapshot() []SnapshotEntry {
+	var results []SnapshotEntry
+	for _, shard := range sc.shards {
+		shard.mu.RLock()
+		for elem := shard.list.head; elem != nil; elem = elem.next {
+			results = append(results, SnapshotEntry{
+				Key:   elem.key,
+				Value: elem.value,
+			})
+		}
+		shard.mu.RUnlock()
+	}
+	return results
 }
 
 // CacheShard 方法

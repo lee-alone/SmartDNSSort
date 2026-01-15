@@ -1,41 +1,44 @@
 package cache
 
 import (
-	"encoding/json"
+	"encoding/gob"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
 // SaveToDisk 将缓存保存到磁盘
-// 采用原子写入策略：先写入临时文件，再重命名，防止写入中断导致文件损坏
+// 采用原子写入策略：直接使用 Gob 流式编码写入临时文件，再重命名
 func (c *Cache) SaveToDisk(filename string) error {
-	c.mu.RLock()
-	// 从 LRUCache 获取所有原始缓存项的快照
-	cacheSnapshot := c.getRawCacheSnapshot()
-	allKeys := c.getRawCacheKeysSnapshot()
-	c.mu.RUnlock()
+	// 1. 脏数据检查
+	currentDirty := c.rawCache.GetDirtyCount()
+	if atomic.LoadUint64(&c.lastSavedDirty) == currentDirty {
+		// 无变更，跳过保存
+		return nil
+	}
 
-	// 构建条目列表
-	var entries []PersistentCacheEntry
-	for i, key := range allKeys {
-		if i >= len(cacheSnapshot) {
-			break
+	// 2. 获取一致性快照 (分片锁定保证安全)
+	snapshot := c.rawCache.GetSnapshot()
+
+	// 3. 准备持久化条目
+	entries := make([]PersistentCacheEntry, 0, len(snapshot))
+	for _, s := range snapshot {
+		entry, ok := s.Value.(*RawCacheEntry)
+		if !ok {
+			continue
 		}
-		entry := cacheSnapshot[i]
 
-		domain := c.extractDomain(key)
+		domain := c.extractDomain(s.Key)
 		// Extract QType from key (format: domain#qtype_char)
-		parts := strings.Split(key, "#")
+		parts := strings.Split(s.Key, "#")
 		if len(parts) != 2 {
 			continue
 		}
-		// Convert string back to rune then to uint16
 		qtype := uint16([]rune(parts[1])[0])
 
-		// 优先写入 CNAMEs
 		entryCNAMEs := entry.CNAMEs
 		var legacyCNAME string
 		if len(entryCNAMEs) > 0 {
@@ -46,48 +49,57 @@ func (c *Cache) SaveToDisk(filename string) error {
 			Domain: domain,
 			QType:  qtype,
 			IPs:    entry.IPs,
-			CNAME:  legacyCNAME, // 写入旧字段以保持兼容性
+			CNAME:  legacyCNAME,
 			CNAMEs: entryCNAMEs,
 		})
 	}
 
-	data, err := json.Marshal(entries)
+	// 4. 原子写入
+	tempFile := filename + ".tmp"
+	f, err := os.Create(tempFile)
 	if err != nil {
 		return err
 	}
 
-	// 写入临时文件
-	tempFile := filename + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	// 使用 Encoder 直接流式写入，减少大块内存分配
+	encoder := gob.NewEncoder(f)
+	if err := encoder.Encode(entries); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		return err
+	}
+	f.Close()
+
+	// 原子替换
+	if err := os.Rename(tempFile, filename); err != nil {
 		return err
 	}
 
-	// 原子替换（在 Windows 上 Go 的 os.Rename 会尝试覆盖目标文件）
-	return os.Rename(tempFile, filename)
+	// 更新最后保存的计数
+	atomic.StoreUint64(&c.lastSavedDirty, currentDirty)
+	return nil
 }
 
 // LoadFromDisk 从磁盘加载缓存
 func (c *Cache) LoadFromDisk(filename string) error {
-	data, err := os.ReadFile(filename)
+	f, err := os.Open(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // File doesn't exist, nothing to load
+			return nil
 		}
 		return err
 	}
+	defer f.Close()
 
 	var entries []PersistentCacheEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
+	decoder := gob.NewDecoder(f)
+	if err := decoder.Decode(&entries); err != nil {
 		return err
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	for _, entry := range entries {
 		key := cacheKey(entry.Domain, entry.QType)
 
-		// 迁移逻辑：如果 CNAMEs 为空但 CNAME 不为空，则转换
 		cnames := entry.CNAMEs
 		if len(cnames) == 0 && entry.CNAME != "" {
 			cnames = []string{entry.CNAME}
@@ -96,11 +108,14 @@ func (c *Cache) LoadFromDisk(filename string) error {
 		cacheEntry := &RawCacheEntry{
 			IPs:             entry.IPs,
 			CNAMEs:          cnames,
-			UpstreamTTL:     300, // Default 5 minutes as we don't persist TTL
+			UpstreamTTL:     300,
 			AcquisitionTime: time.Now(),
 		}
 		c.rawCache.Set(key, cacheEntry)
 	}
+
+	// 加载完成后更新 dirty 计数，避免立即保存
+	atomic.StoreUint64(&c.lastSavedDirty, c.rawCache.GetDirtyCount())
 	return nil
 }
 

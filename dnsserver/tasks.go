@@ -29,7 +29,7 @@ func (s *Server) saveCacheRoutine() {
 
 	for range ticker.C {
 		logger.Info("[Cache] Saving cache to disk...")
-		if err := s.cache.SaveToDisk("dns_cache.json"); err != nil {
+		if err := s.cache.SaveToDisk("dns_cache.bin"); err != nil {
 			logger.Errorf("[Cache] Failed to save cache: %v", err)
 		} else {
 			logger.Info("[Cache] Cache saved successfully.")

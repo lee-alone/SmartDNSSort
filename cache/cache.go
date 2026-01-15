@@ -69,6 +69,9 @@ type Cache struct {
 	addHeapChan  chan expireEntry
 	stopHeapChan chan struct{}
 	heapWg       sync.WaitGroup
+
+	// 持久化状态追踪
+	lastSavedDirty uint64
 }
 
 // NewCache 创建新的缓存实例

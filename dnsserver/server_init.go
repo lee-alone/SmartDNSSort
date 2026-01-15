@@ -50,7 +50,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 尝试加载持久化缓存
 	logger.Info("[Cache] Loading cache from disk...")
-	if err := server.cache.LoadFromDisk("dns_cache.json"); err != nil {
+	if err := server.cache.LoadFromDisk("dns_cache.bin"); err != nil {
 		logger.Errorf("[Cache] Failed to load cache: %v", err)
 	} else {
 		logger.Infof("[Cache] Loaded %d entries from disk.", server.cache.GetCurrentEntries())
