@@ -2,6 +2,9 @@ package ping
 
 import (
 	"sync"
+	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // NewPinger 创建新的 Pinger 实例
@@ -31,14 +34,17 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		maxTestIPs:         maxTestIPs,
 		rttCacheTtlSeconds: rttCacheTtlSeconds,
 		enableHttpFallback: enableHttpFallback,
-		rttCache:           make(map[string]*rttCacheEntry),
+		rttCache:           newShardedRttCache(32), // 使用 32 个分片
 		stopChan:           make(chan struct{}),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
 				return make([]byte, 512)
 			},
 		},
-		failureWeightMgr: NewIPFailureWeightManager(failureWeightPersistFile),
+		failureWeightMgr:  NewIPFailureWeightManager(failureWeightPersistFile),
+		probeFlight:       &singleflight.Group{},
+		staleRevalidating: make(map[string]bool),
+		staleGracePeriod:  30 * time.Second, // 默认 30 秒软过期容忍期
 	}
 
 	if rttCacheTtlSeconds > 0 {

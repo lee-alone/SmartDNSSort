@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Result 表示单个 IP 的 ping 结果
@@ -18,7 +20,9 @@ type Result struct {
 // rttCacheEntry 缓存条目
 type rttCacheEntry struct {
 	rtt       int
-	expiresAt time.Time
+	loss      float64   // 丢包率，用于负向缓存
+	expiresAt time.Time // 硬过期时间：超过此时间，缓存完全失效
+	staleAt   time.Time // 软过期时间：超过此时间但在硬过期前，返回旧数据并异步更新
 }
 
 // Pinger DNS IP 延迟测量和排序工具
@@ -32,11 +36,16 @@ type Pinger struct {
 	rttCacheTtlSeconds int
 	enableHttpFallback bool // 是否对纯 HTTP(80) 做补充探测，默认关闭
 
-	rttCache         map[string]*rttCacheEntry
-	rttCacheMu       sync.RWMutex
+	rttCache         *shardedRttCache // 改为分片缓存，减少锁竞争
 	stopChan         chan struct{}
 	bufferPool       *sync.Pool // 新增: 复用 UDP 读取 buffer
 	failureWeightMgr *IPFailureWeightManager
+	probeFlight      *singleflight.Group // 新增: 请求合并，避免重复探测同一 IP
+
+	// Stale-While-Revalidate 相关
+	staleRevalidateMu sync.Mutex
+	staleRevalidating map[string]bool // 记录正在异步更新的 IP，避免重复触发
+	staleGracePeriod  time.Duration   // 软过期容忍期（默认 30 秒）
 }
 
 // PingAndSort 执行并发 ping 测试并返回排序后的结果
@@ -62,17 +71,26 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	// 缓存检查
 	if p.rttCacheTtlSeconds > 0 {
 		now := time.Now() // 在循环外调用一次，避免重复系统调用
-		p.rttCacheMu.RLock()
 		for _, ip := range testIPs {
-			if e, ok := p.rttCache[ip]; ok && now.Before(e.expiresAt) {
-				cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: 0, ProbeMethod: "cached"})
-				// 缓存命中也视为一次成功，维持活跃状态
-				p.RecordIPSuccess(ip)
+			if e, ok := p.rttCache.get(ip); ok {
+				if now.Before(e.expiresAt) {
+					// 缓存未过期：直接返回
+					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "cached"})
+					p.RecordIPSuccess(ip)
+				} else if now.Before(e.staleAt) {
+					// 缓存处于软过期期间：返回旧数据，异步更新
+					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "stale"})
+					p.RecordIPSuccess(ip)
+					// 异步触发更新，避免阻塞当前请求
+					p.triggerStaleRevalidate(ip, domain)
+				} else {
+					// 缓存完全过期：需要重新探测
+					toPing = append(toPing, ip)
+				}
 			} else {
 				toPing = append(toPing, ip)
 			}
 		}
-		p.rttCacheMu.RUnlock()
 	} else {
 		toPing = testIPs
 	}
@@ -93,18 +111,28 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 		}
 	}
 
-	// 更新缓存（只缓存完全成功的）
+	// 更新缓存（缓存所有结果，包括失败）
 	if p.rttCacheTtlSeconds > 0 {
-		p.rttCacheMu.Lock()
 		for _, r := range results {
-			if r.Loss == 0 {
-				p.rttCache[r.IP] = &rttCacheEntry{
-					rtt:       r.RTT,
-					expiresAt: time.Now().Add(time.Duration(p.rttCacheTtlSeconds) * time.Second),
-				}
+			ttl := p.calculateDynamicTTL(r)
+			expiresAt := time.Now().Add(ttl)
+			// 软过期时间：硬过期前 30 秒（或 TTL 的 10%，取较小值）
+			gracePeriod := p.staleGracePeriod
+			if gracePeriod == 0 {
+				gracePeriod = 30 * time.Second
 			}
+			if ttl < gracePeriod*10 {
+				gracePeriod = ttl / 10
+			}
+			staleAt := expiresAt.Add(gracePeriod)
+
+			p.rttCache.set(r.IP, &rttCacheEntry{
+				rtt:       r.RTT,
+				loss:      r.Loss,
+				expiresAt: expiresAt,
+				staleAt:   staleAt,
+			})
 		}
-		p.rttCacheMu.Unlock()
 	}
 
 	// 合并 + 排序
@@ -162,4 +190,112 @@ func (p *Pinger) GetAllIPFailureRecords() []*IPFailureRecord {
 		return p.failureWeightMgr.GetAllRecords()
 	}
 	return nil
+}
+
+// calculateDynamicTTL 根据探测结果动态计算缓存 TTL
+// 基于丢包率和 RTT 来决定缓存时间
+// 完全成功的 IP 缓存更久，失败的 IP 缓存更短
+// TTL 基于全局配置的权重比例计算，确保尊重用户配置
+func (p *Pinger) calculateDynamicTTL(r Result) time.Duration {
+	// 基础 TTL：使用全局配置值
+	baseTTL := time.Duration(p.rttCacheTtlSeconds) * time.Second
+	if baseTTL == 0 {
+		// 如果未配置，使用默认值
+		baseTTL = 60 * time.Second
+	}
+
+	// 根据 IP 质量计算权重比例（相对于基础 TTL）
+	var ratio float64
+
+	if r.Loss == 0 {
+		// 完全成功（0% 丢包）
+		if r.RTT < 50 {
+			// 极优 IP（RTT < 50ms）：10 倍基础 TTL
+			ratio = 10.0
+		} else if r.RTT < 100 {
+			// 优质 IP（RTT 50-100ms）：5 倍基础 TTL
+			ratio = 5.0
+		} else {
+			// 一般 IP（RTT >= 100ms）：2 倍基础 TTL
+			ratio = 2.0
+		}
+	} else if r.Loss < 20 {
+		// 轻微丢包（< 20%）：1 倍基础 TTL
+		ratio = 1.0
+	} else if r.Loss < 50 {
+		// 中等丢包（20-50%）：0.5 倍基础 TTL
+		ratio = 0.5
+	} else if r.Loss < 100 {
+		// 严重丢包（50-100%）：0.17 倍基础 TTL
+		ratio = 0.17
+	} else {
+		// 完全失败（100% 丢包）：0.08 倍基础 TTL
+		ratio = 0.08
+	}
+
+	return time.Duration(float64(baseTTL) * ratio)
+}
+
+// triggerStaleRevalidate 触发异步软过期更新
+// 当缓存处于软过期期间时，返回旧数据给用户，同时在后台异步更新
+// 使用 staleRevalidating 记录来避免重复触发
+func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
+	p.staleRevalidateMu.Lock()
+	// 检查是否已经在更新中
+	if p.staleRevalidating[ip] {
+		p.staleRevalidateMu.Unlock()
+		return
+	}
+	// 标记为正在更新
+	p.staleRevalidating[ip] = true
+	p.staleRevalidateMu.Unlock()
+
+	// 在后台 goroutine 中执行异步更新
+	go func() {
+		defer func() {
+			// 更新完成后，清除标记
+			p.staleRevalidateMu.Lock()
+			delete(p.staleRevalidating, ip)
+			p.staleRevalidateMu.Unlock()
+		}()
+
+		// 执行探测
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(p.timeoutMs)*time.Millisecond)
+		defer cancel()
+
+		result := p.pingIP(ctx, ip, domain)
+		if result == nil {
+			return
+		}
+
+		// 记录失效权重
+		if result.FastFail {
+			// 已经在 pingIP 中记录过了
+		} else if result.Loss == 100 {
+			p.RecordIPFailure(ip)
+		} else {
+			p.RecordIPSuccess(ip)
+		}
+
+		// 更新缓存
+		if p.rttCacheTtlSeconds > 0 {
+			ttl := p.calculateDynamicTTL(*result)
+			expiresAt := time.Now().Add(ttl)
+			gracePeriod := p.staleGracePeriod
+			if gracePeriod == 0 {
+				gracePeriod = 30 * time.Second
+			}
+			if ttl < gracePeriod*10 {
+				gracePeriod = ttl / 10
+			}
+			staleAt := expiresAt.Add(gracePeriod)
+
+			p.rttCache.set(ip, &rttCacheEntry{
+				rtt:       result.RTT,
+				loss:      result.Loss,
+				expiresAt: expiresAt,
+				staleAt:   staleAt,
+			})
+		}
+	}()
 }

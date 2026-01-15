@@ -8,6 +8,7 @@ import (
 
 // concurrentPing 并发测试多个 IP
 // 使用信号量控制并发数量，避免资源耗尽
+// 使用 SingleFlight 合并对同一 IP 的重复探测请求
 func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string) []Result {
 	if len(ips) == 0 {
 		return nil
@@ -24,8 +25,17 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, domain string
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			res := p.pingIP(ctx, ipAddr, domain)
-			resultCh <- *res
+			// 使用 SingleFlight 合并对同一 IP 的探测请求
+			// 如果多个 goroutine 同时对同一 IP 发起探测，只有第一个会执行真正的探测
+			// 其他的会等待第一个的结果
+			v, err, _ := p.probeFlight.Do(ipAddr, func() (interface{}, error) {
+				res := p.pingIP(ctx, ipAddr, domain)
+				return res, nil
+			})
+
+			if err == nil && v != nil {
+				resultCh <- *(v.(*Result))
+			}
 		}(ip)
 	}
 
