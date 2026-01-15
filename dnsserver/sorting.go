@@ -73,34 +73,29 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	return sortedIPs, rtts, nil
 }
 
-// calculateRemainingTTL 计算剩余 TTL
-// 基于上游 TTL 和获取时间，减去已过去的时间，并应用 min/max 限制
-// 特殊语义：
-//   - min 和 max 都为 0: 不修改上游 TTL
-//   - 仅 min 为 0: 只限制最大值
-//   - 仅 max 为 0: 只限制最小值
+// calculateRemainingTTL 计算基于本地策略后的剩余生存时间
 func (s *Server) calculateRemainingTTL(upstreamTTL uint32, acquisitionTime time.Time) int {
-	elapsed := time.Since(acquisitionTime).Seconds()
-	remaining := int(upstreamTTL) - int(elapsed)
+	elapsed := int(time.Since(acquisitionTime).Seconds())
 
-	minTTL := s.cfg.Cache.MinTTLSeconds
-	maxTTL := s.cfg.Cache.MaxTTLSeconds
+	// 1. 首先基于上游 TTL 和本地配置，计算该记录在本地的总生存期 (Effective TTL)
+	effTTL := upstreamTTL
+	minTTL := uint32(s.cfg.Cache.MinTTLSeconds)
+	maxTTL := uint32(s.cfg.Cache.MaxTTLSeconds)
 
-	// 如果 min 和 max 都为 0，不修改上游 TTL
-	if minTTL == 0 && maxTTL == 0 {
-		return remaining
+	if minTTL > 0 && effTTL < minTTL {
+		effTTL = minTTL
+	}
+	if maxTTL > 0 && effTTL > maxTTL {
+		effTTL = maxTTL
 	}
 
-	// 应用最小值限制（如果 min > 0）
-	if minTTL > 0 && remaining < minTTL {
-		remaining = minTTL
-	}
+	// 2. 然后减去已经过去的时间，得到剩下的生存时间
+	remaining := int(effTTL) - elapsed
 
-	// 应用最大值限制（如果 max > 0）
-	if maxTTL > 0 && remaining > maxTTL {
-		remaining = maxTTL
+	// 确保不返回负数
+	if remaining < 0 {
+		return 0
 	}
-
 	return remaining
 }
 

@@ -12,14 +12,15 @@ type RawCacheEntry struct {
 	IPs               []string  // 原始 IP 列表（Records 中 A/AAAA 记录的物化视图）
 	CNAMEs            []string  // CNAME 记录列表（支持多级 CNAME）
 	UpstreamTTL       uint32    // 上游 DNS 返回的原始 TTL（秒）
+	EffectiveTTL      uint32    // 实际内部缓存使用的 TTL（秒），应用了本地 min/max 策略
 	AcquisitionTime   time.Time // 从上游获取的时间
 	AuthenticatedData bool      // DNSSEC 验证标记 (AD flag)
 }
 
-// IsExpired 检查原始缓存是否过期
+// IsExpired 检查原始缓存是否过期（使用 EffectiveTTL）
 func (e *RawCacheEntry) IsExpired() bool {
 	elapsed := time.Since(e.AcquisitionTime).Seconds()
-	return elapsed > float64(e.UpstreamTTL)
+	return elapsed > float64(e.EffectiveTTL)
 }
 
 // SortedCacheEntry 排序后的缓存项

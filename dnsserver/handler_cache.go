@@ -145,7 +145,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 
 	// 3. 计算用户视角下的 TTL
 	elapsed := time.Since(raw.AcquisitionTime)
-	userTTL := s.calculateUserTTL(int(raw.UpstreamTTL), elapsed, cfg, raw.IsExpired())
+	userTTL := s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, raw.IsExpired())
 
 	// 使用历史数据进行兜底排序 (Fallback Rank)
 	// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
@@ -202,7 +202,7 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 
 	// 计算 TTL
 	elapsed := time.Since(raw.AcquisitionTime)
-	userTTL := s.calculateUserTTL(int(raw.UpstreamTTL), elapsed, cfg, raw.IsExpired())
+	userTTL := s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, raw.IsExpired())
 
 	// 构建通用响应
 	msg := s.msgPool.Get()

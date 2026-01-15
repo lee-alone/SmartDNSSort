@@ -26,18 +26,21 @@ func (c *Cache) SetRaw(domain string, qtype uint16, ips []string, cnames []strin
 // 注意：rawCache 内部已实现线程安全，无需全局锁
 func (c *Cache) SetRawWithDNSSEC(domain string, qtype uint16, ips []string, cnames []string, upstreamTTL uint32, authData bool) {
 	key := cacheKey(domain, qtype)
+	effTTL := c.calculateEffectiveTTL(upstreamTTL)
 	entry := &RawCacheEntry{
 		Records:           nil, // 向后兼容，暂时保持为 nil
 		IPs:               ips,
 		CNAMEs:            cnames,
 		UpstreamTTL:       upstreamTTL,
+		EffectiveTTL:      effTTL,
 		AcquisitionTime:   timeNow(),
 		AuthenticatedData: authData,
 	}
 	c.rawCache.Set(key, entry)
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
-	expiryTime := timeNow().Unix() + int64(upstreamTTL)
+	// 使用 EffectiveTTL 确保即使上游 TTL 很短，数据也在本地生存足够长时间
+	expiryTime := timeNow().Unix() + int64(effTTL)
 	c.addToExpiredHeap(key, expiryTime)
 }
 
@@ -72,18 +75,21 @@ func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []d
 	}
 
 	key := cacheKey(domain, qtype)
+	effTTL := c.calculateEffectiveTTL(upstreamTTL)
 	entry := &RawCacheEntry{
 		Records:           records,
 		IPs:               ips, // 从 records 派生，已去重
 		CNAMEs:            cnames,
 		UpstreamTTL:       upstreamTTL,
+		EffectiveTTL:      effTTL,
 		AcquisitionTime:   timeNow(),
 		AuthenticatedData: authData,
 	}
 	c.rawCache.Set(key, entry)
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
-	expiryTime := timeNow().Unix() + int64(upstreamTTL)
+	// 使用 EffectiveTTL 确保即使上游 TTL 很短，数据也在本地生存足够长时间
+	expiryTime := timeNow().Unix() + int64(effTTL)
 	c.addToExpiredHeap(key, expiryTime)
 }
 
@@ -102,4 +108,19 @@ func (c *Cache) getRawCacheSnapshot() []*RawCacheEntry {
 // getRawCacheKeysSnapshot 获取 rawCache 中所有键的快照（仅供内部使用）
 func (c *Cache) getRawCacheKeysSnapshot() []string {
 	return c.rawCache.GetAllKeys()
+}
+
+// calculateEffectiveTTL 计算应用了本地策略后的有效 TTL
+func (c *Cache) calculateEffectiveTTL(upstreamTTL uint32) uint32 {
+	effTTL := upstreamTTL
+
+	if c.config.MinTTLSeconds > 0 && effTTL < uint32(c.config.MinTTLSeconds) {
+		effTTL = uint32(c.config.MinTTLSeconds)
+	}
+
+	if c.config.MaxTTLSeconds > 0 && effTTL > uint32(c.config.MaxTTLSeconds) {
+		effTTL = uint32(c.config.MaxTTLSeconds)
+	}
+
+	return effTTL
 }

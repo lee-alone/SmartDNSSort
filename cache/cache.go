@@ -169,27 +169,28 @@ func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 计算 Hard Limit（TTL 的 2 倍，单位秒）
-	// 但不低于 minHardLimit（600秒），确保异步刷新有足够时间
-	const minHardLimit = 600 // 最少保留 10 分钟
-	hardLimitSeconds := int64(c.config.MaxTTLSeconds) * 2
-	if hardLimitSeconds < minHardLimit {
-		hardLimitSeconds = minHardLimit
+	// 计算 Hard Limit 容忍期（秒）
+	// 过期数据在达到 Hard Limit 之前会被保留，以支持 Stale-While-Revalidate (SWR)
+	// 默认保留 10 分钟，或者根据配置的 MaxTTL 的一定比例
+	const minHardLimit = 600
+	hardLimitBuffer := int64(c.config.MaxTTLSeconds) / 4 // 允许过期后保留 MaxTTL 的 25% 时间
+	if hardLimitBuffer < minHardLimit {
+		hardLimitBuffer = minHardLimit
 	}
 
 	now := timeNow().Unix()
 
-	// 从堆顶开始删除超过 Hard Limit 的数据
-	// 由于堆是最小堆，堆顶是最早过期的数据
+	// 堆是按 EffectiveTTL 过期时间排序的
+	// 我们只删除那些 (过期时间 + 容忍期) 已经早于当前时间的数据
 	for len(c.expiredHeap) > 0 {
 		entry := c.expiredHeap[0]
 
-		// 如果堆顶还没到 Hard Limit，后续都不用删
-		if entry.expiry > now+hardLimitSeconds {
+		// 如果该条目即便算上容忍期也还没到清理时间，后续条目（过期更晚）更不用处理
+		if entry.expiry+hardLimitBuffer > now {
 			break
 		}
 
-		// 删除数据
+		// 彻底删除数据
 		c.rawCache.Delete(entry.key)
 
 		// 弹出堆顶
