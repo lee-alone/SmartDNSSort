@@ -164,11 +164,14 @@ func (c *Cache) RecordAccess(domain string, qtype uint16) {
 }
 
 // CleanExpired 清理过期缓存
-// 新策略：压力驱动 + 时间兜底
-// 1. 获取当前内存使用率
-// 2. 低压力下（<80%）：只清理超过 24 小时的古老数据
-// 3. 高压力下（>=80%）：激进清理所有过期数据
-// 4. 最终保险丝：LRU 会在内存真的满时自动驱逐最不常用的数据
+// 新策略：压力驱动 + 尽量存储 (Keep as much as possible)
+// 1. 获取当前内存使用率，并对比配置的压测阈值 (默认 0.9)
+// 2. 高压力下 (>= 阈值)：积极清理所有已过期的数据 (entry.expiry <= now)
+// 3. 低压力下 (< 阈值)：
+//   - 如果开启了 KeepExpiredEntries (尽量存储)：完全不清理已过期的数据，直到内存压力升高
+//   - 如果未开启 KeepExpiredEntries：仅清理超过 24 小时的极其古老的数据
+//
+// 4. 修复：在执行删除前检查缓存中的真实条目，防止由于域名刷新导致的新数据被旧索引误删
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -176,42 +179,72 @@ func (c *Cache) CleanExpired() {
 	usage := c.getMemoryUsagePercentLocked()
 	now := timeNow().Unix()
 
-	// 压力阈值：80%
-	const pressureThreshold = 0.8
+	// 压力阈值：优先使用用户配置，若未设置则默认 0.9
+	pressureThreshold := c.config.EvictionThreshold
+	if pressureThreshold <= 0 {
+		pressureThreshold = 0.9
+	}
 	isHighPressure := usage >= pressureThreshold
 
-	// 兜底时间：24 小时（86400 秒）
+	// 古老数据的界限：24 小时（86400 秒）
 	const ancientLimit = 86400
 
-	// 计算 Hard Limit 容忍期（秒）
-	// 过期数据在达到 Hard Limit 之前会被保留，以支持 Stale-While-Revalidate (SWR)
-	// 默认保留 10 分钟，或者根据配置的 MaxTTL 的一定比例
-	const minHardLimit = 600
-	hardLimitBuffer := int64(c.config.MaxTTLSeconds) / 4 // 允许过期后保留 MaxTTL 的 25% 时间
-	if hardLimitBuffer < minHardLimit {
-		hardLimitBuffer = minHardLimit
-	}
-
-	// 堆是按 EffectiveTTL 过期时间排序的
-	// 我们只删除那些满足清理条件的数据
+	// 堆是按过期时间排序的
 	for len(c.expiredHeap) > 0 {
 		entry := c.expiredHeap[0]
 
-		// 逻辑 A：非高压下，给冷数据 24 小时宽限期
-		if !isHighPressure && (entry.expiry+ancientLimit > now) {
-			// 因为堆是按过期时间排序的，堆顶不删，后续就不用看了，直接退出
+		// 如果域名还没过期（语义上的过期），无论如何都不删，直接跳出（因为后续的更晚过期）
+		if entry.expiry > now {
 			break
 		}
 
-		// 逻辑 B：执行删除的判定
-		// 1. 如果数据已经彻底超过了 Stale 容忍期 (hardLimitBuffer) -> 必删
-		// 2. 如果内存压力大，且数据已经处于"语义过期"状态 (entry.expiry <= now) -> 激进删
-		if (entry.expiry+hardLimitBuffer <= now) || (isHighPressure && entry.expiry <= now) {
+		// 获取缓存中该键的当前真实状态（使用 GetNoUpdate 避免干扰 LRU 统计）
+		val, exists := c.rawCache.GetNoUpdate(entry.key)
+		if !exists {
+			// 缓存中已不存在（可能已被 LRU 驱逐），移除堆中的废弃索引
+			heap.Pop(&c.expiredHeap)
+			continue
+		}
+
+		currentEntry, ok := val.(*RawCacheEntry)
+		if !ok {
+			heap.Pop(&c.expiredHeap)
+			continue
+		}
+
+		// 情况 1 修复：由于域名被反复查询刷新，堆中可能存在同一个 key 的多个过期索引
+		// 我们必须确保当前处理的这个索引确实对应缓存中已过期的数据，而不是一个正在活跃的新数据
+		currentExpiry := currentEntry.AcquisitionTime.Unix() + int64(currentEntry.EffectiveTTL)
+		if currentExpiry > entry.expiry {
+			// 缓存中的数据比堆索引更早过期？不，这里是 cache 中的数据存活时间更长
+			// 意味着堆中的 entry.expiry 是旧的，直接扔掉，等待堆中该 key 较新的索引浮上来
+			heap.Pop(&c.expiredHeap)
+			continue
+		}
+
+		// 判定是否应当删除
+		shouldDelete := false
+		if isHighPressure {
+			// A. 高压状态下，清理所有已过期的数据
+			shouldDelete = true
+		} else if !c.config.KeepExpiredEntries {
+			// B. 低压状态，但未开启过保存期保护，则清理超过 24 小时的古老数据
+			if entry.expiry+ancientLimit <= now {
+				shouldDelete = true
+			} else {
+				// 未及 24 小时，保留
+				break
+			}
+		} else {
+			// C. 低压状态且开启了 KeepExpiredEntries (尽量存储)
+			// 哪怕数据已经物理过期了，也保留，以供 Stale-While-Revalidate 使用
+			break
+		}
+
+		if shouldDelete {
 			c.rawCache.Delete(entry.key)
 			heap.Pop(&c.expiredHeap)
 		} else {
-			// 关键：如果还没到过期时间，即使压力大也不能删，直接退出
-			// (因为堆是按过期时间排序的)
 			break
 		}
 	}

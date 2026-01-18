@@ -112,6 +112,18 @@ func (sc *ShardedCache) Get(key string) (any, bool) {
 	return value, true
 }
 
+// GetNoUpdate 获取值但不更新 LRU 访问顺序
+func (sc *ShardedCache) GetNoUpdate(key string) (any, bool) {
+	shard := sc.getShard(key)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	node, exists := shard.cache[key]
+	if !exists {
+		return nil, false
+	}
+	return node.value, true
+}
+
 // GetDirtyCount 获取缓存的变更计数
 func (sc *ShardedCache) GetDirtyCount() uint64 {
 	return atomic.LoadUint64(&sc.dirty)
@@ -141,7 +153,7 @@ func (sc *ShardedCache) Set(key string, value any) {
 	shard.cache[key] = node
 
 	// 如果超过容量，删除尾部元素
-	if shard.list.len > shard.capacity {
+	if shard.capacity > 0 && shard.list.len > shard.capacity {
 		shard.evictOne()
 	}
 	sc.markDirty()

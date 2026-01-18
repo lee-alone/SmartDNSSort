@@ -107,6 +107,17 @@ func (lru *LRUCache) Get(key string) (any, bool) {
 	return value, true
 }
 
+// GetNoUpdate 获取一个值，但不更新 LRU 访问顺序
+func (lru *LRUCache) GetNoUpdate(key string) (any, bool) {
+	lru.mu.RLock()
+	defer lru.mu.RUnlock()
+	elem, exists := lru.cache[key]
+	if !exists {
+		return nil, false
+	}
+	return elem.Value.(*lruNode).value, true
+}
+
 // Set 添加或更新一个值
 // 新条目添加到链表头部，如果超过容量则删除尾部元素（最久未使用）
 func (lru *LRUCache) Set(key string, value any) {
@@ -126,7 +137,7 @@ func (lru *LRUCache) Set(key string, value any) {
 	lru.cache[key] = elem
 
 	// 如果超过容量，删除尾部元素（最久未使用）
-	if lru.list.Len() > lru.capacity {
+	if lru.capacity > 0 && lru.list.Len() > lru.capacity {
 		lru.evictOne()
 	}
 }
