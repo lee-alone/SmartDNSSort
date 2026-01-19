@@ -10,6 +10,9 @@ import (
 
 // ReportPingResultWithDomain handles the granular blacklist update.
 func (p *Prefetcher) ReportPingResultWithDomain(domain string, results []ping.Result) {
+	if !p.cfg.Enabled {
+		return
+	}
 	now := time.Now()
 
 	p.ipStatsMu.Lock()

@@ -109,7 +109,25 @@ func (p *Prefetcher) Stop() {
 	}
 	close(p.stopChan)
 	p.wg.Wait()
-	logger.Info("[Prefetcher] Stopped.")
+
+	// Clear all maps to free memory and reset state
+	p.scoreMu.Lock()
+	p.scoreTable = make(map[string]*ScoreEntry)
+	p.scoreMu.Unlock()
+
+	p.ipStatsMu.Lock()
+	p.ipStats = make(map[string]*IPStat)
+	p.ipStatsMu.Unlock()
+
+	p.blacklistMu.Lock()
+	p.blacklist = make(map[string]int64)
+	p.blacklistMu.Unlock()
+
+	// failureCounts is used only in runRefresh which is stopped now,
+	// but clearing it for consistency. No mutex since it's only used in prefetchLoop.
+	p.failureCounts = make(map[string]int)
+
+	logger.Info("[Prefetcher] Stopped and data cleared.")
 }
 
 // prefetchLoop handles periodic sampling and refreshing.
@@ -137,6 +155,10 @@ func (p *Prefetcher) prefetchLoop() {
 
 // RecordAccess is called when a domain is queried by a real client.
 func (p *Prefetcher) RecordAccess(domain string, ttl uint32) {
+	if !p.cfg.Enabled {
+		return
+	}
+
 	// Formula: w(d) = min(3.0, TTL/3600)
 	w := float64(ttl) / 3600.0
 	if w > 3.0 {
@@ -152,6 +174,9 @@ func (p *Prefetcher) ReportPingResults(results []ping.Result) {
 
 // IsTopDomain checks if a domain is currently considered a top domain.
 func (p *Prefetcher) IsTopDomain(domain string) bool {
+	if !p.cfg.Enabled {
+		return false
+	}
 	p.scoreMu.RLock()
 	_, exists := p.scoreTable[domain]
 	p.scoreMu.RUnlock()

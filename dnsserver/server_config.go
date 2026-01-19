@@ -97,6 +97,8 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	if newPrefetcher != nil {
 		s.prefetcher.Stop()
 		s.prefetcher = newPrefetcher
+		// Update the cache's reference to the new prefetcher
+		s.cache.SetPrefetcher(newPrefetcher)
 		s.prefetcher.Start()
 	}
 

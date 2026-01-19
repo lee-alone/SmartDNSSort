@@ -10,7 +10,7 @@ import (
 
 // GetFallbackRank returns a sorted list of IPs for the zero-traffic fallback.
 func (p *Prefetcher) GetFallbackRank(domain string, ips []string) []string {
-	if len(ips) == 0 {
+	if !p.cfg.Enabled || len(ips) == 0 {
 		return ips
 	}
 
