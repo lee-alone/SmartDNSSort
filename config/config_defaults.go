@@ -49,10 +49,10 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 // setHealthCheckDefaults 设置健康检查配置的默认值
 func setHealthCheckDefaults(hc *HealthCheckConfig) {
 	if hc.FailureThreshold == 0 {
-		hc.FailureThreshold = 3
+		hc.FailureThreshold = 5
 	}
 	if hc.CircuitBreakerThreshold == 0 {
-		hc.CircuitBreakerThreshold = 5
+		hc.CircuitBreakerThreshold = 10
 	}
 	if hc.CircuitBreakerTimeout == 0 {
 		hc.CircuitBreakerTimeout = 30

@@ -19,10 +19,10 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 	logger.Debugf("[querySequential] 开始顺序查询 %s (type=%s)，可用服务器数=%d",
 		domain, dns.TypeToString[qtype], len(u.servers))
 
-	// 获取单次尝试的超时时间（默认 300ms）
-	attemptTimeout := time.Duration(u.timeoutMs) * time.Millisecond
-	if u.timeoutMs <= 0 {
-		attemptTimeout = 300 * time.Millisecond
+	// 获取单次尝试的超时时间
+	attemptTimeout := time.Duration(u.sequentialTimeoutMs) * time.Millisecond
+	if u.sequentialTimeoutMs <= 0 {
+		attemptTimeout = 1500 * time.Millisecond
 	}
 
 	var primaryError error

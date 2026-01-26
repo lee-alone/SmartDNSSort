@@ -42,26 +42,33 @@ type Manager struct {
 	// racing 策略配置
 	racingDelayMs       int // 竞速策略的起始延迟（毫秒）
 	racingMaxConcurrent int // 竞速策略中同时发起的最大请求数
+	// sequential 策略配置
+	sequentialTimeoutMs int // 顺序尝试的单次超时
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
 	cacheUpdateCallback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32)
 }
 
 // NewManager 创建上游 DNS 管理器
-func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats, healthConfig *HealthCheckConfig, racingDelayMs int, racingMaxConcurrent int) *Manager {
+func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency int, s *stats.Stats, healthConfig *HealthCheckConfig, racingDelayMs int, racingMaxConcurrent int, sequentialTimeoutMs int) *Manager {
 	if strategy == "" {
 		strategy = "random"
 	}
 	if timeoutMs <= 0 {
-		timeoutMs = 300
+		timeoutMs = 5000 // 统一默认 5s，给递归服务器留够时间
 	}
-	if concurrency <= 0 {
-		concurrency = 3
+	// 优化：并发数至少应等于服务器数量，除非外部显式限制
+	if concurrency < len(servers) {
+		concurrency = len(servers)
 	}
 	if racingDelayMs <= 0 {
 		racingDelayMs = 100 // 默认 100ms
 	}
-	if racingMaxConcurrent <= 0 {
-		racingMaxConcurrent = 2 // 默认 2
+	// 优化：竞速并发数至少应等于服务器数量
+	if racingMaxConcurrent < len(servers) {
+		racingMaxConcurrent = len(servers)
+	}
+	if sequentialTimeoutMs <= 0 {
+		sequentialTimeoutMs = 1500 // 默认 1.5s
 	}
 
 	// 将普通 Upstream 包装为 HealthAwareUpstream
@@ -78,6 +85,7 @@ func NewManager(servers []Upstream, strategy string, timeoutMs int, concurrency 
 		stats:               s,
 		racingDelayMs:       racingDelayMs,
 		racingMaxConcurrent: racingMaxConcurrent,
+		sequentialTimeoutMs: sequentialTimeoutMs,
 	}
 }
 
