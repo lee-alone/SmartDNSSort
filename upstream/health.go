@@ -125,6 +125,28 @@ func (h *ServerHealth) MarkFailure() {
 	}
 }
 
+// MarkTimeout 标记查询超时，增加延迟惩罚但不触发熔断计数
+func (h *ServerHealth) MarkTimeout(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.consecutiveSuccesses = 0
+	h.lastFailureTime = time.Now()
+
+	// 更新延迟记录，使该服务器在排序中靠后
+	if d <= 0 {
+		d = 1 * time.Second // 默认惩罚
+	}
+
+	if h.latency == 0 {
+		h.latency = d
+	} else {
+		// EWMA: 增加延迟权重，使其优先级降低频率
+		newLatency := time.Duration(h.latencyAlpha*float64(d) + (1.0-h.latencyAlpha)*float64(h.latency))
+		h.latency = newLatency
+	}
+}
+
 // ShouldSkipTemporarily 判断是否应该临时跳过此服务器
 func (h *ServerHealth) ShouldSkipTemporarily() bool {
 	h.mu.RLock()

@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/miekg/dns"
@@ -32,7 +33,11 @@ func (h *HealthAwareUpstream) Exchange(ctx context.Context, msg *dns.Msg) (*dns.
 
 	// 根据查询结果更新健康状态
 	if err != nil {
-		h.health.MarkFailure()
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.health.MarkTimeout(latency)
+		} else {
+			h.health.MarkFailure()
+		}
 		return nil, err
 	}
 
@@ -90,9 +95,9 @@ func (h *HealthAwareUpstream) RecordError() {
 	h.health.MarkFailure()
 }
 
-// RecordTimeout 记录一次超时（暂时视为失败）
+// RecordTimeout 记录一次超时
 func (h *HealthAwareUpstream) RecordTimeout() {
-	h.health.MarkFailure()
+	h.health.MarkTimeout(0)
 }
 
 // Name 返回服务器名称（地址）
