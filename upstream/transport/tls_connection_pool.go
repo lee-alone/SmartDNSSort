@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"smartdnssort/logger"
@@ -49,6 +50,11 @@ type TLSConnectionPool struct {
 	totalDestroyed int64
 	totalErrors    int64
 	totalRequests  int64
+	totalCongested int64
+
+	// 性能感悟
+	avgLatency   time.Duration // 平均上游延迟 (EWMA)
+	waitingCount int32         // 当前正在排队等待连接的请求数
 
 	tlsConfig *tls.Config
 
@@ -92,7 +98,7 @@ func NewTLSConnectionPool(address, serverName string, maxConnections int, idleTi
 		readTimeout:       3 * time.Second,
 		writeTimeout:      3 * time.Second,
 		tlsConfig:         tlsConfig,
-		idleConns:         make(chan *PooledTLSConnection, maxConnections),
+		idleConns:         make(chan *PooledTLSConnection, MaxConnectionsLimit),
 		stopChan:          make(chan struct{}),
 		minConnections:    MinConnections,
 		targetUtilization: 0.7,
@@ -136,8 +142,6 @@ func (p *TLSConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Ms
 			p.mu.Unlock()
 			return p.Exchange(ctx, msg)
 		}
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	default:
 		p.mu.Lock()
 		if p.activeCount < p.maxConnections {
@@ -151,17 +155,21 @@ func (p *TLSConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Ms
 				return nil, err
 			}
 		} else {
+			// 达到上限，进入弹性等待机制
+			waiting := atomic.AddInt32(&p.waitingCount, 1)
+			defer atomic.AddInt32(&p.waitingCount, -1)
 			p.mu.Unlock()
 
-			// 连接池满，检查是否启用快速失败
-			if p.fastFailMode {
-				logger.Warnf("[TLSConnectionPool] 连接池已满，快速失败: %s", p.address)
-				return nil, fmt.Errorf("connection pool exhausted for %s", p.address)
+			// 计算弹性等待时间
+			waitDuration := p.getAdaptiveWaitTime()
+
+			if p.fastFailMode && waiting > 20 {
+				p.recordCongestion()
+				return nil, ErrRequestThrottled
 			}
 
-			// 否则等待，但有最大等待时间
-			waitCtx, cancel := context.WithTimeout(ctx, p.maxWaitTime)
-			defer cancel()
+			timer := time.NewTimer(waitDuration)
+			defer timer.Stop()
 
 			select {
 			case poolConn = <-p.idleConns:
@@ -171,15 +179,19 @@ func (p *TLSConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Ms
 					p.mu.Unlock()
 					return p.Exchange(ctx, msg)
 				}
-			case <-waitCtx.Done():
-				logger.Warnf("[TLSConnectionPool] 等待连接超时: %s", p.address)
-				return nil, fmt.Errorf("wait for connection timeout")
+			case <-timer.C:
+				p.recordCongestion()
+				return nil, ErrPoolExhausted
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		}
 	}
 
 	// 2. 在独占连接上执行查询
+	startTime := time.Now()
 	reply, err := p.exchangeOnConnection(ctx, poolConn, msg)
+	latency := time.Since(startTime)
 
 	// 3. 处理故障和归还
 	if err != nil {
@@ -214,6 +226,9 @@ func (p *TLSConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Ms
 		return nil, err
 	}
 
+	// 成功！更新平均延迟
+	p.updateAvgLatency(latency)
+
 	poolConn.lastUsed = time.Now()
 	poolConn.usageCount++
 	select {
@@ -228,6 +243,58 @@ func (p *TLSConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Ms
 	}
 
 	return reply, nil
+}
+
+// updateAvgLatency 更新 EWMA 平均延迟
+func (p *TLSConnectionPool) updateAvgLatency(d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.avgLatency == 0 {
+		p.avgLatency = d
+	} else {
+		// Alpha = 0.2
+		p.avgLatency = time.Duration(0.2*float64(d) + 0.8*float64(p.avgLatency))
+	}
+}
+
+// getAdaptiveWaitTime 获取自适应等待时间
+func (p *TLSConnectionPool) getAdaptiveWaitTime() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	wait := p.avgLatency / 10
+	if wait < 10*time.Millisecond {
+		wait = 10 * time.Millisecond
+	}
+	if wait > 200*time.Millisecond {
+		wait = 200 * time.Millisecond
+	}
+	if p.avgLatency == 0 {
+		return 50 * time.Millisecond
+	}
+	return wait
+}
+
+// recordCongestion 记录拥塞事件并触发自省优化
+func (p *TLSConnectionPool) recordCongestion() {
+	p.mu.Lock()
+	p.totalCongested++
+	if p.totalCongested%5 == 0 {
+		go p.adjustPoolSizeNow()
+	}
+	p.mu.Unlock()
+	logger.Warnf("[TLSConnectionPool] ⚠️ 触发快速失败/拥塞控制: %s, 活跃=%d, 排队=%d",
+		p.address, p.activeCount, atomic.LoadInt32(&p.waitingCount))
+}
+
+// adjustPoolSizeNow 立刻执行扩容检查
+func (p *TLSConnectionPool) adjustPoolSizeNow() {
+	p.mu.Lock()
+	if p.maxConnections >= MaxConnectionsLimit {
+		p.mu.Unlock()
+		return
+	}
+	p.mu.Unlock()
+	p.adjustPoolSize()
 }
 
 // createConnection 创建一个新的 TLS 连接
@@ -266,7 +333,7 @@ func (p *TLSConnectionPool) isTemporaryError(err error) bool {
 	}
 
 	if ne, ok := err.(net.Error); ok {
-		return ne.Temporary() || ne.Timeout()
+		return ne.Timeout()
 	}
 
 	if err == context.DeadlineExceeded {
@@ -396,7 +463,7 @@ func (p *TLSConnectionPool) adjustPoolSize() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if time.Since(p.lastAdjustTime) < 60*time.Second {
+	if time.Since(p.lastAdjustTime) < 10*time.Second {
 		return
 	}
 
@@ -549,12 +616,15 @@ func (p *TLSConnectionPool) GetStats() map[string]interface{} {
 		"address":         p.address,
 		"active_count":    p.activeCount,
 		"idle_count":      len(p.idleConns),
+		"waiting_count":   atomic.LoadInt32(&p.waitingCount),
 		"max_connections": p.maxConnections,
 		"total_created":   p.totalCreated,
 		"total_destroyed": p.totalDestroyed,
 		"total_errors":    p.totalErrors,
 		"total_requests":  p.totalRequests,
+		"total_congested": p.totalCongested,
 		"reuse_rate":      reuseRate,
 		"error_rate":      errorRate,
+		"avg_latency_ms":  float64(p.avgLatency.Microseconds()) / 1000.0,
 	}
 }

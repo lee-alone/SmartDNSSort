@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"smartdnssort/logger"
@@ -20,6 +21,13 @@ const (
 	WarnLargeMsgSize    = 4096
 	MinConnections      = 2
 	MaxConnectionsLimit = 50
+)
+
+var (
+	// ErrPoolExhausted 当连接池达到上限且在弹性等待时间内未获取连接时返回
+	ErrPoolExhausted = fmt.Errorf("transport pool exhausted")
+	// ErrRequestThrottled 当系统由于极度拥塞触发主动限流时返回
+	ErrRequestThrottled = fmt.Errorf("transport request throttled")
 )
 
 // ConnectionPool 管理到单个上游服务器的连接池
@@ -56,6 +64,11 @@ type ConnectionPool struct {
 	totalDestroyed int64
 	totalErrors    int64
 	totalRequests  int64
+	totalCongested int64 // 由于拥塞导致快速失败的次数
+
+	// 性能感悟
+	avgLatency   time.Duration // 平均上游延迟 (EWMA)
+	waitingCount int32         // 当前正在排队等待连接的请求数
 
 	// 清理 goroutine 控制
 	stopChan chan struct{}
@@ -93,7 +106,7 @@ func NewConnectionPool(address, network string, maxConnections int, idleTimeout 
 		dialTimeout:       5 * time.Second,
 		readTimeout:       3 * time.Second,
 		writeTimeout:      3 * time.Second,
-		idleConns:         make(chan *PooledConnection, maxConnections),
+		idleConns:         make(chan *PooledConnection, MaxConnectionsLimit),
 		stopChan:          make(chan struct{}),
 		minConnections:    MinConnections,
 		targetUtilization: 0.7,
@@ -138,8 +151,6 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 			p.mu.Unlock()
 			return p.Exchange(ctx, msg) // 递归获取下一个
 		}
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	default:
 		// 池中没有空闲连接，尝试创建新连接
 		p.mu.Lock()
@@ -155,17 +166,22 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 				return nil, err
 			}
 		} else {
+			// 达到上限，进入弹性等待机制
+			waiting := atomic.AddInt32(&p.waitingCount, 1)
+			defer atomic.AddInt32(&p.waitingCount, -1)
 			p.mu.Unlock()
 
-			// 连接池满，检查是否启用快速失败
-			if p.fastFailMode {
-				logger.Warnf("[ConnectionPool] 连接池已满，快速失败: %s", p.address)
-				return nil, fmt.Errorf("connection pool exhausted for %s", p.address)
+			// 计算弹性等待时间：通常为平均延迟的 1/10，且在 10ms - 200ms 之间
+			waitDuration := p.getAdaptiveWaitTime()
+
+			// 如果启用 fastFailMode 且排队人数过多，直接降级
+			if p.fastFailMode && waiting > 20 {
+				p.recordCongestion()
+				return nil, ErrRequestThrottled
 			}
 
-			// 否则等待，但有最大等待时间
-			waitCtx, cancel := context.WithTimeout(ctx, p.maxWaitTime)
-			defer cancel()
+			timer := time.NewTimer(waitDuration)
+			defer timer.Stop()
 
 			select {
 			case poolConn = <-p.idleConns:
@@ -175,15 +191,19 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 					p.mu.Unlock()
 					return p.Exchange(ctx, msg)
 				}
-			case <-waitCtx.Done():
-				logger.Warnf("[ConnectionPool] 等待连接超时: %s", p.address)
-				return nil, fmt.Errorf("wait for connection timeout")
+			case <-timer.C:
+				p.recordCongestion()
+				return nil, ErrPoolExhausted
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		}
 	}
 
 	// 2. 执行查询
+	startTime := time.Now()
 	reply, err := p.exchangeOnConnection(ctx, poolConn, msg)
+	latency := time.Since(startTime)
 
 	// 3. 处理结果并归还连接
 	if err != nil {
@@ -220,6 +240,9 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 		return nil, err
 	}
 
+	// 成功！更新平均延迟
+	p.updateAvgLatency(latency)
+
 	// 更新最后使用时间并放回池中
 	poolConn.lastUsed = time.Now()
 	poolConn.usageCount++
@@ -237,6 +260,64 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 	}
 
 	return reply, nil
+}
+
+// updateAvgLatency 更新 EWMA 平均延迟
+func (p *ConnectionPool) updateAvgLatency(d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.avgLatency == 0 {
+		p.avgLatency = d
+	} else {
+		// Alpha = 0.2
+		p.avgLatency = time.Duration(0.2*float64(d) + 0.8*float64(p.avgLatency))
+	}
+}
+
+// getAdaptiveWaitTime 获取自适应等待时间
+func (p *ConnectionPool) getAdaptiveWaitTime() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// 默认为平均延迟的 10%
+	wait := p.avgLatency / 10
+	if wait < 10*time.Millisecond {
+		wait = 10 * time.Millisecond
+	}
+	if wait > 200*time.Millisecond {
+		wait = 200 * time.Millisecond
+	}
+	// 如果并没有平均延迟数据，使用默认的 50ms
+	if p.avgLatency == 0 {
+		return 50 * time.Millisecond
+	}
+	return wait
+}
+
+// recordCongestion 记录拥塞事件并触发自省优化
+func (p *ConnectionPool) recordCongestion() {
+	p.mu.Lock()
+	p.totalCongested++
+
+	// 探测：如果频繁发生拥塞，立刻触发一次扩容检查，不再等待 ticker
+	if p.totalCongested%5 == 0 {
+		go p.adjustPoolSizeNow()
+	}
+	p.mu.Unlock()
+	logger.Warnf("[ConnectionPool] ⚠️ 触发快速失败/拥塞控制: %s, 活跃=%d, 排队=%d",
+		p.address, p.activeCount, atomic.LoadInt32(&p.waitingCount))
+}
+
+// adjustPoolSizeNow 立刻执行扩容检查（用于 recordCongestion 触发）
+func (p *ConnectionPool) adjustPoolSizeNow() {
+	p.mu.Lock()
+	// 如果已经达到硬限制，不再尝试
+	if p.maxConnections >= MaxConnectionsLimit {
+		p.mu.Unlock()
+		return
+	}
+	p.mu.Unlock()
+	p.adjustPoolSize()
 }
 
 // createConnection 创建一个新的连接
@@ -294,9 +375,9 @@ func (p *ConnectionPool) isTemporaryError(err error) bool {
 		return false
 	}
 
-	// 检查网络错误
+	// 检查网络错误 - 只检查 Timeout，Temporary() 已弃用
 	if ne, ok := err.(net.Error); ok {
-		return ne.Temporary() || ne.Timeout()
+		return ne.Timeout()
 	}
 
 	// 检查上下文错误
@@ -434,7 +515,7 @@ func (p *ConnectionPool) adjustPoolSize() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if time.Since(p.lastAdjustTime) < 60*time.Second {
+	if time.Since(p.lastAdjustTime) < 10*time.Second {
 		return
 	}
 
@@ -445,17 +526,6 @@ func (p *ConnectionPool) adjustPoolSize() {
 		newMax := min(p.maxConnections+5, MaxConnectionsLimit)
 		logger.Debugf("[ConnectionPool] 自动扩容: %d -> %d (利用率: %.1f%%)", p.maxConnections, newMax, utilization*100)
 		p.maxConnections = newMax
-		// 扩大通道容量
-		newChan := make(chan *PooledConnection, newMax)
-		for {
-			select {
-			case conn := <-p.idleConns:
-				newChan <- conn
-			default:
-				p.idleConns = newChan
-				return
-			}
-		}
 	}
 
 	// 如果利用率过低，减少最大连接数
@@ -604,13 +674,16 @@ func (p *ConnectionPool) GetStats() map[string]interface{} {
 		"network":         p.network,
 		"active_count":    p.activeCount,
 		"idle_count":      len(p.idleConns),
+		"waiting_count":   atomic.LoadInt32(&p.waitingCount),
 		"max_connections": p.maxConnections,
 		"total_created":   p.totalCreated,
 		"total_destroyed": p.totalDestroyed,
 		"total_errors":    p.totalErrors,
 		"total_requests":  p.totalRequests,
+		"total_congested": p.totalCongested,
 		"reuse_rate":      reuseRate,
 		"error_rate":      errorRate,
+		"avg_latency_ms":  float64(p.avgLatency.Microseconds()) / 1000.0,
 	}
 }
 
