@@ -31,13 +31,13 @@ type UpstreamConfig struct {
 	TimeoutMs   int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
 	Concurrency *int   `yaml:"concurrency,omitempty" json:"concurrency"` // 并行查询时的并发数
 
-	// sequential 策略的单次尝试超时时间（默认 300ms）
+	// sequential 策略的单次尝试超时时间（默认 1000ms）
 	SequentialTimeout *int `yaml:"sequential_timeout,omitempty" json:"sequential_timeout"`
 
 	// racing 策略的赛跑起始延迟（默认 100ms）
 	RacingDelay *int `yaml:"racing_delay,omitempty" json:"racing_delay"`
 
-	// racing 策略中同时发起的最大竞争请求数（默认 2）
+	// racing 策略中同时发起的最大竞争请求数（默认: 上游服务器数量）
 	RacingMaxConcurrent *int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
 	// 连接池的最大连接数 (默认: 自动根据 CPU 核数计算)
@@ -46,7 +46,7 @@ type UpstreamConfig struct {
 	// 动态参数优化
 	DynamicParamOptimization DynamicParamOptimizationConfig `yaml:"dynamic_param_optimization,omitempty" json:"dynamic_param_optimization"`
 
-	Dnssec            bool `yaml:"dnssec" json:"dnssec"`
+	Dnssec bool `yaml:"dnssec" json:"dnssec"`
 
 	// 健康检查配置
 	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`

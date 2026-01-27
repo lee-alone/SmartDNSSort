@@ -40,18 +40,29 @@ upstream:
     - "192.168.1.11"
     - "8.8.8.8:53"
 
-  # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器），sequential（顺序查询），racing（竞争查询）
-  strategy: "sequential"
+  # 查询策略：parallel（并行查询所有服务器），random（随机选择一个服务器），sequential（顺序查询），racing（竞争查询），auto（自适应选择最优策略）
+  strategy: "auto"
   # 上游服务器响应超时时间（毫秒）
   timeout_ms: 3000
-  # 并行查询时的并发数（仅在 strategy 为 parallel 时有效）
-  concurrency: 3
-  # sequential 策略的单次尝试超时时间（毫秒，默认 300）
-  sequential_timeout: 1500
+  # 并行查询时的并发数 (默认: CPU核数 * 10)
+  # concurrency: 8
+  # sequential 策略的单次尝试超时时间（毫秒，默认 1000）
+  # 启用动态优化后，此值将作为初始值并根据延迟自动调整
+  sequential_timeout: 1000
   # racing 策略的赛跑起始延迟（毫秒，默认 100）
+  # 启用动态优化后，此值将作为初始值并根据延迟自动调整
   racing_delay: 100
-  # racing 策略中同时发起的最大竞争请求数（默认 2）
-  racing_max_concurrent: 2
+  # racing 策略中同时发起的最大竞争请求数 (默认: 上游服务器数量)
+  # racing_max_concurrent: 2
+
+  # 动态参数优化配置
+  dynamic_param_optimization:
+    # EWMA (Exponentially Weighted Moving Average) 平滑因子
+    # 用于平滑 rtt, racing delay 等动态参数。值越小，平滑效果越强
+    # 推荐值: 0.1-0.3，默认 0.2
+    ewma_alpha: 0.2
+    # 动态参数调整的最大步长（单位：ms），默认 10
+    max_step_ms: 10
 
 
   

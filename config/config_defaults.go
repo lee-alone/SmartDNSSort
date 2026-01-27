@@ -13,9 +13,8 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 	}
 
 	// Upstream 配置默认值
-	if cfg.Upstream.TimeoutMs == 0 {
-		cfg.Upstream.TimeoutMs = 5000
-	}
+	setUpstreamDefaults(&cfg.Upstream)
+
 	// Bootstrap DNS 默认值：如果未配置，使用公共 DNS 服务器
 	// 用于解析 DoH/DoT 服务器的域名
 	// 注意：这里不设置默认值，因为 DefaultConfigContent 中已经定义了
@@ -41,6 +40,46 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 
 	// Stats 配置默认值
 	setStatsDefaults(cfg)
+}
+
+// setUpstreamDefaults 设置上游配置的默认值
+func setUpstreamDefaults(cfg *UpstreamConfig) {
+	if cfg.TimeoutMs == 0 {
+		cfg.TimeoutMs = 5000
+	}
+
+	if cfg.Concurrency == nil {
+		c := runtime.NumCPU() * 10
+		cfg.Concurrency = &c
+	}
+
+	if cfg.SequentialTimeout == nil {
+		t := 1000
+		cfg.SequentialTimeout = &t
+	}
+
+	if cfg.RacingDelay == nil {
+		d := 100
+		cfg.RacingDelay = &d
+	}
+
+	if cfg.RacingMaxConcurrent == nil {
+		c := len(cfg.Servers)
+		if c < 2 {
+			c = 2
+		}
+		cfg.RacingMaxConcurrent = &c
+	}
+
+	// 动态参数优化默认值
+	if cfg.DynamicParamOptimization.EWMAAlpha == nil {
+		a := 0.2
+		cfg.DynamicParamOptimization.EWMAAlpha = &a
+	}
+	if cfg.DynamicParamOptimization.MaxStepMs == nil {
+		s := 10
+		cfg.DynamicParamOptimization.MaxStepMs = &s
+	}
 }
 
 // setHealthCheckDefaults 设置健康检查配置的默认值
