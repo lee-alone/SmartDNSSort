@@ -623,6 +623,7 @@ func (p *ConnectionPool) GetConnectionStats() map[string]interface{} {
 	var minUsageCount int64 = math.MaxInt64
 
 	count := len(p.idleConns)
+loop:
 	for i := 0; i < count; i++ {
 		select {
 		case conn := <-p.idleConns:
@@ -635,7 +636,7 @@ func (p *ConnectionPool) GetConnectionStats() map[string]interface{} {
 			}
 			p.idleConns <- conn
 		default:
-			break
+			break loop
 		}
 	}
 

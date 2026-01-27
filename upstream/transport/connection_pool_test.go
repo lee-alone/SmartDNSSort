@@ -12,7 +12,6 @@ import (
 // TestConnectionPoolBasic 测试基本的连接池功能
 func TestConnectionPoolBasic(t *testing.T) {
 	// 创建一个简单的 UDP 服务器用于测试
-	addr := "127.0.0.1:0"
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{
 		Port: 0,
 		IP:   net.ParseIP("127.0.0.1"),

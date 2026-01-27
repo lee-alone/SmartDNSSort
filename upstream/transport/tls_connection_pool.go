@@ -299,11 +299,15 @@ func (p *TLSConnectionPool) adjustPoolSizeNow() {
 
 // createConnection 创建一个新的 TLS 连接
 func (p *TLSConnectionPool) createConnection(ctx context.Context) (*PooledTLSConnection, error) {
-	dialer := &net.Dialer{
-		Timeout: p.dialTimeout,
+	// 使用 context 的 deadline 来控制连接超时
+	var dialer net.Dialer
+	if deadline, ok := ctx.Deadline(); ok {
+		dialer.Timeout = time.Until(deadline)
+	} else {
+		dialer.Timeout = p.dialTimeout
 	}
 
-	conn, err := tls.DialWithDialer(dialer, "tcp", p.address, p.tlsConfig)
+	conn, err := tls.DialWithDialer(&dialer, "tcp", p.address, p.tlsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("tls dial failed: %w", err)
 	}
@@ -566,6 +570,7 @@ func (p *TLSConnectionPool) GetConnectionStats() map[string]interface{} {
 	var minUsageCount int64 = math.MaxInt64
 
 	count := len(p.idleConns)
+loop:
 	for i := 0; i < count; i++ {
 		select {
 		case conn := <-p.idleConns:
@@ -578,7 +583,7 @@ func (p *TLSConnectionPool) GetConnectionStats() map[string]interface{} {
 			}
 			p.idleConns <- conn
 		default:
-			break
+			break loop
 		}
 	}
 
