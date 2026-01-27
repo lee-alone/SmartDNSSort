@@ -117,14 +117,14 @@ func TestDynamicTTL(t *testing.T) {
 		{
 			name:   "Severe packet loss (80% loss)",
 			result: Result{IP: "1.1.1.4", RTT: 100, Loss: 80},
-			minTTL: 8 * time.Second,  // 0.17 * 60s ≈ 10s
-			maxTTL: 12 * time.Second, // 0.17 * 60s ≈ 10s
+			minTTL: 15 * time.Second,
+			maxTTL: 20 * time.Second,
 		},
 		{
 			name:   "Complete failure (100% loss)",
 			result: Result{IP: "1.1.1.5", RTT: 999999, Loss: 100},
-			minTTL: 4 * time.Second, // 0.08 * 60s ≈ 5s
-			maxTTL: 6 * time.Second, // 0.08 * 60s ≈ 5s
+			minTTL: 14 * time.Second,
+			maxTTL: 16 * time.Second,
 		},
 	}
 

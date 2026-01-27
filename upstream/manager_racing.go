@@ -19,11 +19,14 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 	logger.Debugf("[queryRacing] 开始竞争查询 %s (type=%s)，可用服务器数=%d",
 		domain, dns.TypeToString[qtype], len(u.servers))
 
-	// 从 Manager 配置中获取参数
-	raceDelay := time.Duration(u.racingDelayMs) * time.Millisecond
+	// 记录查询开始时间，用于计算延迟
+	queryStartTime := time.Now()
+
+	// 获取自适应竞速延迟
+	raceDelay := u.GetAdaptiveRacingDelay()
 	maxConcurrent := u.racingMaxConcurrent
 
-	logger.Debugf("[queryRacing] 竞速参数: 延迟=%v, 最大并发=%d", raceDelay, maxConcurrent)
+	logger.Debugf("[queryRacing] 竞速参数: 延迟=%v, 最大并发=%d (自适应延迟)", raceDelay, maxConcurrent)
 
 	sortedServers := u.getSortedHealthyServers()
 	if len(sortedServers) == 0 {
@@ -248,6 +251,12 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 		case result := <-resultChan:
 			// 收到了一个有效结果
 			logger.Debugf("[queryRacing] ✅ 收到结果")
+
+			// 记录查询延迟，用于动态参数优化
+			queryLatency := time.Since(queryStartTime)
+			u.RecordQueryLatency(queryLatency)
+			logger.Debugf("[queryRacing] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
+
 			return result, nil
 
 		case err := <-errorChan:

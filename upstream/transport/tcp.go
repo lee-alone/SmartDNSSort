@@ -3,10 +3,9 @@ package transport
 import (
 	"context"
 	"net"
+	"smartdnssort/logger"
 	"sync"
 	"time"
-
-	"smartdnssort/logger"
 
 	"github.com/miekg/dns"
 )
@@ -17,13 +16,13 @@ type TCP struct {
 	mu      sync.Mutex
 }
 
-func NewTCP(address string) *TCP {
+func NewTCP(address string, maxConnections *int) *TCP {
 	if _, _, err := net.SplitHostPort(address); err != nil {
 		address = net.JoinHostPort(address, "53")
 	}
 
-	// 创建连接池：最多 10 个并发连接，空闲超时 5 分钟
-	pool := NewConnectionPool(address, "tcp", 10, 5*time.Minute)
+	// 创建连接池：使用传入的 maxConnections，如果为 nil 则传递 0 触发自动计算
+	pool := NewConnectionPool(address, "tcp", derefOrDefaultVal(maxConnections, 0), 5*time.Minute)
 
 	return &TCP{
 		address: address,

@@ -20,6 +20,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	logger.Debugf("[queryParallel] 并行查询 %d 个服务器,查询 %s (type=%s),并发数=%d",
 		len(u.servers), domain, dns.TypeToString[qtype], u.concurrency)
 
+	// 记录查询开始时间，用于计算延迟
+	queryStartTime := time.Now()
+
 	// 创建结果通道
 	resultChan := make(chan *QueryResult, len(u.servers))
 
@@ -160,6 +163,11 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		u.stats.IncUpstreamSuccess(fastResponse.Server)
 	}
 
+	// 记录查询延迟，用于动态参数优化
+	queryLatency := time.Since(queryStartTime)
+	u.RecordQueryLatency(queryLatency)
+	logger.Debugf("[queryParallel] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
+
 	// 在后台继续收集其他服务器的响应并更新缓存
 	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan)
 
@@ -183,35 +191,52 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 	successCount := 1
 	failureCount := 0
 
-	// 收集剩余的结果
-	for result := range resultChan {
-		// 跳过已经作为快速响应返回的结果
-		if result == fastResponse {
-			continue
-		}
+	// 添加超时控制：最多等待 2 秒收集剩余响应
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-		if result.Error != nil {
-			failureCount++
-			if u.stats != nil {
-				// 只有非 NXDOMAIN 的错误才计为上游失败
-				if result.Rcode != dns.RcodeNameError {
-					u.stats.IncUpstreamFailure(result.Server)
-				}
+	// 创建一个 done 通道用于检测 resultChan 是否已关闭
+	done := make(chan struct{})
+	go func() {
+		// 收集剩余的结果
+		for result := range resultChan {
+			// 跳过已经作为快速响应返回的结果
+			if result == fastResponse {
+				continue
 			}
-			logger.Warnf("[collectRemainingResponses] 服务器 %s 查询失败: %v", result.Server, result.Error)
-			continue
-		}
 
-		// 记录成功的响应
-		successCount++
-		if u.stats != nil {
-			u.stats.IncUpstreamSuccess(result.Server)
-		}
-		logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
-			result.Server, successCount, len(result.Records), result.CNAMEs, result.TTL)
+			if result.Error != nil {
+				failureCount++
+				if u.stats != nil {
+					// 只有非 NXDOMAIN 的错误才计为上游失败
+					if result.Rcode != dns.RcodeNameError {
+						u.stats.IncUpstreamFailure(result.Server)
+					}
+				}
+				logger.Warnf("[collectRemainingResponses] 服务器 %s 查询失败: %v", result.Server, result.Error)
+				continue
+			}
 
-		// 收集所有成功的结果
-		allSuccessResults = append(allSuccessResults, result)
+			// 记录成功的响应
+			successCount++
+			if u.stats != nil {
+				u.stats.IncUpstreamSuccess(result.Server)
+			}
+			logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
+				result.Server, successCount, len(result.Records), result.CNAMEs, result.TTL)
+
+			// 收集所有成功的结果
+			allSuccessResults = append(allSuccessResults, result)
+		}
+		close(done)
+	}()
+
+	// 等待收集完成或超时
+	select {
+	case <-done:
+		logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成（所有响应已收集）")
+	case <-ctx.Done():
+		logger.Warnf("[collectRemainingResponses] ⏱️  后台收集超时（2秒），已收集 %d 个成功响应，%d 个失败响应", successCount, failureCount)
 	}
 
 	// 合并所有通用记录（去重）

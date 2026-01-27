@@ -62,19 +62,26 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 加载现有配置以获取某些不在Web UI中的字段
 	existingCfg, err := config.LoadConfig(s.configPath)
 	if err == nil {
-		// 保留一些 Web UI 中不能修改的字段
-		if newCfg.AdBlock.Enable == false && existingCfg.AdBlock.Enable {
-			// 保留 AdBlock 的一些私有状态（如果 Web UI 没有更新）
-			// 这里仅保留 Enable 状态，其他字段由 Web UI 更新
+		// 保留不在 Web UI 中修改或由系统动态更新的字段
+		if newCfg.AdBlock.LastUpdate == 0 {
+			newCfg.AdBlock.LastUpdate = existingCfg.AdBlock.LastUpdate
 		}
+		if len(newCfg.AdBlock.FailedSources) == 0 {
+			newCfg.AdBlock.FailedSources = existingCfg.AdBlock.FailedSources
+		}
+
 		if newCfg.System.LogLevel == "" && existingCfg.System.LogLevel != "" {
 			newCfg.System.LogLevel = existingCfg.System.LogLevel
 		}
 		if newCfg.Stats.HotDomainsWindowHours == 0 && existingCfg.Stats.HotDomainsWindowHours > 0 {
 			newCfg.Stats = existingCfg.Stats
+		}
+
+		// 如果 Web UI 没有传递动态优化配置，保留现有的
+		if newCfg.Upstream.DynamicParamOptimization.EWMAAlpha == nil && existingCfg.Upstream.DynamicParamOptimization.EWMAAlpha != nil {
+			newCfg.Upstream.DynamicParamOptimization = existingCfg.Upstream.DynamicParamOptimization
 		}
 	}
 
@@ -128,24 +135,54 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.TimeoutMs <= 0 {
 		return fmt.Errorf("upstream timeout must be positive")
 	}
-	if cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" && cfg.Upstream.Strategy != "sequential" && cfg.Upstream.Strategy != "racing" {
-		return fmt.Errorf("invalid upstream strategy: %s (must be 'random', 'parallel', 'sequential', or 'racing')", cfg.Upstream.Strategy)
-	}
-	if cfg.Upstream.Concurrency <= 0 {
-		return fmt.Errorf("upstream concurrency must be positive")
+	if cfg.Upstream.Strategy != "" && cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" && cfg.Upstream.Strategy != "sequential" && cfg.Upstream.Strategy != "racing" && cfg.Upstream.Strategy != "auto" {
+		return fmt.Errorf("invalid upstream strategy: %s (must be 'random', 'parallel', 'sequential', 'racing', or 'auto')", cfg.Upstream.Strategy)
 	}
 
-	// 验证 sequential 策略参数
-	if cfg.Upstream.SequentialTimeout < 100 || cfg.Upstream.SequentialTimeout > 2000 {
-		return fmt.Errorf("sequential timeout must be between 100ms and 2000ms, got %dms", cfg.Upstream.SequentialTimeout)
+	// User-provided concurrency, if any, must be positive.
+	if cfg.Upstream.Concurrency != nil && *cfg.Upstream.Concurrency <= 0 {
+		return fmt.Errorf("upstream concurrency must be positive if specified, got %d", *cfg.Upstream.Concurrency)
 	}
 
-	// 验证 racing 策略参数
-	if cfg.Upstream.RacingDelay < 50 || cfg.Upstream.RacingDelay > 500 {
-		return fmt.Errorf("racing delay must be between 50ms and 500ms, got %dms", cfg.Upstream.RacingDelay)
+	// User-provided sequential timeout, if any, must be within bounds.
+	if cfg.Upstream.SequentialTimeout != nil {
+		val := *cfg.Upstream.SequentialTimeout
+		if val < 100 || val > 2000 {
+			return fmt.Errorf("sequential timeout must be between 100ms and 2000ms if specified, got %dms", val)
+		}
 	}
-	if cfg.Upstream.RacingMaxConcurrent < 2 || cfg.Upstream.RacingMaxConcurrent > 5 {
-		return fmt.Errorf("racing max concurrent must be between 2 and 5, got %d", cfg.Upstream.RacingMaxConcurrent)
+
+	// User-provided racing delay, if any, must be within bounds.
+	if cfg.Upstream.RacingDelay != nil {
+		val := *cfg.Upstream.RacingDelay
+		if val < 50 || val > 500 {
+			return fmt.Errorf("racing delay must be between 50ms and 500ms if specified, got %dms", val)
+		}
+	}
+	// User-provided racing max concurrent, if any, must be within bounds.
+	if cfg.Upstream.RacingMaxConcurrent != nil {
+		val := *cfg.Upstream.RacingMaxConcurrent
+		if val < 2 || val > 10 { // 适当放宽上限，manager 会根据服务器数再次限制
+			return fmt.Errorf("racing max concurrent must be between 2 and 10 if specified, got %d", val)
+		}
+	}
+
+	// User-provided max connections, if any, must be positive.
+	if cfg.Upstream.MaxConnections != nil && *cfg.Upstream.MaxConnections <= 0 {
+		return fmt.Errorf("max connections must be positive if specified")
+	}
+
+	// Validate Dynamic Param Optimization
+	if cfg.Upstream.DynamicParamOptimization.EWMAAlpha != nil {
+		alpha := *cfg.Upstream.DynamicParamOptimization.EWMAAlpha
+		if alpha <= 0 || alpha >= 1 {
+			return fmt.Errorf("dynamic optimization ewma_alpha must be between 0 and 1")
+		}
+	}
+	if cfg.Upstream.DynamicParamOptimization.MaxStepMs != nil {
+		if *cfg.Upstream.DynamicParamOptimization.MaxStepMs <= 0 {
+			return fmt.Errorf("dynamic optimization max_step_ms must be positive")
+		}
 	}
 	if cfg.Cache.MinTTLSeconds < 0 {
 		return fmt.Errorf("cache min TTL cannot be negative")
@@ -184,10 +221,18 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 		return fmt.Errorf("ping RTT cache TTL cannot be negative")
 	}
 	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" {
-		return fmt.Errorf("system refresh workers cannot be negative")
+		return fmt.Errorf("ping strategy must be 'min' or 'avg'")
 	}
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
 	}
 	return nil
+}
+
+// derefOrDefaultVal returns the dereferenced value of an *int, or a default if nil.
+func derefOrDefaultVal(ptr *int, defaultValue int) int {
+	if ptr != nil {
+		return *ptr
+	}
+	return defaultValue
 }

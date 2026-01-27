@@ -49,8 +49,8 @@ func newTestServerForSorting(cfg *config.Config) *Server {
 
 func TestPerformPingSort(t *testing.T) {
 	ctx := context.Background()
-	// 使用环回 IP 进行确定性 RTT 测试
-	testIPs := []string{"127.0.0.3", "127.0.0.1", "127.0.0.2"} // IPs 最初未排序
+	// 使用 TEST-NET-1 范围的 IP 进行确定性 RTT 测试，确保这些 IP 总是不可达
+	testIPs := []string{"192.0.2.3", "192.0.2.1", "192.0.2.2"} // IPs 最初未排序
 
 	// --- 场景 1: Ping 功能禁用 ---
 	t.Run("PingDisabled", func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestPerformPingSort(t *testing.T) {
 
 		// 对于环回 IP，smartPing 应该返回一个非常低的 RTT (例如 0 或 1ms)。
 		// 由于所有 IP 都将具有相似的低 RTTs，ping.sortResults 将主要根据 IP 字符串排序。
-		expectedSortedIPs := []string{"127.0.0.1", "127.0.0.2", "127.0.0.3"} // 字母顺序排序
+		expectedSortedIPs := []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"} // 字母顺序排序
 		
 		if !reflect.DeepEqual(sortedIPs, expectedSortedIPs) {
 			t.Errorf("预期排序后的 IP 为 %v (按字母顺序), 却得到 %v", expectedSortedIPs, sortedIPs)

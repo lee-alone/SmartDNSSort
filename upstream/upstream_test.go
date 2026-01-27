@@ -33,10 +33,16 @@ func TestParallelQuery(t *testing.T) {
 		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
 		var upstreams []Upstream
 		for _, srv := range servers {
-			u, _ := NewUpstream(srv, boot)
+			u, _ := NewUpstream(srv, boot, &config.UpstreamConfig{})
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "parallel", 3000, 2, s, nil, 100, 2, 1500)
+		concurrency := 2
+		upstreamCfg := &config.UpstreamConfig{
+			Strategy:    "parallel",
+			TimeoutMs:   3000,
+			Concurrency: &concurrency,
+		}
+		u := NewManager(upstreamCfg, upstreams, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -61,10 +67,14 @@ func TestParallelQuery(t *testing.T) {
 		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
 		var upstreams []Upstream
 		for _, srv := range servers {
-			u, _ := NewUpstream(srv, boot)
+			u, _ := NewUpstream(srv, boot, &config.UpstreamConfig{})
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "random", 3000, 2, s, nil, 100, 2, 1500)
+		upstreamCfg := &config.UpstreamConfig{
+			Strategy:  "random",
+			TimeoutMs: 3000,
+		}
+		u := NewManager(upstreamCfg, upstreams, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -90,10 +100,16 @@ func TestParallelQuery(t *testing.T) {
 		boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
 		var upstreams []Upstream
 		for _, srv := range servers {
-			u, _ := NewUpstream(srv, boot)
+			u, _ := NewUpstream(srv, boot, &config.UpstreamConfig{})
 			upstreams = append(upstreams, u)
 		}
-		u := NewManager(upstreams, "parallel", 3000, 1, s, nil, 100, 2, 1500)
+		concurrency := 1
+		upstreamCfg := &config.UpstreamConfig{
+			Strategy:    "parallel",
+			TimeoutMs:   3000,
+			Concurrency: &concurrency,
+		}
+		u := NewManager(upstreamCfg, upstreams, s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -136,10 +152,16 @@ func TestParallelQueryFailover(t *testing.T) {
 	boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
 	var upstreams []Upstream
 	for _, srv := range servers {
-		u, _ := NewUpstream(srv, boot)
+		u, _ := NewUpstream(srv, boot, &config.UpstreamConfig{})
 		upstreams = append(upstreams, u)
 	}
-	u := NewManager(upstreams, "parallel", 1000, 3, s, nil, 100, 2, 1500)
+	concurrency := 3
+	upstreamCfg := &config.UpstreamConfig{
+		Strategy:    "parallel",
+		TimeoutMs:   1000,
+		Concurrency: &concurrency,
+	}
+	u := NewManager(upstreamCfg, upstreams, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -183,10 +205,16 @@ func TestParallelQueryIPMerging(t *testing.T) {
 	boot := bootstrap.NewResolver([]string{"223.5.5.5:53"})
 	var upstreams []Upstream
 	for _, srv := range servers {
-		u, _ := NewUpstream(srv, boot)
+		u, _ := NewUpstream(srv, boot, &config.UpstreamConfig{})
 		upstreams = append(upstreams, u)
 	}
-	u := NewManager(upstreams, "parallel", 3000, 4, s, nil, 100, 2, 1500)
+	concurrency := 4
+	upstreamCfg := &config.UpstreamConfig{
+		Strategy:    "parallel",
+		TimeoutMs:   3000,
+		Concurrency: &concurrency,
+	}
+	u := NewManager(upstreamCfg, upstreams, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

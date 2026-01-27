@@ -29,7 +29,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// Initialize Upstream Interfaces
 	var upstreams []upstream.Upstream
 	for _, serverUrl := range cfg.Upstream.Servers {
-		u, err := upstream.NewUpstream(serverUrl, boot)
+		u, err := upstream.NewUpstream(serverUrl, boot, &cfg.Upstream)
 		if err != nil {
 			logger.Errorf("Failed to create upstream for %s: %v", serverUrl, err)
 			continue
@@ -42,7 +42,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		stats:        s,
 		cache:        cache.NewCache(&cfg.Cache),
 		msgPool:      cache.NewMsgPool(),
-		upstream:     upstream.NewManager(upstreams, cfg.Upstream.Strategy, cfg.Upstream.TimeoutMs, cfg.Upstream.Concurrency, s, convertHealthCheckConfig(&cfg.Upstream.HealthCheck), cfg.Upstream.RacingDelay, cfg.Upstream.RacingMaxConcurrent, cfg.Upstream.SequentialTimeout),
+		upstream:     upstream.NewManager(&cfg.Upstream, upstreams, s),
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json"),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
@@ -100,19 +100,4 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	server.setupUpstreamCallback(server.upstream)
 
 	return server
-}
-
-// convertHealthCheckConfig 将 config.HealthCheckConfig 转换为 upstream.HealthCheckConfig
-func convertHealthCheckConfig(cfg *config.HealthCheckConfig) *upstream.HealthCheckConfig {
-	if cfg == nil || !cfg.Enabled {
-		// 如果未启用健康检查，返回 nil（将使用默认配置）
-		return nil
-	}
-
-	return &upstream.HealthCheckConfig{
-		FailureThreshold:        cfg.FailureThreshold,
-		CircuitBreakerThreshold: cfg.CircuitBreakerThreshold,
-		CircuitBreakerTimeout:   cfg.CircuitBreakerTimeout,
-		SuccessThreshold:        cfg.SuccessThreshold,
-	}
 }

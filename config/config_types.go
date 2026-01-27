@@ -29,22 +29,40 @@ type UpstreamConfig struct {
 
 	Strategy    string `yaml:"strategy,omitempty" json:"strategy"`
 	TimeoutMs   int    `yaml:"timeout_ms,omitempty" json:"timeout_ms"`
-	Concurrency int    `yaml:"concurrency,omitempty" json:"concurrency"` // 并行查询时的并发数
+	Concurrency *int   `yaml:"concurrency,omitempty" json:"concurrency"` // 并行查询时的并发数
 
 	// sequential 策略的单次尝试超时时间（默认 300ms）
-	SequentialTimeout int `yaml:"sequential_timeout,omitempty" json:"sequential_timeout"`
+	SequentialTimeout *int `yaml:"sequential_timeout,omitempty" json:"sequential_timeout"`
 
 	// racing 策略的赛跑起始延迟（默认 100ms）
-	RacingDelay int `yaml:"racing_delay,omitempty" json:"racing_delay"`
+	RacingDelay *int `yaml:"racing_delay,omitempty" json:"racing_delay"`
 
 	// racing 策略中同时发起的最大竞争请求数（默认 2）
-	RacingMaxConcurrent int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
+	RacingMaxConcurrent *int `yaml:"racing_max_concurrent,omitempty" json:"racing_max_concurrent"`
 
+	// 连接池的最大连接数 (默认: 自动根据 CPU 核数计算)
+	MaxConnections *int `yaml:"max_connections,omitempty" json:"max_connections"`
+
+	// 动态参数优化
+	DynamicParamOptimization DynamicParamOptimizationConfig `yaml:"dynamic_param_optimization,omitempty" json:"dynamic_param_optimization"`
 
 	Dnssec            bool `yaml:"dnssec" json:"dnssec"`
 
 	// 健康检查配置
 	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`
+}
+
+// DynamicParamOptimizationConfig 动态参数优化配置
+type DynamicParamOptimizationConfig struct {
+	// EWMA (Exponentially Weighted Moving Average) 平滑因子
+	// 用于平滑 rtt, racing delay 等动态参数。值越小，平滑效果越强，对新值的反应越慢。
+	// 推荐值: 0.1-0.3
+	EWMAAlpha *float64 `yaml:"ewma_alpha,omitempty" json:"ewma_alpha"`
+
+	// 动态参数调整的最大步长（单位：ms）
+	// 用于限制单次调整的幅度，防止网络抖动造成参数剧烈变化。
+	// 推荐值: 5-10
+	MaxStepMs *int `yaml:"max_step_ms,omitempty" json:"max_step_ms"`
 }
 
 // HealthCheckConfig 健康检查配置

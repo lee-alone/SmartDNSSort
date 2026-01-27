@@ -17,13 +17,13 @@ type UDP struct {
 	mu      sync.Mutex
 }
 
-func NewUDP(address string) *UDP {
+func NewUDP(address string, maxConnections *int) *UDP {
 	if _, _, err := net.SplitHostPort(address); err != nil {
 		address = net.JoinHostPort(address, "53")
 	}
 
-	// 创建连接池：最多 10 个并发连接，空闲超时 5 分钟
-	pool := NewConnectionPool(address, "udp", 10, 5*time.Minute)
+	// 创建连接池：使用传入的 maxConnections，如果为 nil 则传递 0 触发自动计算
+	pool := NewConnectionPool(address, "udp", derefOrDefaultVal(maxConnections, 0), 5*time.Minute)
 
 	return &UDP{
 		address: address,

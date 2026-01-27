@@ -17,6 +17,9 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		return nil, fmt.Errorf("no upstream servers configured")
 	}
 
+	// 记录查询开始时间，用于计算延迟
+	queryStartTime := time.Now()
+
 	// 创建服务器索引列表并随机打乱
 	indices := make([]int, len(u.servers))
 	for i := range indices {
@@ -139,6 +142,11 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		if u.stats != nil {
 			u.stats.IncUpstreamSuccess(server.Address())
 		}
+
+		// 记录查询延迟，用于动态参数优化
+		queryLatency := time.Since(queryStartTime)
+		u.RecordQueryLatency(queryLatency)
+		logger.Debugf("[queryRandom] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
 
 		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
 			attemptNum+1, server.Address(), len(records), cnames, ttl)

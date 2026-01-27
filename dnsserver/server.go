@@ -48,8 +48,12 @@ func (s *Server) GetCustomResponseManager() *CustomResponseManager {
 // GetStats 获取统计信息
 func (s *Server) GetStats() map[string]interface{} {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.stats.GetStats()
+	st := s.stats.GetStats()
+	if s.upstream != nil {
+		st["upstream_dynamic_params"] = s.upstream.GetDynamicParamStats()
+	}
+	s.mu.RUnlock()
+	return st
 }
 
 // ClearStats clears all collected statistics.

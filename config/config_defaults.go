@@ -16,9 +16,6 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 	if cfg.Upstream.TimeoutMs == 0 {
 		cfg.Upstream.TimeoutMs = 5000
 	}
-	if cfg.Upstream.Concurrency == 0 {
-		cfg.Upstream.Concurrency = 3
-	}
 	// Bootstrap DNS 默认值：如果未配置，使用公共 DNS 服务器
 	// 用于解析 DoH/DoT 服务器的域名
 	// 注意：这里不设置默认值，因为 DefaultConfigContent 中已经定义了
@@ -49,13 +46,13 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 // setHealthCheckDefaults 设置健康检查配置的默认值
 func setHealthCheckDefaults(hc *HealthCheckConfig) {
 	if hc.FailureThreshold == 0 {
-		hc.FailureThreshold = 5
+		hc.FailureThreshold = 3 // 优化：从 5 改为 3，更快进入降级状态
 	}
 	if hc.CircuitBreakerThreshold == 0 {
-		hc.CircuitBreakerThreshold = 10
+		hc.CircuitBreakerThreshold = 3 // 优化：从 10 改为 3，更快进入熔断状态
 	}
 	if hc.CircuitBreakerTimeout == 0 {
-		hc.CircuitBreakerTimeout = 30
+		hc.CircuitBreakerTimeout = 30 // 保持不变，但使用指数退避
 	}
 	if hc.SuccessThreshold == 0 {
 		hc.SuccessThreshold = 2

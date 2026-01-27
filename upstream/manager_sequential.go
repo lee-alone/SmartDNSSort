@@ -19,11 +19,13 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 	logger.Debugf("[querySequential] 开始顺序查询 %s (type=%s)，可用服务器数=%d",
 		domain, dns.TypeToString[qtype], len(u.servers))
 
-	// 获取单次尝试的超时时间
-	attemptTimeout := time.Duration(u.sequentialTimeoutMs) * time.Millisecond
-	if u.sequentialTimeoutMs <= 0 {
-		attemptTimeout = 1500 * time.Millisecond
-	}
+	// 记录查询开始时间，用于计算延迟
+	queryStartTime := time.Now()
+
+	// 获取自适应单次超时时间
+	attemptTimeout := u.GetAdaptiveSequentialTimeout()
+
+	logger.Debugf("[querySequential] 使用自适应超时: %v", attemptTimeout)
 
 	var primaryError error
 	var lastDNSError error
@@ -152,6 +154,11 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 		logger.Debugf("[querySequential] ✅ 服务器 %s 成功，返回 %d 条记录",
 			server.Address(), len(records))
 		server.RecordSuccess()
+
+		// 记录查询延迟，用于动态参数优化
+		queryLatency := time.Since(queryStartTime)
+		u.RecordQueryLatency(queryLatency)
+		logger.Debugf("[querySequential] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
 
 		return &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,7 +96,12 @@ func NewConnectionPool(address, network string, maxConnections int, idleTimeout 
 	}
 
 	if maxConnections <= 0 {
-		maxConnections = 10
+		// 自动计算默认值：CPU 核数 * 5，但最低不少于 20
+		maxConnections = runtime.NumCPU() * 5
+		if maxConnections < 20 {
+			maxConnections = 20
+		}
+		logger.Debugf("[ConnectionPool] Auto-calculated MaxConnections for %s: %d", address, maxConnections)
 	}
 
 	pool := &ConnectionPool{
@@ -128,6 +134,10 @@ func NewConnectionPool(address, network string, maxConnections int, idleTimeout 
 			pool.Warmup(ctx, warmupCount)
 		}
 	}()
+
+	// 启动连接健康检查 goroutine
+	pool.wg.Add(1)
+	go pool.healthCheckLoop()
 
 	return pool
 }
@@ -508,6 +518,46 @@ func (p *ConnectionPool) cleanupLoop() {
 			ticker.Reset(cleanupInterval)
 		}
 	}
+}
+
+// healthCheckLoop 定期检查连接健康状态
+func (p *ConnectionPool) healthCheckLoop() {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.stopChan:
+			return
+		case <-ticker.C:
+			p.performHealthCheck()
+		}
+	}
+}
+
+// performHealthCheck 执行连接健康检查
+func (p *ConnectionPool) performHealthCheck() {
+	p.mu.Lock()
+
+	// 检查空闲连接数
+	idleCount := len(p.idleConns)
+	if idleCount < p.minConnections {
+		// 补充连接
+		needed := p.minConnections - idleCount
+		p.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		p.Warmup(ctx, needed)
+		cancel()
+
+		p.mu.Lock()
+	}
+
+	p.mu.Unlock()
+
+	logger.Debugf("[ConnectionPool] 健康检查完成: %s, 空闲连接数: %d", p.address, len(p.idleConns))
 }
 
 // adjustPoolSize 自动调整连接池大小

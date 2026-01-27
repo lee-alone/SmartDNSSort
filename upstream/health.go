@@ -61,6 +61,9 @@ type ServerHealth struct {
 	// 熔断开始时间
 	circuitBreakerStartTime time.Time
 
+	// 连续恢复尝试次数（用于指数退避）
+	consecutiveRecoveryAttempts int
+
 	// 配置
 	config *HealthCheckConfig
 
@@ -99,6 +102,7 @@ func (h *ServerHealth) MarkSuccess() {
 		if h.status != HealthStatusHealthy {
 			h.status = HealthStatusHealthy
 			h.consecutiveSuccesses = 0
+			h.consecutiveRecoveryAttempts = 0 // 重置恢复尝试计数
 		}
 	}
 }
@@ -117,6 +121,7 @@ func (h *ServerHealth) MarkFailure() {
 		if h.status != HealthStatusUnhealthy {
 			h.status = HealthStatusUnhealthy
 			h.circuitBreakerStartTime = time.Now()
+			h.consecutiveRecoveryAttempts++ // 增加恢复尝试计数
 		}
 	} else if h.consecutiveFailures >= h.config.FailureThreshold {
 		if h.status == HealthStatusHealthy {
@@ -154,12 +159,17 @@ func (h *ServerHealth) ShouldSkipTemporarily() bool {
 
 	// 如果处于熔断状态，检查是否可以尝试恢复
 	if h.status == HealthStatusUnhealthy {
-		elapsed := time.Since(h.circuitBreakerStartTime).Seconds()
-		if elapsed < float64(h.config.CircuitBreakerTimeout) {
-			// 仍在熔断期内，跳过
+		elapsed := time.Since(h.circuitBreakerStartTime)
+
+		// 指数退避：第一次 10s，第二次 20s，第三次 40s，以此类推
+		// backoffDuration = 10 * 2^(consecutiveRecoveryAttempts)
+		backoffDuration := time.Duration(10*(1<<uint(h.consecutiveRecoveryAttempts))) * time.Second
+
+		if elapsed < backoffDuration {
+			// 仍在退避期内，跳过
 			return true
 		}
-		// 熔断超时，允许尝试（半开状态）
+		// 退避超时，允许尝试（半开状态）
 		return false
 	}
 
@@ -200,12 +210,15 @@ func (h *ServerHealth) GetStats() map[string]interface{} {
 	}
 
 	if h.status == HealthStatusUnhealthy {
-		elapsed := time.Since(h.circuitBreakerStartTime).Seconds()
-		remaining := float64(h.config.CircuitBreakerTimeout) - elapsed
+		elapsed := time.Since(h.circuitBreakerStartTime)
+		backoffDuration := time.Duration(10*(1<<uint(h.consecutiveRecoveryAttempts))) * time.Second
+		remaining := backoffDuration - elapsed
 		if remaining < 0 {
 			remaining = 0
 		}
-		stats["circuit_breaker_remaining_seconds"] = int(remaining)
+		stats["circuit_breaker_remaining_seconds"] = int(remaining.Seconds())
+		stats["recovery_attempts"] = h.consecutiveRecoveryAttempts
+		stats["backoff_duration_seconds"] = int(backoffDuration.Seconds())
 	}
 
 	return stats
