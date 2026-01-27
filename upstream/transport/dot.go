@@ -2,9 +2,11 @@ package transport
 
 import (
 	"context"
-	"crypto/tls"
 	"net"
-	"net/url"
+	"sync"
+	"time"
+
+	"smartdnssort/logger"
 
 	"github.com/miekg/dns"
 )
@@ -12,20 +14,15 @@ import (
 type DoT struct {
 	address    string
 	serverName string
+	pool       *TLSConnectionPool
+	mu         sync.Mutex
 }
 
 func NewDoT(addr string) *DoT {
 	// addr might be "tls://dns.google:853" or just "dns.google:853"
 	// We need to parse it to get hostname for SNI
 
-	u, err := url.Parse(addr)
-	var host, port string
-	if err == nil && u.Scheme != "" {
-		host = u.Hostname()
-		port = u.Port()
-	} else {
-		host, port, _ = net.SplitHostPort(addr)
-	}
+	host, port, _ := net.SplitHostPort(addr)
 
 	if port == "" {
 		port = "853"
@@ -36,21 +33,27 @@ func NewDoT(addr string) *DoT {
 		host = addr
 	}
 
+	address := net.JoinHostPort(host, port)
+
+	// 创建 TLS 连接池：最多 10 个并发连接，空闲超时 5 分钟
+	pool := NewTLSConnectionPool(address, host, 10, 5*time.Minute)
+
 	return &DoT{
-		address:    net.JoinHostPort(host, port),
+		address:    address,
 		serverName: host,
+		pool:       pool,
 	}
 }
 
 func (t *DoT) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	client := &dns.Client{
-		Net: "tcp-tls",
-		TLSConfig: &tls.Config{
-			ServerName: t.serverName,
-		},
+	// 通过 TLS 连接池执行查询
+	reply, err := t.pool.Exchange(ctx, msg)
+	if err != nil {
+		logger.Debugf("[DoT] 查询失败: %v", err)
+		return nil, err
 	}
-	r, _, err := client.ExchangeContext(ctx, msg, t.address)
-	return r, err
+
+	return reply, nil
 }
 
 func (t *DoT) Address() string {
@@ -59,4 +62,9 @@ func (t *DoT) Address() string {
 
 func (t *DoT) Protocol() string {
 	return "dot"
+}
+
+// Close 关闭连接池
+func (t *DoT) Close() error {
+	return t.pool.Close()
 }

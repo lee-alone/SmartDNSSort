@@ -55,6 +55,16 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() {
 	logger.Info("[Server] 开始关闭服务器...")
 
+	// 关闭上游连接池
+	logger.Info("[Upstream] Closing upstream connection pools...")
+	if s.upstream != nil {
+		if err := s.upstream.Close(); err != nil {
+			logger.Errorf("[Upstream] Failed to close upstream: %v", err)
+		} else {
+			logger.Info("[Upstream] Upstream connection pools closed successfully.")
+		}
+	}
+
 	// 保存缓存到磁盘
 	logger.Info("[Cache] Saving cache to disk...")
 	if err := s.cache.SaveToDisk("dns_cache.json"); err != nil {

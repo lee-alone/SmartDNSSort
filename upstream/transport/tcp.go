@@ -3,27 +3,43 @@ package transport
 import (
 	"context"
 	"net"
+	"sync"
+	"time"
+
+	"smartdnssort/logger"
 
 	"github.com/miekg/dns"
 )
 
 type TCP struct {
 	address string
+	pool    *ConnectionPool
+	mu      sync.Mutex
 }
 
 func NewTCP(address string) *TCP {
 	if _, _, err := net.SplitHostPort(address); err != nil {
 		address = net.JoinHostPort(address, "53")
 	}
-	return &TCP{address: address}
+
+	// 创建连接池：最多 10 个并发连接，空闲超时 5 分钟
+	pool := NewConnectionPool(address, "tcp", 10, 5*time.Minute)
+
+	return &TCP{
+		address: address,
+		pool:    pool,
+	}
 }
 
 func (t *TCP) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	client := &dns.Client{
-		Net: "tcp",
+	// 通过连接池执行查询
+	reply, err := t.pool.Exchange(ctx, msg)
+	if err != nil {
+		logger.Debugf("[TCP] 查询失败: %v", err)
+		return nil, err
 	}
-	r, _, err := client.ExchangeContext(ctx, msg, t.address)
-	return r, err
+
+	return reply, nil
 }
 
 func (t *TCP) Address() string {
@@ -32,4 +48,9 @@ func (t *TCP) Address() string {
 
 func (t *TCP) Protocol() string {
 	return "tcp"
+}
+
+// Close 关闭连接池
+func (t *TCP) Close() error {
+	return t.pool.Close()
 }

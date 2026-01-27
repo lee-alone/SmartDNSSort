@@ -3,6 +3,7 @@ package upstream
 import (
 	"context"
 	"errors"
+	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"strings"
 
@@ -140,4 +141,17 @@ func (u *Manager) Query(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryRes
 	default:
 		return u.queryRandom(ctx, domain, qtype, r, dnssec)
 	}
+}
+
+// Close 关闭所有上游连接池
+func (u *Manager) Close() error {
+	for _, server := range u.servers {
+		// 尝试关闭底层上游的连接池
+		if upstream, ok := server.upstream.(interface{ Close() error }); ok {
+			if err := upstream.Close(); err != nil {
+				logger.Warnf("[Manager] Failed to close upstream %s: %v", server.Address(), err)
+			}
+		}
+	}
+	return nil
 }
