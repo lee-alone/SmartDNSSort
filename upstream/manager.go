@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.org/x/sync/singleflight"
 )
 
 // QueryResult 查询结果
@@ -54,6 +55,8 @@ type Manager struct {
 	dynamicParamOptimization *DynamicParamOptimization
 	// 策略性能指标
 	strategyMetrics *StrategyMetrics
+	// 请求去重组
+	requestGroup singleflight.Group
 }
 
 // QueryPriority 查询优先级
@@ -199,8 +202,8 @@ func (u *Manager) GetTotalServerCount() int {
 	return len(u.servers)
 }
 
-// Query 查询域名，返回 IP 列表和 TTL
-func (u *Manager) Query(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
+// rawQuery 内部实际执行查询逻辑（不带去重）
+func (u *Manager) rawQuery(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(r.Question) == 0 {
 		return nil, errors.New("query message has no questions")
 	}

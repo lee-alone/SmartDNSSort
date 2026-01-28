@@ -2,7 +2,6 @@ package dnsserver
 
 import (
 	"context"
-	"fmt"
 	"smartdnssort/adblock"
 	"smartdnssort/config"
 	"smartdnssort/logger"
@@ -47,21 +46,7 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 
-	// 使用 singleflight 合并相同的并发请求
-	sfKey := fmt.Sprintf("query:%s:%d", domain, qtype)
-
-	v, err, shared := s.requestGroup.Do(sfKey, func() (any, error) {
-		return currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
-	})
-
-	if shared {
-		logger.Debugf("[handleQuery] 合并并发请求: %s (type=%s)", domain, dns.TypeToString[qtype])
-	}
-
-	var result *upstream.QueryResultWithTTL
-	if err == nil {
-		result = v.(*upstream.QueryResultWithTTL)
-	}
+	result, err := currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
 
 	if err != nil {
 		logger.Warnf("[handleQuery] 上游查询失败: %v", err)
@@ -418,21 +403,7 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 
-	// 使用 singleflight 合并相同的并发请求
-	sfKey := fmt.Sprintf("generic_query:%s:%d", domain, qtype)
-
-	v, err, shared := s.requestGroup.Do(sfKey, func() (any, error) {
-		return currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
-	})
-
-	if shared {
-		logger.Debugf("[handleGenericCacheMiss] 合并并发请求: %s (type=%s)", domain, dns.TypeToString[qtype])
-	}
-
-	var result *upstream.QueryResultWithTTL
-	if err == nil {
-		result = v.(*upstream.QueryResultWithTTL)
-	}
+	result, err := currentUpstream.Query(ctx, r, currentCfg.Upstream.Dnssec)
 
 	if err != nil {
 		logger.Warnf("[handleGenericCacheMiss] 上游查询失败: %v", err)

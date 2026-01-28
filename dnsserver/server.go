@@ -13,7 +13,6 @@ import (
 	"smartdnssort/upstream"
 
 	"github.com/miekg/dns"
-	"golang.org/x/sync/singleflight"
 )
 
 // Server DNS 服务器
@@ -37,7 +36,6 @@ type Server struct {
 	tcpServer          *dns.Server             // Used in: server_lifecycle.go
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 	customRespManager  *CustomResponseManager  // 自定义回复管理器
-	requestGroup       singleflight.Group      // Used in: handler_query.go, handler_cache.go - 用于合并并发请求
 }
 
 // GetCustomResponseManager returns the custom response manager instance
