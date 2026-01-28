@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"math"
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"sync"
@@ -36,6 +37,12 @@ type DynamicParamOptimization struct {
 
 	// 平均延迟（EWMA）
 	avgLatency time.Duration
+
+	// 延迟方差（用于计算标准差）
+	// 使用 Welford's algorithm 在线计算
+	latencyMean float64
+	latencyM2   float64
+	latencyN    int64
 
 	// 上次调整时间
 	lastAdjustTime time.Time
@@ -96,6 +103,7 @@ type PerformanceMetrics struct {
 }
 
 // RecordQueryLatency 记录查询延迟，用于动态参数优化
+// 同时更新平均延迟和方差（使用 Welford's algorithm）
 func (u *Manager) RecordQueryLatency(latency time.Duration) {
 	if u.dynamicParamOptimization == nil {
 		return
@@ -112,6 +120,26 @@ func (u *Manager) RecordQueryLatency(latency time.Duration) {
 		newAvg := time.Duration(alpha*float64(latency) + (1.0-alpha)*float64(u.dynamicParamOptimization.avgLatency))
 		u.dynamicParamOptimization.avgLatency = newAvg
 	}
+
+	// 使用 Welford's algorithm 在线计算方差
+	latencyMs := float64(latency.Milliseconds())
+	u.dynamicParamOptimization.latencyN++
+
+	if u.dynamicParamOptimization.latencyN == 1 {
+		u.dynamicParamOptimization.latencyMean = latencyMs
+		u.dynamicParamOptimization.latencyM2 = 0
+	} else {
+		delta := latencyMs - u.dynamicParamOptimization.latencyMean
+		u.dynamicParamOptimization.latencyMean += delta / float64(u.dynamicParamOptimization.latencyN)
+		delta2 := latencyMs - u.dynamicParamOptimization.latencyMean
+		u.dynamicParamOptimization.latencyM2 += delta * delta2
+	}
+
+	// 衰减旧数据：如果样本过多，减半处理（实现类似滑动窗口的效果）
+	if u.dynamicParamOptimization.latencyN > 500 {
+		u.dynamicParamOptimization.latencyN /= 2
+		u.dynamicParamOptimization.latencyM2 /= 2
+	}
 }
 
 // GetAverageLatency 获取平均延迟
@@ -126,15 +154,50 @@ func (u *Manager) GetAverageLatency() time.Duration {
 	return u.dynamicParamOptimization.avgLatency
 }
 
-// GetAdaptiveRacingDelay 获取自适应竞速延迟
+// GetLatencyStdDev 获取延迟的标准差（毫秒）
+// 用于计算自适应竞速延迟
+func (u *Manager) GetLatencyStdDev() time.Duration {
+	if u.dynamicParamOptimization == nil {
+		return 0
+	}
+
+	u.dynamicParamOptimization.mu.RLock()
+	defer u.dynamicParamOptimization.mu.RUnlock()
+
+	if u.dynamicParamOptimization.latencyN < 2 {
+		return 0
+	}
+
+	// 方差 = M2 / N
+	variance := u.dynamicParamOptimization.latencyM2 / float64(u.dynamicParamOptimization.latencyN)
+
+	// 标准差 = sqrt(方差)
+	stdDev := time.Duration(int64(math.Sqrt(variance))) * time.Millisecond
+
+	return stdDev
+}
+
+// GetAdaptiveRacingDelay 获取自适应竞速延迟（方差抖动适配）
+// 核心思想：从"固定百分比"演进到"方差抖动适配"
+// - 网络稳定（方差小）：给第一个服务器更多时间（100ms+）
+// - 网络抖动（方差大）：尽早启动竞速（20ms-50ms）
+// 公式：RacingDelay = Max(MinDelay, avgLatency - K * StdDev)
 func (u *Manager) GetAdaptiveRacingDelay() time.Duration {
 	avgLatency := u.GetAverageLatency()
+	stdDev := u.GetLatencyStdDev()
 
-	// 竞速延迟 = 平均延迟的 10%
-	delay := avgLatency / 10
+	// K 系数：控制方差对延迟的影响程度
+	// K=0.5 表示标准差每增加 1ms，延迟就减少 0.5ms
+	const K = 0.5
 
-	// 使用 Go 1.21+ 的内置 max/min 限制范围：50-200ms
-	return max(50*time.Millisecond, min(delay, 200*time.Millisecond))
+	// 基础公式：avgLatency - K * stdDev
+	// 这意味着网络越乱，我们越早发起"群殴"
+	baseDelay := avgLatency - time.Duration(K*float64(stdDev))
+
+	// 限制范围：20-200ms
+	// - 最小 20ms：即使网络极度不稳定，也要给第一个服务器最少的机会
+	// - 最大 200ms：即使网络极度稳定，也不能让第一个服务器等太久
+	return max(20*time.Millisecond, min(baseDelay, 200*time.Millisecond))
 }
 
 // GetAdaptiveSequentialTimeout 获取自适应顺序查询超时
