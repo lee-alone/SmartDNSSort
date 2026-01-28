@@ -76,6 +76,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 					logger.Debugf("[queryRacing] 主请求网络错误，触发错误抢跑: %v", err)
 				})
 			}
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(srv.Address())
+			}
 			select {
 			case errorChan <- err:
 			case <-raceCtx.Done():
@@ -117,6 +120,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 				select {
 				case resultChan <- result:
 					logger.Debugf("[queryRacing] 竞速获胜者: %s (耗时: %v)", srv.Address(), time.Since(queryStartTime))
+					if u.stats != nil {
+						u.stats.IncUpstreamSuccess(srv.Address())
+					}
 				default:
 				}
 				cancelAll() // 获胜后取消其他在途请求
@@ -126,6 +132,9 @@ func (u *Manager) queryRacing(ctx context.Context, domain string, qtype uint16, 
 			if isPrimary {
 				// 主请求应用层错误（如 SERVFAIL）不触发抢跑，但记录
 				logger.Debugf("[queryRacing] 主请求应用层错误: rcode=%d", reply.Rcode)
+			}
+			if u.stats != nil {
+				u.stats.IncUpstreamFailure(srv.Address())
 			}
 			select {
 			case errorChan <- fmt.Errorf("dns rcode=%d", reply.Rcode):
