@@ -69,6 +69,10 @@ type StrategyStats struct {
 	// 吞吐量统计
 	successCount int64
 	successRate  float64
+
+	// 方差计算 (Welford's algorithm)
+	mean float64
+	m2   float64
 }
 
 // PerformanceMetrics 性能指标
@@ -129,15 +133,8 @@ func (u *Manager) GetAdaptiveRacingDelay() time.Duration {
 	// 竞速延迟 = 平均延迟的 10%
 	delay := avgLatency / 10
 
-	// 限制范围：50-200ms
-	if delay < 50*time.Millisecond {
-		delay = 50 * time.Millisecond
-	}
-	if delay > 200*time.Millisecond {
-		delay = 200 * time.Millisecond
-	}
-
-	return delay
+	// 使用 Go 1.21+ 的内置 max/min 限制范围：50-200ms
+	return max(50*time.Millisecond, min(delay, 200*time.Millisecond))
 }
 
 // GetAdaptiveSequentialTimeout 获取自适应顺序查询超时
@@ -147,21 +144,14 @@ func (u *Manager) GetAdaptiveSequentialTimeout() time.Duration {
 	// 顺序查询超时 = 平均延迟 * 1.5
 	timeout := time.Duration(float64(avgLatency) * 1.5)
 
-	// 限制范围：500ms-2s
-	if timeout < 500*time.Millisecond {
-		timeout = 500 * time.Millisecond
-	}
-	if timeout > 2*time.Second {
-		timeout = 2 * time.Second
-	}
-
-	return timeout
+	// 使用 Go 1.21+ 的内置 max/min 限制范围：500ms-2s
+	return max(500*time.Millisecond, min(timeout, 2*time.Second))
 }
 
 // GetDynamicParamStats 获取动态参数优化的统计信息
-func (u *Manager) GetDynamicParamStats() map[string]interface{} {
+func (u *Manager) GetDynamicParamStats() map[string]any {
 	if u.dynamicParamOptimization == nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 
 	u.dynamicParamOptimization.mu.RLock()
@@ -192,8 +182,30 @@ func (u *Manager) RecordStrategyResult(strategy string, latency time.Duration, s
 		u.strategyMetrics.strategyStats[strategy] = stats
 	}
 
+	// 衰减旧数据 (增加新样本的权重，约 100 个请求后旧数据权重下降)
+	// 如果样本太多，减半处理，实现类似滑动窗口的效果
+	if stats.requestCount > 200 {
+		stats.totalLatency /= 2
+		stats.m2 /= 2
+		stats.requestCount /= 2
+		stats.successCount /= 2
+		stats.errorCount /= 2
+	}
+
 	stats.totalLatency += latency
 	stats.requestCount++
+
+	// 更新方差 (Welford's algorithm)
+	latencyMs := float64(latency.Milliseconds())
+	if stats.requestCount == 1 {
+		stats.mean = latencyMs
+		stats.m2 = 0
+	} else {
+		delta := latencyMs - stats.mean
+		stats.mean += delta / float64(stats.requestCount)
+		delta2 := latencyMs - stats.mean
+		stats.m2 += delta * delta2
+	}
 
 	if success {
 		stats.successCount++
@@ -202,42 +214,78 @@ func (u *Manager) RecordStrategyResult(strategy string, latency time.Duration, s
 	}
 }
 
-// SelectOptimalStrategy 基于历史性能数据选择最优策略
+// SelectOptimalStrategy 基于各策略的具体表现进行决策
 func (u *Manager) SelectOptimalStrategy() string {
 	if u.strategyMetrics == nil {
+		return u.strategy
+	}
+
+	// 只有当全局策略设置为 "auto" 时才执行动态切换
+	if u.strategy != "auto" {
 		return u.strategy
 	}
 
 	u.strategyMetrics.mu.RLock()
 	defer u.strategyMetrics.mu.RUnlock()
 
-	var bestStrategy string
-	var bestScore float64
+	// 1. 寻找当前表现最好和最差的指标
+	var maxVariance float64
+	var globalAvgLatency float64
+	var globalSuccessRate float64
+	var validStrategies int
 
-	for strategy, stats := range u.strategyMetrics.strategyStats {
-		// 需要足够的样本数据
+	// 记录各个策略的情况
+	for _, stats := range u.strategyMetrics.strategyStats {
 		if stats.requestCount < 10 {
 			continue
 		}
 
-		// 计算综合评分
-		// 评分 = 成功率 * 100 - 平均延迟 / 10
-		successRate := float64(stats.successCount) / float64(stats.requestCount)
-		avgLatency := float64(stats.totalLatency.Milliseconds()) / float64(stats.requestCount)
-		score := successRate*100 - avgLatency/10
-
-		if score > bestScore {
-			bestScore = score
-			bestStrategy = strategy
+		variance := stats.m2 / float64(stats.requestCount)
+		if variance > maxVariance {
+			maxVariance = variance // 取最差的情况，作为网络抖动的预警
 		}
+
+		globalAvgLatency += stats.mean
+		globalSuccessRate += float64(stats.successCount) / float64(stats.requestCount)
+		validStrategies++
 	}
 
-	// 如果没有找到最优策略，返回当前策略
-	if bestStrategy == "" {
-		return u.strategy
+	// 如果样本不足，使用基于服务器数量的初始策略
+	if validStrategies == 0 {
+		return selectInitialStrategy(&config.UpstreamConfig{Strategy: "auto"}, len(u.servers))
 	}
 
-	return bestStrategy
+	avgLatencyMs := globalAvgLatency / float64(validStrategies)
+	successRate := globalSuccessRate / float64(validStrategies)
+
+	// 2. 核心决策逻辑：分布式感知
+
+	// 容错优先：成功率低于阈值，强制 Parallel
+	if successRate < 0.88 {
+		return "parallel"
+	}
+
+	// 抖动感知：maxVariance 为各策略之中的最高方差
+	// 如果最高方差 > 2500 (即标准差 > 50ms)，说明网络环境中存在不稳定的策略路径
+	isJittery := maxVariance > 2500
+
+	switch {
+	case !isJittery && avgLatencyMs < 150:
+		// 网络非常稳定且延迟低：Sequential 最优
+		return "sequential"
+	case maxVariance > 5000:
+		// 网络极度不稳定 (标准差 > 70ms)：强制 Parallel 冗余以对冲丢包风险
+		return "parallel"
+	case isJittery || avgLatencyMs > 400:
+		// 网络有抖动或延迟较高：Parallel 容错
+		return "parallel"
+	default:
+		// 中等波动情况：根据服务器多寡选择 Racing 或进入 Parallel 缓冲
+		if len(u.servers) > 3 {
+			return "parallel"
+		}
+		return "racing"
+	}
 }
 
 // EvaluateStrategyPerformance 定期评估策略性能
@@ -269,15 +317,15 @@ func (u *Manager) EvaluateStrategyPerformance() {
 }
 
 // GetStrategyMetrics 获取策略性能指标
-func (u *Manager) GetStrategyMetrics() map[string]interface{} {
+func (u *Manager) GetStrategyMetrics() map[string]any {
 	if u.strategyMetrics == nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 
 	u.strategyMetrics.mu.RLock()
 	defer u.strategyMetrics.mu.RUnlock()
 
-	metrics := make(map[string]interface{})
+	metrics := make(map[string]any)
 
 	for strategy, stats := range u.strategyMetrics.strategyStats {
 		if stats.requestCount == 0 {
@@ -287,7 +335,7 @@ func (u *Manager) GetStrategyMetrics() map[string]interface{} {
 		avgLatency := float64(stats.totalLatency.Milliseconds()) / float64(stats.requestCount)
 		successRate := float64(stats.successCount) / float64(stats.requestCount)
 
-		metrics[strategy] = map[string]interface{}{
+		metrics[strategy] = map[string]any{
 			"request_count":  stats.requestCount,
 			"success_count":  stats.successCount,
 			"error_count":    stats.errorCount,
@@ -301,9 +349,9 @@ func (u *Manager) GetStrategyMetrics() map[string]interface{} {
 }
 
 // GetPerformanceMetrics 获取性能指标
-func (u *Manager) GetPerformanceMetrics() map[string]interface{} {
+func (u *Manager) GetPerformanceMetrics() map[string]any {
 	if u.strategyMetrics == nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 
 	u.strategyMetrics.mu.RLock()
@@ -331,7 +379,7 @@ func (u *Manager) GetPerformanceMetrics() map[string]interface{} {
 
 	availability := 100.0 - errorRate
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_requests": totalRequests,
 		"total_errors":   totalErrors,
 		"avg_latency_ms": avgLatency,

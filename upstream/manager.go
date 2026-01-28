@@ -57,6 +57,12 @@ type Manager struct {
 	strategyMetrics *StrategyMetrics
 	// 请求去重组
 	requestGroup singleflight.Group
+	// 两阶段并行配置
+	activeTierSize      int           // 第一梯队并发数（默认 2）
+	fallbackTimeout     time.Duration // 第一梯队未响应时提早启动第二梯队的等待时间（默认 300ms）
+	batchSize           int           // 第二梯队每批次启动的数量（默认 2）
+	staggerDelay        time.Duration // 批次间的步进延迟（默认 50ms）
+	totalCollectTimeout time.Duration // 背景补全的最大总时长（默认 3s）
 }
 
 // QueryPriority 查询优先级
@@ -149,6 +155,12 @@ func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats) 
 		sequentialTimeoutMs:      sequentialTimeoutMs,
 		dynamicParamOptimization: dynamicOpt,
 		strategyMetrics:          strategyMetrics,
+		// 两阶段并行配置
+		activeTierSize:      2,
+		fallbackTimeout:     300 * time.Millisecond,
+		batchSize:           2,
+		staggerDelay:        50 * time.Millisecond,
+		totalCollectTimeout: 3 * time.Second,
 	}
 }
 

@@ -10,171 +10,197 @@ import (
 	"github.com/miekg/dns"
 )
 
-// queryParallel 并行查询多个上游 DNS 服务器
-// 实现快速响应机制：第一个成功的响应立即返回，后台继续收集其他响应并更新缓存
+// queryParallel 实现了“二阶段分层步进式并行查询”
+// 第一阶段（Active Tier）：并发查询最优的 N 个服务器，追求极速响应
+// 第二阶段（Staggered Tier）：按节奏（Batch & Delay）启动剩余服务器，追求完整性且不冲击上游
 func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
-	if len(u.servers) == 0 {
-		return nil, fmt.Errorf("no upstream servers configured")
+	sortedServers := u.getSortedHealthyServers()
+	if len(sortedServers) == 0 {
+		return nil, fmt.Errorf("no healthy upstream servers configured")
 	}
 
-	logger.Debugf("[queryParallel] 并行查询 %d 个服务器,查询 %s (type=%s),并发数=%d",
-		len(u.servers), domain, dns.TypeToString[qtype], u.concurrency)
+	logger.Debugf("[queryParallel] 开始分层查询 %d 个服务器: %s (type=%s)", len(sortedServers), domain, dns.TypeToString[qtype])
 
-	// 记录查询开始时间，用于计算延迟
 	queryStartTime := time.Now()
-
-	// 创建结果通道
-	resultChan := make(chan *QueryResult, len(u.servers))
-
-	// 创建一个用于快速响应的通道
+	resultChan := make(chan *QueryResult, len(sortedServers))
 	fastResponseChan := make(chan *QueryResult, 1)
 
-	// 创建一个独立于请求上下文的 context，用于控制上游查询的超时
-	// 这样即使主请求返回（ctx 被取消），后台查询也能继续进行
-	queryCtx, cancel := context.WithTimeout(context.Background(), time.Duration(u.timeoutMs)*time.Millisecond)
+	// queryCtx 用于控制所有上游查询的硬超时（由 totalCollectTimeout 决定）
+	queryCtx, cancelAll := context.WithTimeout(context.Background(), u.totalCollectTimeout)
+	defer cancelAll()
 
-	// 使用 semaphore 控制并发数
-	sem := make(chan struct{}, u.concurrency)
 	var wg sync.WaitGroup
-
-	// 用于标记是否已经发送了快速响应
 	var fastResponseSent sync.Once
 
-	// 并发查询所有服务器
-	for _, server := range u.servers {
-		wg.Add(1)
-		go func(srv Upstream) {
-			defer wg.Done()
+	// 辅助函数：执行具体的服务器查询
+	doQuery := func(srv Upstream) {
+		defer wg.Done()
 
-			// 获取信号量
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(domain), qtype)
+		if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
+			msg.SetEdns0(4096, true)
+		}
 
-			// 检查上下文是否已取消
-			select {
-			case <-queryCtx.Done():
-				return
-			default:
-			}
+		reply, err := srv.Exchange(queryCtx, msg)
 
-			// Execute query using interface
-			msg := new(dns.Msg)
-			msg.SetQuestion(dns.Fqdn(domain), qtype)
-			if dnssec && r.IsEdns0() != nil && r.IsEdns0().Do() {
-				msg.SetEdns0(4096, true)
-			}
-
-			reply, err := srv.Exchange(queryCtx, msg)
-
-			var result *QueryResult
-			if err != nil {
-				result = &QueryResult{Error: err, Server: srv.Address()}
+		var result *QueryResult
+		if err != nil {
+			result = &QueryResult{Error: err, Server: srv.Address()}
+		} else {
+			if reply.Rcode != dns.RcodeSuccess {
+				result = &QueryResult{
+					Error:  fmt.Errorf("dns error rcode=%d", reply.Rcode),
+					Server: srv.Address(),
+					Rcode:  reply.Rcode,
+				}
 			} else {
-				if reply.Rcode != dns.RcodeSuccess {
-					result = &QueryResult{
-						Error:  fmt.Errorf("dns query failed: rcode=%d", reply.Rcode),
-						Server: srv.Address(),
-						Rcode:  reply.Rcode,
+				records, cnames, ttl := extractRecords(reply)
+				var ips []string
+				for _, rec := range records {
+					switch rr := rec.(type) {
+					case *dns.A:
+						ips = append(ips, rr.A.String())
+					case *dns.AAAA:
+						ips = append(ips, rr.AAAA.String())
 					}
-				} else {
-					records, cnames, ttl := extractRecords(reply)
+				}
+				result = &QueryResult{
+					Records:           records,
+					IPs:               ips,
+					CNAMEs:            cnames,
+					TTL:               ttl,
+					Server:            srv.Address(),
+					Rcode:             reply.Rcode,
+					AuthenticatedData: reply.AuthenticatedData,
+					DnsMsg:            reply.Copy(),
+				}
+			}
+		}
 
-					// 从 records 中提取 IPs
-					var ips []string
-					for _, r := range records {
-						switch rec := r.(type) {
-						case *dns.A:
-							ips = append(ips, rec.A.String())
-						case *dns.AAAA:
-							ips = append(ips, rec.AAAA.String())
-						}
-					}
+		// 收集结果
+		select {
+		case resultChan <- result:
+		case <-queryCtx.Done():
+			return
+		}
 
-					result = &QueryResult{
-						Records:           records,
-						IPs:               ips,
-						CNAMEs:            cnames,
-						TTL:               ttl,
-						Server:            srv.Address(),
-						Rcode:             reply.Rcode,
-						AuthenticatedData: reply.AuthenticatedData,
-						DnsMsg:            reply.Copy(), // 保存原始DNS消息的副本
+		// 第一个成功的有效响应（带IP或CNAME）触发快速返回
+		if result.Error == nil && (len(result.IPs) > 0 || len(result.CNAMEs) > 0) {
+			fastResponseSent.Do(func() {
+				select {
+				case fastResponseChan <- result:
+					logger.Debugf("[queryParallel] 🚀 冲锋队成功响应: %s", srv.Address())
+				default:
+				}
+			})
+		}
+	}
+
+	// 分配梯队
+	activeTier := sortedServers
+	var backgroundTier []*HealthAwareUpstream
+	if len(sortedServers) > u.activeTierSize {
+		activeTier = sortedServers[:u.activeTierSize]
+		backgroundTier = sortedServers[u.activeTierSize:]
+	}
+
+	// --- 启动第一梯队（Active Tier） ---
+	for _, srv := range activeTier {
+		wg.Add(1)
+		go doQuery(srv)
+	}
+
+	// 等待信号：或者是收到快速结果，或者是触发了后台补全延迟
+	fallbackTimer := time.NewTimer(u.fallbackTimeout)
+	defer fallbackTimer.Stop()
+
+	// 启动后台梯队的分组逻辑
+	startBackgroundTier := func() {
+		if len(backgroundTier) == 0 {
+			return
+		}
+		logger.Debugf("[queryParallel] 🔄 启动第二阶段后台补全，剩余服务器数: %d", len(backgroundTier))
+		go func() {
+			for i := 0; i < len(backgroundTier); i += u.batchSize {
+				end := i + u.batchSize
+				if end > len(backgroundTier) {
+					end = len(backgroundTier)
+				}
+
+				// 启动当前批次
+				for _, srv := range backgroundTier[i:end] {
+					wg.Add(1)
+					go doQuery(srv)
+				}
+
+				// 每批次之间按照比例或固定时间延迟
+				if end < len(backgroundTier) {
+					select {
+					case <-time.After(u.staggerDelay):
+					case <-queryCtx.Done():
+						return
 					}
 				}
 			}
-
-			// 发送结果到通道
-			select {
-			case resultChan <- result:
-			case <-queryCtx.Done():
-				return
-			}
-
-			// 如果是第一个成功的响应，立即发送到快速响应通道
-			if result.Error == nil && len(result.Records) > 0 {
-				fastResponseSent.Do(func() {
-					select {
-					case fastResponseChan <- result:
-						logger.Debugf("[queryParallel] 🚀 快速响应: 服务器 %s 第一个返回成功结果，立即响应用户", srv.Address())
-					default:
-					}
-				})
-			}
-		}(server)
+		}()
 	}
 
-	// 启动一个 goroutine 等待所有查询完成后关闭通道
-	go func() {
-		wg.Wait()
-		close(resultChan)
-		close(fastResponseChan)
-		cancel() // 释放 context 资源
-	}()
-
-	// 等待第一个成功的响应（快速响应）
+	// 监听逻辑：决定何时开启后台补全
 	var fastResponse *QueryResult
 	select {
-	case fastResponse = <-fastResponseChan:
-		if fastResponse != nil {
-			logger.Debugf("[queryParallel] ✅ 收到快速响应: 服务器 %s 返回 %d 个IP, CNAMEs=%v (TTL=%d秒): %v",
-				fastResponse.Server, len(fastResponse.IPs), fastResponse.CNAMEs, fastResponse.TTL, fastResponse.IPs)
+	case fr := <-fastResponseChan:
+		fastResponse = fr
+		// 拿到最快结果后，依然要启动后台补全以保证“完整性”
+		go startBackgroundTier()
+	case <-fallbackTimer.C:
+		// 冲锋队慢了，主动开启补全
+		startBackgroundTier()
+		// 继续等待直到拿到第一个结果或 ctx 超时
+		select {
+		case fr := <-fastResponseChan:
+			fastResponse = fr
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-queryCtx.Done():
+			// 如果连后台总超时都到了还是没结果
 		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 
-	// 如果没有收到快速响应，说明所有服务器都失败了
+	// 如果最终仍然没有成功结果，等待所有请求结束看是否有错误
 	if fastResponse == nil {
-		// 等待所有结果收集完成，看是否有错误信息
+		go func() {
+			wg.Wait()
+			close(resultChan)
+			close(fastResponseChan)
+		}()
+
 		var firstError error
-		for result := range resultChan {
-			if result.Error != nil && firstError == nil {
-				firstError = result.Error
+		for res := range resultChan {
+			if res.Error != nil && firstError == nil {
+				firstError = res.Error
 			}
 		}
 		if firstError != nil {
 			return nil, firstError
 		}
-		return nil, fmt.Errorf("all upstream servers failed")
+		return nil, fmt.Errorf("all parallel tiers failed to provide valid response")
 	}
 
-	// 记录快速响应的统计
+	// 记录性能数据
+	u.RecordQueryLatency(time.Since(queryStartTime))
 	if u.stats != nil {
 		u.stats.IncUpstreamSuccess(fastResponse.Server)
 	}
 
-	// 记录查询延迟，用于动态参数优化
-	queryLatency := time.Since(queryStartTime)
-	u.RecordQueryLatency(queryLatency)
-	logger.Debugf("[queryParallel] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
+	// 启动结果汇总逻辑
+	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan, &wg)
 
-	// 在后台继续收集其他服务器的响应并更新缓存
-	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan)
-
-	// 立即返回第一个成功的响应
-	records, _, _ := extractRecords(fastResponse.DnsMsg) // 提取通用记录
+	// 构造返回对象
 	return &QueryResultWithTTL{
-		Records:           records,
+		Records:           fastResponse.Records,
 		IPs:               fastResponse.IPs,
 		CNAMEs:            fastResponse.CNAMEs,
 		TTL:               fastResponse.TTL,
@@ -183,106 +209,63 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	}, nil
 }
 
-// collectRemainingResponses 在后台收集剩余的响应并更新缓存
-func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastResponse *QueryResult, resultChan chan *QueryResult) {
-	logger.Debugf("[collectRemainingResponses] 🔄 开始后台收集剩余响应: %s (type=%s)", domain, dns.TypeToString[qtype])
-
-	allSuccessResults := []*QueryResult{fastResponse}
-	successCount := 1
-	failureCount := 0
-
-	// 添加超时控制：最多等待 2 秒收集剩余响应
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// 创建一个 done 通道用于检测 resultChan 是否已关闭
-	done := make(chan struct{})
+// collectRemainingResponses 负责在后台静默收集所有结果并更新缓存
+func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastResponse *QueryResult, resultChan chan *QueryResult, wg *sync.WaitGroup) {
+	// 等待所有在途请求完成（或者 queryCtx 到期）
 	go func() {
-		// 收集剩余的结果
-		for result := range resultChan {
-			// 跳过已经作为快速响应返回的结果
-			if result == fastResponse {
-				continue
-			}
-
-			if result.Error != nil {
-				failureCount++
-				if u.stats != nil {
-					// 只有非 NXDOMAIN 的错误才计为上游失败
-					if result.Rcode != dns.RcodeNameError {
-						u.stats.IncUpstreamFailure(result.Server)
-					}
-				}
-				logger.Warnf("[collectRemainingResponses] 服务器 %s 查询失败: %v", result.Server, result.Error)
-				continue
-			}
-
-			// 记录成功的响应
-			successCount++
-			if u.stats != nil {
-				u.stats.IncUpstreamSuccess(result.Server)
-			}
-			logger.Debugf("[collectRemainingResponses] 服务器 %s 查询成功(第%d个成功),返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
-				result.Server, successCount, len(result.Records), result.CNAMEs, result.TTL)
-
-			// 收集所有成功的结果
-			allSuccessResults = append(allSuccessResults, result)
-		}
-		close(done)
+		wg.Wait()
+		close(resultChan)
 	}()
 
-	// 等待收集完成或超时
-	select {
-	case <-done:
-		logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成（所有响应已收集）")
-	case <-ctx.Done():
-		logger.Warnf("[collectRemainingResponses] ⏱️  后台收集超时（2秒），已收集 %d 个成功响应，%d 个失败响应", successCount, failureCount)
-	}
+	allSuccessResults := []*QueryResult{fastResponse}
 
-	// 合并所有通用记录（去重）
-	mergedRecords := u.mergeAndDeduplicateRecords(allSuccessResults)
+	// 在本函数独立的超时控制内收集
+	timeout := time.After(u.totalCollectTimeout)
 
-	// 轻量级验证 (写入前)
-	if len(mergedRecords) == 0 {
-		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 去重后没有记录，不更新缓存")
-		return
-	}
-
-	// 计算去重率
-	totalRecordsBefore := 0
-	for _, result := range allSuccessResults {
-		totalRecordsBefore += len(result.Records)
-	}
-	dedupeRate := 0.0
-	if totalRecordsBefore > 0 {
-		dedupeRate = float64(totalRecordsBefore-len(mergedRecords)) / float64(totalRecordsBefore) * 100
-	}
-
-	logger.Debugf("[collectRemainingResponses] 去重统计: 去重前 %d 条记录, 去重后 %d 条记录, 去重率 %.1f%%",
-		totalRecordsBefore, len(mergedRecords), dedupeRate)
-
-	// 选择最小的TTL(最保守的策略)
-	minTTL := fastResponse.TTL
-	for _, result := range allSuccessResults {
-		if result.TTL < minTTL {
-			minTTL = result.TTL
+loop:
+	for {
+		select {
+		case res, ok := <-resultChan:
+			if !ok {
+				break loop
+			}
+			if res.Error == nil && res != fastResponse {
+				allSuccessResults = append(allSuccessResults, res)
+				if u.stats != nil {
+					u.stats.IncUpstreamSuccess(res.Server)
+				}
+			} else if res.Error != nil && u.stats != nil {
+				if res.Rcode != dns.RcodeNameError {
+					u.stats.IncUpstreamFailure(res.Server)
+				}
+			}
+		case <-timeout:
+			logger.Warnf("[collectRemainingResponses] 补全任务硬超时退出: %s", domain)
+			break loop
 		}
 	}
 
-	logger.Debugf("[collectRemainingResponses] ✅ 后台收集完成: 从 %d 个服务器收集到 %d 条记录 (快速响应: %d 条, 汇总后: %d 条), CNAMEs=%v, TTL=%d秒",
-		successCount, len(mergedRecords), len(fastResponse.Records), len(mergedRecords), fastResponse.CNAMEs, minTTL)
+	if len(allSuccessResults) <= 1 {
+		return // 没有更多结果需要合并
+	}
 
-	// 通过验证后，调用缓存更新回调
+	mergedRecords := u.mergeAndDeduplicateRecords(allSuccessResults)
+
+	// 选取最小 TTL
+	minTTL := fastResponse.TTL
+	for _, res := range allSuccessResults {
+		if res.TTL < minTTL {
+			minTTL = res.TTL
+		}
+	}
+
 	if u.cacheUpdateCallback != nil {
-		logger.Debugf("[collectRemainingResponses] 📝 调用缓存更新回调，更新完整记录池到缓存")
+		logger.Debugf("[collectRemainingResponses] ✅ 汇总完成，从 %d 个结果中更新全量 IP 池", len(allSuccessResults))
 		u.cacheUpdateCallback(domain, qtype, mergedRecords, fastResponse.CNAMEs, minTTL)
-	} else {
-		logger.Warnf("[collectRemainingResponses] ⚠️  警告: 未设置缓存更新回调，无法更新缓存")
 	}
 }
 
-// mergeAndDeduplicateRecords 合并并去重多个查询结果中的通用记录
-// mergeAndDeduplicateRecords 合并并去重多个查询结果中的通用记录
+// mergeAndDeduplicateRecords 合并并去重多个查询结果中的记录
 // 策略：
 // 1. IP记录（A/AAAA）：基于IP地址去重
 // 2. CNAME记录：基于Target去重
@@ -290,7 +273,7 @@ func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastRes
 func (u *Manager) mergeAndDeduplicateRecords(results []*QueryResult) []dns.RR {
 	ipSet := make(map[string]bool)
 	cnameSet := make(map[string]bool)
-	otherRecordSet := make(map[string]bool) // 用于去重其他记录
+	otherRecordSet := make(map[string]bool)
 	var mergedRecords []dns.RR
 
 	for _, result := range results {
@@ -316,7 +299,6 @@ func (u *Manager) mergeAndDeduplicateRecords(results []*QueryResult) []dns.RR {
 				}
 			default:
 				// 其他记录（SOA、NS等）：仅保留第一个收到的记录
-				// 使用记录的完整字符串表示作为去重键
 				recordKey := rr.String()
 				if !otherRecordSet[recordKey] {
 					otherRecordSet[recordKey] = true
