@@ -21,6 +21,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 	logger.Debugf("[queryParallel] 开始分层查询 %d 个服务器: %s (type=%s)", len(sortedServers), domain, dns.TypeToString[qtype])
 
+	// 为这个查询创建唯一的版本号，用于防止旧的后台补全覆盖新的缓存
+	queryVersion := time.Now().UnixNano()
+
 	queryStartTime := time.Now()
 	resultChan := make(chan *QueryResult, len(sortedServers))
 	fastResponseChan := make(chan *QueryResult, 1)
@@ -196,7 +199,7 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 	}
 
 	// 启动结果汇总逻辑
-	go u.collectRemainingResponses(domain, qtype, fastResponse, resultChan, &wg)
+	go u.collectRemainingResponses(domain, qtype, queryVersion, fastResponse, resultChan, &wg)
 
 	// 构造返回对象
 	return &QueryResultWithTTL{
@@ -210,7 +213,8 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 }
 
 // collectRemainingResponses 负责在后台静默收集所有结果并更新缓存
-func (u *Manager) collectRemainingResponses(domain string, qtype uint16, fastResponse *QueryResult, resultChan chan *QueryResult, wg *sync.WaitGroup) {
+// queryVersion 用于防止旧的后台补全覆盖新的缓存
+func (u *Manager) collectRemainingResponses(domain string, qtype uint16, queryVersion int64, fastResponse *QueryResult, resultChan chan *QueryResult, wg *sync.WaitGroup) {
 	// 等待所有在途请求完成（或者 queryCtx 到期）
 	go func() {
 		wg.Wait()
@@ -240,7 +244,7 @@ loop:
 				}
 			}
 		case <-timeout:
-			logger.Warnf("[collectRemainingResponses] 补全任务硬超时退出: %s", domain)
+			logger.Warnf("[collectRemainingResponses] 补全任务硬超时退出: %s (version=%d)", domain, queryVersion)
 			break loop
 		}
 	}
@@ -260,8 +264,8 @@ loop:
 	}
 
 	if u.cacheUpdateCallback != nil {
-		logger.Debugf("[collectRemainingResponses] ✅ 汇总完成，从 %d 个结果中更新全量 IP 池", len(allSuccessResults))
-		u.cacheUpdateCallback(domain, qtype, mergedRecords, fastResponse.CNAMEs, minTTL)
+		logger.Debugf("[collectRemainingResponses] ✅ 汇总完成，从 %d 个结果中更新全量 IP 池 (version=%d)", len(allSuccessResults), queryVersion)
+		u.cacheUpdateCallback(domain, qtype, mergedRecords, fastResponse.CNAMEs, minTTL, queryVersion)
 	}
 }
 

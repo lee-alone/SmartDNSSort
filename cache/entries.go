@@ -15,6 +15,7 @@ type RawCacheEntry struct {
 	EffectiveTTL      uint32    // 实际内部缓存使用的 TTL（秒），应用了本地 min/max 策略
 	AcquisitionTime   time.Time // 从上游获取的时间
 	AuthenticatedData bool      // DNSSEC 验证标记 (AD flag)
+	QueryVersion      int64     // 查询版本号，用于防止旧的后台补全覆盖新的缓存
 }
 
 // IsExpired 检查原始缓存是否过期（使用 EffectiveTTL）
@@ -25,11 +26,12 @@ func (e *RawCacheEntry) IsExpired() bool {
 
 // SortedCacheEntry 排序后的缓存项
 type SortedCacheEntry struct {
-	IPs       []string  // 排序后的 IP 列表
-	RTTs      []int     // 对应的 RTT（毫秒）
-	Timestamp time.Time // 排序完成时间
-	TTL       int       // TTL（秒）
-	IsValid   bool      // 排序是否有效
+	IPs          []string  // 排序后的 IP 列表
+	RTTs         []int     // 对应的 RTT（毫秒）
+	Timestamp    time.Time // 排序完成时间
+	TTL          int       // TTL（秒）
+	IsValid      bool      // 排序是否有效
+	QueryVersion int64     // 查询版本号，用于防止旧的排序覆盖新的排序
 }
 
 // IsExpired 检查排序缓存是否过期

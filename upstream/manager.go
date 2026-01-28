@@ -50,7 +50,8 @@ type Manager struct {
 	// sequential 策略配置
 	sequentialTimeoutMs int // 顺序尝试的单次超时
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
-	cacheUpdateCallback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32)
+	// queryVersion 参数用于防止旧的后台补全覆盖新的缓存
+	cacheUpdateCallback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32, queryVersion int64)
 	// 动态参数优化
 	dynamicParamOptimization *DynamicParamOptimization
 	// 策略性能指标
@@ -184,7 +185,8 @@ func derefOrDefault(ptr *int, defaultValue int) int {
 
 // SetCacheUpdateCallback 设置缓存更新回调函数
 // 用于在 parallel 模式下后台收集完所有响应后更新缓存
-func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32)) {
+// queryVersion 参数用于防止旧的后台补全覆盖新的缓存
+func (u *Manager) SetCacheUpdateCallback(callback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32, queryVersion int64)) {
 	u.cacheUpdateCallback = callback
 }
 
