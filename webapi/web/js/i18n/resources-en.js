@@ -84,6 +84,7 @@ const resourcesEn = {
             "bootstrapDnsHelp": "Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names. One server per line.",
             "strategy": {
                 "_label": "Strategy",
+                "auto": "Auto",
                 "random": "Random",
                 "parallel": "Parallel",
                 "sequential": "Sequential",
@@ -91,6 +92,8 @@ const resourcesEn = {
             },
             "timeout": "Timeout (ms)",
             "concurrency": "Concurrency",
+            "maxConnections": "Max Connections",
+            "maxConnectionsHelp": "Set to 0 to calculate automatically based on CPU cores.",
             "sequentialTimeout": "Sequential Timeout (ms)",
             "sequentialTimeoutHelp": "Single attempt timeout for sequential strategy (100-2000ms).",
             "racingDelay": "Racing Delay (ms)",
@@ -99,6 +102,13 @@ const resourcesEn = {
             "racingMaxConcurrentHelp": "Maximum concurrent requests for racing strategy (2-5).",
             "nxdomainForErrors": "Return NXDOMAIN for Upstream Errors",
             "dnssec": "Enable DNSSEC",
+            "dynamicParamOptimization": {
+                "legend": "Dynamic Parameter Optimization (Adaptive Strategy)",
+                "ewmaAlpha": "EWMA Alpha Factor",
+                "ewmaAlphaHelp": "Factor used to smooth dynamic parameters like latency. Smaller values are slower but smoother (0.1-0.3).",
+                "maxStepMs": "Max Adjustment Step (ms)",
+                "maxStepMsHelp": "Limit the maximum amplitude of a single parameter adjustment to prevent jitter (5-20)."
+            },
             "healthCheck": {
                 "legend": "Health Check & Circuit Breaker",
                 "enabled": "Enable Health Checks",
@@ -119,7 +129,12 @@ const resourcesEn = {
             "count": "Count",
             "timeout": "Timeout (ms)",
             "concurrency": "Concurrency",
-            "strategy": "Strategy",
+            "strategy": {
+                "_label": "Strategy",
+                "auto": "Auto",
+                "min": "Min",
+                "avg": "Avg"
+            },
             "maxTestIps": "Max Test IPs",
             "maxTestIpsHelp": "Maximum number of IPs to test per sort (0 = unlimited).",
             "rttCacheTtl": "RTT Cache TTL (s)",

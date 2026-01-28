@@ -1,59 +1,52 @@
 <section id="config-ping"
-    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
-    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
-        <h2 class="text-xl font-bold" data-i18n="config.ping.legend">Ping</h2>
-    </div>
-    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        <div class="form-group md:col-span-2"><label class="flex items-center gap-3"><input
-                    type="checkbox" id="ping.enabled" name="ping.enabled"
-                    class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                    data-i18n="config.ping.enabled">Enable IP Optimization</span></label>
+        class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+        <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+                <h2 class="text-xl font-bold" data-i18n="config.ping.legend">Ping</h2>
         </div>
-        <div class="form-group"><label for="ping.count"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.count">Count</label><input type="number"
-                id="ping.count" name="ping.count"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-        </div>
-        <div class="form-group"><label for="ping.timeout_ms"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.timeout">Timeout (ms)</label><input type="number"
-                id="ping.timeout_ms" name="ping.timeout_ms"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-        </div>
-        <div class="form-group"><label for="ping.concurrency"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.concurrency">Concurrency</label><input type="number"
-                id="ping.concurrency" name="ping.concurrency"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-        </div>
-        <div class="form-group"><label for="ping.strategy"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.strategy">Strategy</label><select id="ping.strategy"
-                name="ping.strategy"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-                <option value="min">Min</option>
-                <option value="avg">Avg</option>
-            </select></div>
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <div class="form-group md:col-span-2"><label class="flex items-center gap-3"><input type="checkbox"
+                                        id="ping.enabled" name="ping.enabled"
+                                        class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                        data-i18n="config.ping.enabled">Enable IP Optimization</span></label>
+                </div>
+                <div class="form-group"><label for="ping.count" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.count">Count</label><input type="number" id="ping.count"
+                                name="ping.count"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="ping.timeout_ms" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.timeout">Timeout (ms)</label><input type="number"
+                                id="ping.timeout_ms" name="ping.timeout_ms"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="ping.concurrency" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.concurrency">Concurrency</label><input type="number"
+                                id="ping.concurrency" name="ping.concurrency"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="ping.strategy" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.strategy._label">Strategy</label><select id="ping.strategy"
+                                name="ping.strategy"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                                <option value="auto" data-i18n="config.ping.strategy.auto">Auto</option>
+                                <option value="min" data-i18n="config.ping.strategy.min">Min</option>
+                                <option value="avg" data-i18n="config.ping.strategy.avg">Avg</option>
+                        </select></div>
 
-        <div class="form-group"><label for="ping.max_test_ips"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.maxTestIps">Max Test IPs</label><input type="number"
-                id="ping.max_test_ips" name="ping.max_test_ips"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                <div class="form-group"><label for="ping.max_test_ips" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.maxTestIps">Max Test IPs</label><input type="number"
+                                id="ping.max_test_ips" name="ping.max_test_ips"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group"><label for="ping.rtt_cache_ttl_seconds" class="block text-sm font-medium mb-2"
+                                data-i18n="config.ping.rttCacheTtl">RTT Cache TTL (s)</label><input type="number"
+                                id="ping.rtt_cache_ttl_seconds" name="ping.rtt_cache_ttl_seconds"
+                                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+                </div>
+                <div class="form-group md:col-span-2 pt-2"><label class="flex items-center gap-3"><input type="checkbox"
+                                        id="ping.enable_http_fallback" name="ping.enable_http_fallback"
+                                        class="h-5 w-5 rounded text-primary focus:ring-primary"><span
+                                        data-i18n="config.ping.enableHttpFallback">Enable HTTP
+                                        Fallback</span></label></div>
         </div>
-        <div class="form-group"><label for="ping.rtt_cache_ttl_seconds"
-                class="block text-sm font-medium mb-2"
-                data-i18n="config.ping.rttCacheTtl">RTT Cache TTL (s)</label><input
-                type="number" id="ping.rtt_cache_ttl_seconds"
-                name="ping.rtt_cache_ttl_seconds"
-                class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
-        </div>
-        <div class="form-group md:col-span-2 pt-2"><label
-                class="flex items-center gap-3"><input type="checkbox"
-                    id="ping.enable_http_fallback" name="ping.enable_http_fallback"
-                    class="h-5 w-5 rounded text-primary focus:ring-primary"><span
-                    data-i18n="config.ping.enableHttpFallback">Enable HTTP
-                    Fallback</span></label></div>
-    </div>
 </section>

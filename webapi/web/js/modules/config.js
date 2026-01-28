@@ -24,6 +24,7 @@ function populateForm(config) {
         setValue('upstream.strategy', config.upstream.strategy);
         setValue('upstream.timeout_ms', config.upstream.timeout_ms);
         setValue('upstream.concurrency', config.upstream.concurrency);
+        setValue('upstream.max_connections', config.upstream.max_connections || 0);
         setValue('upstream.sequential_timeout', config.upstream.sequential_timeout || 300);
         setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
         setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
@@ -38,6 +39,11 @@ function populateForm(config) {
             setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
         }
 
+        if (config.upstream.dynamic_param_optimization) {
+            setValue('upstream.dynamic_param_optimization.ewma_alpha', config.upstream.dynamic_param_optimization.ewma_alpha || 0.2);
+            setValue('upstream.dynamic_param_optimization.max_step_ms', config.upstream.dynamic_param_optimization.max_step_ms || 10);
+        }
+
         setChecked('ping.enabled', config.ping.enabled);
         setValue('ping.count', config.ping.count);
         setValue('ping.timeout_ms', config.ping.timeout_ms);
@@ -49,7 +55,7 @@ function populateForm(config) {
 
         togglePingSettingsState();
         document.getElementById('ping.enabled').addEventListener('change', togglePingSettingsState);
-        
+
         setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
         setValue('cache.user_return_ttl', config.cache.user_return_ttl);
         setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
@@ -126,9 +132,10 @@ function saveConfig() {
                     .split('\n')
                     .map(s => s.trim())
                     .filter(s => s !== ''),
-                strategy: form.elements['upstream.strategy'].value || 'sequential',
+                strategy: form.elements['upstream.strategy'].value || 'auto',
                 timeout_ms: parseInt(form.elements['upstream.timeout_ms'].value) || 5000,
                 concurrency: parseInt(form.elements['upstream.concurrency'].value) || 3,
+                max_connections: parseInt(form.elements['upstream.max_connections'].value) || 0,
                 sequential_timeout: parseInt(form.elements['upstream.sequential_timeout'].value) || 300,
                 racing_delay: parseInt(form.elements['upstream.racing_delay'].value) || 100,
                 racing_max_concurrent: parseInt(form.elements['upstream.racing_max_concurrent'].value) || 2,
@@ -140,6 +147,10 @@ function saveConfig() {
                     circuit_breaker_threshold: parseInt(form.elements['upstream.health_check.circuit_breaker_threshold'].value) || 5,
                     circuit_breaker_timeout: parseInt(form.elements['upstream.health_check.circuit_breaker_timeout'].value) || 30,
                     success_threshold: parseInt(form.elements['upstream.health_check.success_threshold'].value) || 2,
+                },
+                dynamic_param_optimization: {
+                    ewma_alpha: parseFloat(document.getElementById('upstream.dynamic_param_optimization.ewma_alpha').value) || 0.2,
+                    max_step_ms: parseInt(document.getElementById('upstream.dynamic_param_optimization.max_step_ms').value) || 10,
                 }
             },
             ping: {
@@ -147,7 +158,7 @@ function saveConfig() {
                 count: parseInt(form.elements['ping.count'].value) || 3,
                 timeout_ms: parseInt(form.elements['ping.timeout_ms'].value) || 1000,
                 concurrency: parseInt(form.elements['ping.concurrency'].value) || 16,
-                strategy: form.elements['ping.strategy'].value || 'min',
+                strategy: form.elements['ping.strategy'].value || 'auto',
                 max_test_ips: parseInt(form.elements['ping.max_test_ips'].value) || 0,
                 rtt_cache_ttl_seconds: parseInt(form.elements['ping.rtt_cache_ttl_seconds'].value) || 300,
                 enable_http_fallback: form.elements['ping.enable_http_fallback'].checked,
@@ -189,7 +200,7 @@ function saveConfig() {
             const maxCacheSizeEl = document.getElementById('adblock_max_cache_size_mb');
             const blockedTtlEl = document.getElementById('adblock_blocked_ttl');
             const blockModeEl = document.getElementById('adblock_block_mode');
-            
+
             if (updateIntervalEl && updateIntervalEl.value) {
                 data.adblock.update_interval_hours = parseInt(updateIntervalEl.value);
             }

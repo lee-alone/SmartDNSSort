@@ -84,6 +84,7 @@ const resourcesZhCn = {
             "bootstrapDnsHelp": "用于解析 DoH/DoT 域名的引导 DNS 服务器（必须是 IP 地址）。每行一个服务器。",
             "strategy": {
                 "_label": "策略",
+                "auto": "自动",
                 "random": "随机",
                 "parallel": "并行",
                 "sequential": "顺序",
@@ -91,6 +92,8 @@ const resourcesZhCn = {
             },
             "timeout": "超时 (ms)",
             "concurrency": "并发数",
+            "maxConnections": "最大连接数",
+            "maxConnectionsHelp": "设置为 0 则根据 CPU 核数自动计算。",
             "sequentialTimeout": "顺序超时 (ms)",
             "sequentialTimeoutHelp": "顺序策略的单次尝试超时时间 (100-2000ms)。",
             "racingDelay": "竞争延迟 (ms)",
@@ -99,6 +102,13 @@ const resourcesZhCn = {
             "racingMaxConcurrentHelp": "竞争策略的最大并发请求数 (2-5)。",
             "nxdomainForErrors": "上游错误返回 NXDOMAIN",
             "dnssec": "启用 DNSSEC",
+            "dynamicParamOptimization": {
+                "legend": "动态参数优化 (自适应策略)",
+                "ewmaAlpha": "EWMA 平滑因子",
+                "ewmaAlphaHelp": "用于平滑延迟等动态参数。值越小反应越慢但越平滑 (0.1-0.3)。",
+                "maxStepMs": "最大调整步长 (ms)",
+                "maxStepMsHelp": "限制单次参数调整的最大幅度，防止抖动 (5-20)。"
+            },
             "healthCheck": {
                 "legend": "健康检查与熔断器",
                 "enabled": "启用健康检查",
@@ -119,7 +129,12 @@ const resourcesZhCn = {
             "count": "次数",
             "timeout": "超时 (ms)",
             "concurrency": "并发数",
-            "strategy": "策略",
+            "strategy": {
+                "_label": "策略",
+                "auto": "自动",
+                "min": "最小值",
+                "avg": "平均值"
+            },
             "maxTestIps": "最大测试 IP 数",
             "maxTestIpsHelp": "每次排序测试的最大 IP 数 (0 = 不限制)。",
             "rttCacheTtl": "RTT 缓存 TTL (s)",

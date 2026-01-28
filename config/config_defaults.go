@@ -80,6 +80,12 @@ func setUpstreamDefaults(cfg *UpstreamConfig) {
 		s := 10
 		cfg.DynamicParamOptimization.MaxStepMs = &s
 	}
+
+	// 连接池默认值：如果未设置或为 0 (auto)，则根据 CPU 核数计算
+	if cfg.MaxConnections == nil || *cfg.MaxConnections == 0 {
+		c := runtime.NumCPU() * 20
+		cfg.MaxConnections = &c
+	}
 }
 
 // setHealthCheckDefaults 设置健康检查配置的默认值

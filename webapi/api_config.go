@@ -167,9 +167,9 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 		}
 	}
 
-	// User-provided max connections, if any, must be positive.
-	if cfg.Upstream.MaxConnections != nil && *cfg.Upstream.MaxConnections <= 0 {
-		return fmt.Errorf("max connections must be positive if specified")
+	// User-provided max connections, if any, must be non-negative (0 for auto).
+	if cfg.Upstream.MaxConnections != nil && *cfg.Upstream.MaxConnections < 0 {
+		return fmt.Errorf("max connections must be non-negative if specified")
 	}
 
 	// Validate Dynamic Param Optimization
@@ -220,8 +220,8 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Ping.RttCacheTtlSeconds < 0 {
 		return fmt.Errorf("ping RTT cache TTL cannot be negative")
 	}
-	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" {
-		return fmt.Errorf("ping strategy must be 'min' or 'avg'")
+	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" && cfg.Ping.Strategy != "auto" {
+		return fmt.Errorf("ping strategy must be 'min', 'avg' or 'auto'")
 	}
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
