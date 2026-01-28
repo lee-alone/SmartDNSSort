@@ -167,9 +167,9 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	logger.Debugf("[handleQuery] 最终解析结果: %s (type=%s) 获得 %d 个IP, 完整 CNAMEs=%v (TTL=%d秒): %v",
 		domain, dns.TypeToString[qtype], len(finalIPs), fullCNAMEs, finalTTL, finalIPs)
 
-	// [Fix] 为CNAME链中的每个域名都创建缓存和排序任务
-	// 总是保存实际的 AuthenticatedData 值到缓存，响应时根据配置决定是否转发
-	// 使用新的通用记录缓存方法
+	// 只为原始查询域名创建缓存，不为CNAME链中的其他域名创建缓存
+	// 原因：CNAME链中的每个域名可能有不同的IP，不应该都关联到相同的IP列表
+	// 这会导致直接查询CNAME时返回错误的IP，造成证书错误
 	var finalRecords []dns.RR
 	if result.Records != nil {
 		finalRecords = result.Records
@@ -179,17 +179,12 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
 	}
 
-	for i, cname := range fullCNAMEs {
-		cnameDomain := strings.TrimRight(cname, ".")
-		var subCNAMEs []string
-		if i < len(fullCNAMEs)-1 {
-			subCNAMEs = fullCNAMEs[i+1:]
-		}
-		s.cache.SetRawRecords(cnameDomain, qtype, finalRecords, subCNAMEs, finalTTL)
-		if len(finalIPs) > 0 {
-			go s.sortIPsAsync(cnameDomain, qtype, finalIPs, finalTTL, time.Now())
-		}
-	}
+	// ========== 关键修复：删除为CNAME创建缓存的循环 ==========
+	// 修复前的代码会为CNAME链中的每个域名都创建缓存，导致所有CNAME都关联到相同的IP
+	// 这是导致"域名和IP不匹配"问题的根本原因
+	//
+	// 修复后：只为原始查询域名创建缓存
+	// 如果用户直接查询CNAME，会触发新的查询，而不是返回错误的缓存IP
 
 	// --- 快速响应 ---
 	// 使用历史数据进行兜底排序 (Fallback Rank)

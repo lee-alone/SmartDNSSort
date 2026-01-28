@@ -159,13 +159,23 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 		userTTL = s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, false)
 	}
 
-	// 使用历史数据进行兜底排序 (Fallback Rank)
-	// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
-	rankDomain := domain
-	if len(raw.CNAMEs) > 0 {
-		rankDomain = strings.TrimRight(raw.CNAMEs[len(raw.CNAMEs)-1], ".")
+	// 优先使用排序缓存，如果不存在则使用历史数据进行兜底排序
+	var ipsToReturn []string
+
+	// 1. 首先尝试获取排序缓存
+	if sorted, ok := s.cache.GetSorted(domain, qtype); ok {
+		logger.Debugf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v", domain, dns.TypeToString[qtype], sorted.IPs)
+		ipsToReturn = sorted.IPs
+	} else {
+		// 2. 排序缓存不存在，使用历史数据进行兜底排序 (Fallback Rank)
+		// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
+		rankDomain := domain
+		if len(raw.CNAMEs) > 0 {
+			rankDomain = strings.TrimRight(raw.CNAMEs[len(raw.CNAMEs)-1], ".")
+		}
+		ipsToReturn = s.prefetcher.GetFallbackRank(rankDomain, raw.IPs)
+		logger.Debugf("[handleQuery] 使用兜底排序: %s (type=%s) -> %v", domain, dns.TypeToString[qtype], ipsToReturn)
 	}
-	fallbackIPs := s.prefetcher.GetFallbackRank(rankDomain, raw.IPs)
 
 	msg := s.msgPool.Get()
 	msg.RecursionAvailable = true
@@ -174,9 +184,9 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	// 仅当启用 DNSSEC 时才转发验证标记
 	authData := raw.AuthenticatedData && cfg.Upstream.Dnssec
 	if len(raw.CNAMEs) > 0 {
-		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, raw.CNAMEs, fallbackIPs, qtype, userTTL, authData)
+		s.buildDNSResponseWithCNAMEAndDNSSEC(msg, domain, raw.CNAMEs, ipsToReturn, qtype, userTTL, authData)
 	} else {
-		s.buildDNSResponseWithDNSSEC(msg, domain, fallbackIPs, qtype, userTTL, authData)
+		s.buildDNSResponseWithDNSSEC(msg, domain, ipsToReturn, qtype, userTTL, authData)
 	}
 	w.WriteMsg(msg)
 	s.msgPool.Put(msg)
