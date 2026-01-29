@@ -209,7 +209,9 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 
 			// [Fix] 在缓存前去除重复记录
 			// 上游服务器可能会返回重复的记录，如果不清理，缓存后会直接服务给客户端
-			s.deduplicateDNSMsg(result.DnsMsg)
+			// Create a copy to avoid mutating the shared result.DnsMsg
+			msgToCache := result.DnsMsg.Copy()
+			s.deduplicateDNSMsg(msgToCache)
 
 			// Helper to set DNSSEC message to cache for a given domain/qtype
 			setDNSSECMsgToCache := func(d string, qt uint16, msg *dns.Msg) {
@@ -217,13 +219,13 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 			}
 
 			// For direct A/AAAA records, use the requested domain
-			setDNSSECMsgToCache(domain, qtype, result.DnsMsg)
+			setDNSSECMsgToCache(domain, qtype, msgToCache)
 
 			// For each domain in the CNAME chain, also write the same full message
 			// This allows any domain in the chain to hit msgCache later
 			for _, cname := range fullCNAMEs {
 				cnameDomain := strings.TrimRight(cname, ".")
-				setDNSSECMsgToCache(cnameDomain, qtype, result.DnsMsg)
+				setDNSSECMsgToCache(cnameDomain, qtype, msgToCache)
 			}
 
 			logger.Debugf("[handleQuery] DNSSEC 完整消息已存储到 msgCache: %s 及其 CNAME 链", domain)

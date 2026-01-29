@@ -79,6 +79,8 @@ func (s *Server) resolveCNAME(ctx context.Context, domain string, qtype uint16, 
 	}
 
 	// 确保返回的 CNAME 链是完整的
-	finalResult.CNAMEs = accumulatedCNAMEs
-	return finalResult, nil
+	// Create a copy to avoid mutating the shared result from singleflight
+	newResult := *finalResult
+	newResult.CNAMEs = accumulatedCNAMEs
+	return &newResult, nil
 }
