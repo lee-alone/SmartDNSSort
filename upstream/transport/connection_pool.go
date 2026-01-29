@@ -218,6 +218,19 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 	// 3. 处理结果并归还连接
 	if err != nil {
 		if p.isTemporaryError(err) {
+			// 特殊修复：UDP 超时后必须销毁连接，防止后续复用时读到迟到的脏包（串号问题）
+			if p.network == "udp" {
+				logger.Debugf("[ConnectionPool] UDP 超时，强制销毁连接以防脏包: %v", err)
+				poolConn.conn.Close()
+				poolConn.closed = true
+				p.mu.Lock()
+				p.activeCount--
+				p.totalDestroyed++
+				p.totalErrors++
+				p.mu.Unlock()
+				return nil, err
+			}
+
 			// 临时错误：放回池中，让下一个请求重试
 			logger.Debugf("[ConnectionPool] 临时错误，连接放回池: %v", err)
 			poolConn.lastUsed = time.Now()
@@ -472,6 +485,11 @@ func (p *ConnectionPool) exchangeOnConnection(ctx context.Context, poolConn *Poo
 	reply := new(dns.Msg)
 	if err := reply.Unpack(resBuf); err != nil {
 		return nil, fmt.Errorf("unpack failed: %w", err)
+	}
+
+	// 关键修复：校验 Transaction ID
+	if reply.Id != msg.Id {
+		return nil, fmt.Errorf("dns id mismatch: request=%d, response=%d", msg.Id, reply.Id)
 	}
 
 	return reply, nil
