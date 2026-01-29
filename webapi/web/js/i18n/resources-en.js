@@ -33,6 +33,7 @@ const resourcesEn = {
         "uptime": "System Uptime",
         "systemStatus": "System Status",
         "cpuUsage": "CPU Usage",
+        "cpuCores": "CPU Cores",
         "memoryUsage": "Host Memory Usage",
         "goroutines": "Goroutines",
         "adblockStatus": "AdBlock Status",

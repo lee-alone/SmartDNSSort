@@ -33,6 +33,7 @@ const resourcesZhCn = {
         "uptime": "上线时长",
         "systemStatus": "系统状态",
         "cpuUsage": "CPU 使用率",
+        "cpuCores": "CPU 核心数",
         "memoryUsage": "主机内存使用率",
         "goroutines": "协程数",
         "adblockStatus": "广告拦截状态",

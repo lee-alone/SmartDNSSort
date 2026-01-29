@@ -19,7 +19,16 @@ function updateDashboard() {
             if (data.system_stats) {
                 const sys = data.system_stats;
                 document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
+                document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
                 document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
+                
+                // 显示可用内存详情
+                const memTotalMB = sys.mem_total_mb || 0;
+                const memUsedMB = sys.mem_used_mb || 0;
+                const memAvailableMB = memTotalMB - memUsedMB;
+                document.getElementById('mem_usage_detail').textContent = 
+                    memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
+                
                 document.getElementById('goroutines').textContent = sys.goroutines || 0;
             }
             if (data.uptime_seconds) {
