@@ -13,6 +13,7 @@ function updateDashboard() {
             document.getElementById('total_queries').textContent = data.total_queries || 0;
             document.getElementById('cache_hits').textContent = data.cache_hits || 0;
             document.getElementById('cache_misses').textContent = data.cache_misses || 0;
+            document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
             document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
             document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
             if (data.system_stats) {

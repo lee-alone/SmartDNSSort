@@ -194,6 +194,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	if raw.IsExpired() {
 		logger.Debugf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
+		stats.IncCacheStaleRefresh() // 记录缓冲更新
 		task := RefreshTask{Domain: domain, Qtype: qtype}
 		s.refreshQueue.Submit(task)
 	} else {
@@ -246,6 +247,7 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 	if raw.IsExpired() {
 		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存已过期,触发异步刷新: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
+		stats.IncCacheStaleRefresh() // 记录缓冲更新
 		task := RefreshTask{Domain: domain, Qtype: qtype}
 		s.refreshQueue.Submit(task)
 	}

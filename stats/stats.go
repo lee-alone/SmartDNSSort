@@ -14,15 +14,16 @@ import (
 
 // Stats 运行统计
 type Stats struct {
-	mu               sync.RWMutex
-	queries          int64
-	cacheHits        int64
-	cacheMisses      int64
-	upstreamFailures int64 // 总失败计数
-	pingSuccesses    int64
-	pingFailures     int64
-	totalRTT         int64
-	failedNodes      map[string]int64
+	mu                sync.RWMutex
+	queries           int64
+	cacheHits         int64
+	cacheMisses       int64
+	cacheStaleRefresh int64 // 缓冲更新：缓存已过期但返回给用户，同时向上游查询
+	upstreamFailures  int64 // 总失败计数
+	pingSuccesses     int64
+	pingFailures      int64
+	totalRTT          int64
+	failedNodes       map[string]int64
 
 	// 新增：按上游服务器统计
 	upstreamSuccess map[string]*int64
@@ -68,6 +69,11 @@ func (s *Stats) IncCacheHits() {
 // IncCacheMisses 增加缓存未命中计数
 func (s *Stats) IncCacheMisses() {
 	atomic.AddInt64(&s.cacheMisses, 1)
+}
+
+// IncCacheStaleRefresh 增加缓冲更新计数（缓存已过期但返回给用户，同时向上游查询）
+func (s *Stats) IncCacheStaleRefresh() {
+	atomic.AddInt64(&s.cacheStaleRefresh, 1)
 }
 
 // IncUpstreamFailures 增加上游失败计数 (总计)
@@ -225,19 +231,20 @@ func (s *Stats) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_queries":     queries,
-		"cache_hits":        atomic.LoadInt64(&s.cacheHits),
-		"cache_misses":      atomic.LoadInt64(&s.cacheMisses),
-		"cache_hit_rate":    hitRate,
-		"upstream_failures": atomic.LoadInt64(&s.upstreamFailures),
-		"ping_successes":    pings,
-		"ping_failures":     atomic.LoadInt64(&s.pingFailures),
-		"average_rtt_ms":    avgRTT,
-		"failed_nodes":      failedNodesCopy,
-		"upstream_stats":    upstreamStats,
-		"system_stats":      sysStats,
-		"top_domains":       topDomains,
-		"uptime_seconds":    time.Since(s.startTime).Seconds(),
+		"total_queries":       queries,
+		"cache_hits":          atomic.LoadInt64(&s.cacheHits),
+		"cache_misses":        atomic.LoadInt64(&s.cacheMisses),
+		"cache_stale_refresh": atomic.LoadInt64(&s.cacheStaleRefresh),
+		"cache_hit_rate":      hitRate,
+		"upstream_failures":   atomic.LoadInt64(&s.upstreamFailures),
+		"ping_successes":      pings,
+		"ping_failures":       atomic.LoadInt64(&s.pingFailures),
+		"average_rtt_ms":      avgRTT,
+		"failed_nodes":        failedNodesCopy,
+		"upstream_stats":      upstreamStats,
+		"system_stats":        sysStats,
+		"top_domains":         topDomains,
+		"uptime_seconds":      time.Since(s.startTime).Seconds(),
 	}
 }
 
@@ -262,6 +269,7 @@ func (s *Stats) Reset() {
 	atomic.StoreInt64(&s.queries, 0)
 	atomic.StoreInt64(&s.cacheHits, 0)
 	atomic.StoreInt64(&s.cacheMisses, 0)
+	atomic.StoreInt64(&s.cacheStaleRefresh, 0)
 	atomic.StoreInt64(&s.upstreamFailures, 0)
 	atomic.StoreInt64(&s.pingSuccesses, 0)
 	atomic.StoreInt64(&s.pingFailures, 0)
