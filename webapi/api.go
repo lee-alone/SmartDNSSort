@@ -128,3 +128,80 @@ func (s *Server) Stop() error {
 	logger.Info("Shutting down Web API server...")
 	return s.listener.Shutdown(ctx)
 }
+
+// calculateAvgBytesPerEntry 计算缓存条目的平均字节数
+// 通过采样缓存中的条目来获得更准确的平均值
+func (s *Server) calculateAvgBytesPerEntry() int64 {
+	const (
+		defaultAvgBytes = 820 // 默认估算值
+		sampleSize      = 100 // 采样100个条目
+	)
+
+	// 获取所有缓存条目
+	allEntries := s.dnsCache.GetRawCacheSnapshot()
+	if len(allEntries) == 0 {
+		return defaultAvgBytes
+	}
+
+	// 如果条目数少于采样大小，直接计算所有条目的平均值
+	if len(allEntries) <= sampleSize {
+		totalSize := int64(0)
+		for _, entry := range allEntries {
+			totalSize += estimateEntrySize(entry)
+		}
+		return totalSize / int64(len(allEntries))
+	}
+
+	// 采样计算：每隔 len/sampleSize 个条目采样一个
+	step := len(allEntries) / sampleSize
+	if step < 1 {
+		step = 1
+	}
+
+	totalSize := int64(0)
+	sampleCount := 0
+	for i := 0; i < len(allEntries); i += step {
+		totalSize += estimateEntrySize(allEntries[i])
+		sampleCount++
+	}
+
+	if sampleCount == 0 {
+		return defaultAvgBytes
+	}
+
+	return totalSize / int64(sampleCount)
+}
+
+// estimateEntrySize 估算单个缓存条目的大小（字节）
+func estimateEntrySize(entry *cache.RawCacheEntry) int64 {
+	if entry == nil {
+		return 0
+	}
+
+	size := int64(0)
+
+	// RawCacheEntry 结构体本身的大小
+	size += 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 8 // 各字段的大小
+
+	// IPs 切片
+	for _, ip := range entry.IPs {
+		size += int64(len(ip))
+	}
+	size += int64(len(entry.IPs)) * 24 // 切片头的开销
+
+	// CNAMEs 切片
+	for _, cname := range entry.CNAMEs {
+		size += int64(len(cname))
+	}
+	size += int64(len(entry.CNAMEs)) * 24 // 切片头的开销
+
+	// Records 切片（如果有）
+	if entry.Records != nil {
+		size += int64(len(entry.Records)) * 100 // 粗略估算每个 DNS 记录约 100 字节
+	}
+
+	// 其他开销（map 节点、指针等）
+	size += 100
+
+	return size
+}

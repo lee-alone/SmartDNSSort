@@ -285,7 +285,7 @@ func (c *Cache) GetExpiredEntries() int {
 	// 由于 LRUCache 内部是锁定的，我们需要获取所有值并检查
 	// 这里通过遍历实现（注意：这需要 LRUCache 提供迭代方法）
 	// 为了简化，我们先获取所有项的快照
-	entries := c.getRawCacheSnapshot()
+	entries := c.GetRawCacheSnapshot()
 	for _, entry := range entries {
 		if entry.IsExpired() {
 			count++

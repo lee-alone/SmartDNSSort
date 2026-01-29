@@ -3,7 +3,6 @@ package webapi
 import (
 	"encoding/json"
 	"net/http"
-	"smartdnssort/config"
 	"smartdnssort/logger"
 	"strings"
 
@@ -81,6 +80,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	currentEntries := s.dnsCache.GetCurrentEntries()
 	expiredEntries := s.dnsCache.GetExpiredEntries()
 	maxEntries := cacheCfg.CalculateMaxEntries()
+
+	// 计算采样的平均字节数
+	avgBytesPerEntry := s.calculateAvgBytesPerEntry()
+
 	var memoryPercent float64
 	if maxEntries > 0 {
 		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
@@ -95,7 +98,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"max_memory_mb":     cacheCfg.MaxMemoryMB,
 		"max_entries":       maxEntries,
 		"current_entries":   currentEntries,
-		"current_memory_mb": int(float64(currentEntries) * config.AvgBytesPerDomain / (1024 * 1024)),
+		"current_memory_mb": int(float64(currentEntries) * float64(avgBytesPerEntry) / (1024 * 1024)),
 		"memory_percent":    memoryPercent,
 		"expired_entries":   expiredEntries,
 		"expired_percent":   expiredPercent,
@@ -122,6 +125,9 @@ func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) 
 	expiredEntries := s.dnsCache.GetExpiredEntries()
 	protectedEntries := s.dnsCache.GetProtectedEntries()
 
+	// 计算采样的平均字节数
+	avgBytesPerEntry := s.calculateAvgBytesPerEntry()
+
 	var memoryPercent float64
 	if maxEntries > 0 {
 		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
@@ -136,7 +142,7 @@ func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) 
 		"max_memory_mb":     cacheCfg.MaxMemoryMB,
 		"max_entries":       maxEntries,
 		"current_entries":   currentEntries,
-		"current_memory_mb": int(float64(currentEntries) * config.AvgBytesPerDomain / (1024 * 1024)),
+		"current_memory_mb": int(float64(currentEntries) * float64(avgBytesPerEntry) / (1024 * 1024)),
 		"memory_percent":    memoryPercent,
 		"expired_entries":   expiredEntries,
 		"expired_percent":   expiredPercent,

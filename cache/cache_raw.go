@@ -167,8 +167,8 @@ func (c *Cache) SetRawRecordsWithDNSSECAndVersion(domain string, qtype uint16, r
 	c.addToExpiredHeap(key, expiryTime)
 }
 
-// getRawCacheSnapshot 获取 rawCache 中所有值的快照（仅供内部使用）
-func (c *Cache) getRawCacheSnapshot() []*RawCacheEntry {
+// GetRawCacheSnapshot 获取 rawCache 中所有值的快照（用于采样计算）
+func (c *Cache) GetRawCacheSnapshot() []*RawCacheEntry {
 	entries := make([]*RawCacheEntry, 0)
 	allValues := c.rawCache.GetAllEntries()
 	for _, val := range allValues {
