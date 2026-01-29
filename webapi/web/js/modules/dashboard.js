@@ -32,12 +32,14 @@ function updateDashboard() {
                 const cacheEntries = document.getElementById('cache_entries');
                 const expiredEntries = document.getElementById('expired_entries');
                 const protectedEntries = document.getElementById('protected_entries');
+                const evictionsPerMin = document.getElementById('evictions_per_min');
 
                 memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
                 memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
                 cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
                 expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
                 protectedEntries.textContent = mem.protected_entries.toLocaleString();
+                evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
             }
             if (data.upstream_stats) {
                 const upstreamTable = document.getElementById('upstream_stats').getElementsByTagName('tbody')[0];

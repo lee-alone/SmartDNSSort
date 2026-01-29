@@ -54,6 +54,13 @@ func (s *Server) GetStats() map[string]interface{} {
 	return st
 }
 
+// CalculateEvictionsPerMinute 计算每分钟的驱逐率
+func (s *Server) CalculateEvictionsPerMinute(currentEvictionCount int64) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stats.GetEvictionsPerMinute(currentEvictionCount)
+}
+
 // ClearStats clears all collected statistics.
 func (s *Server) ClearStats() {
 	s.mu.Lock()

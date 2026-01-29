@@ -47,6 +47,7 @@ const resourcesEn = {
         "cacheEntries": "Cache Entries",
         "expiredEntries": "Expired Entries",
         "protectedEntries": "Protected Entries",
+        "evictionsPerMin": "Evictions/min",
         "upstreamServers": "Upstream Servers",
         "server": "Server",
         "success": "Success",

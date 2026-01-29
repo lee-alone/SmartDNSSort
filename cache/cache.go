@@ -60,6 +60,7 @@ type Cache struct {
 	recentlyBlocked RecentlyBlockedTracker // 最近被拦截的域名追踪器
 	hits            int64                  // 缓存命中计数
 	misses          int64                  // 缓存未命中计数
+	evictions       int64                  // 驱逐计数（LRU驱逐 + 过期清理）
 
 	// 过期数据堆（使用 container/heap）
 	// 按过期时间排序，清理时只处理超过 Hard Limit 的数据
@@ -243,6 +244,7 @@ func (c *Cache) CleanExpired() {
 
 		if shouldDelete {
 			c.rawCache.Delete(entry.key)
+			atomic.AddInt64(&c.evictions, 1) // 记录驱逐
 			heap.Pop(&c.expiredHeap)
 		} else {
 			break
@@ -258,6 +260,11 @@ func (c *Cache) GetCurrentEntries() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.rawCache.Len()
+}
+
+// GetEvictions 获取驱逐计数
+func (c *Cache) GetEvictions() int64 {
+	return atomic.LoadInt64(&c.evictions)
 }
 
 // GetMemoryUsagePercent 获取当前内存使用百分比

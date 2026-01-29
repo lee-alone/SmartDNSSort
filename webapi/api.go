@@ -205,3 +205,13 @@ func estimateEntrySize(entry *cache.RawCacheEntry) int64 {
 
 	return size
 }
+
+// calculateEvictionsPerMinute 计算每分钟的驱逐率
+func (s *Server) calculateEvictionsPerMinute() float64 {
+	currentEvictions := s.dnsCache.GetEvictions()
+
+	// 通过 dnsServer 的 stats 对象来计算驱逐率
+	evictionsPerMin := s.dnsServer.CalculateEvictionsPerMinute(currentEvictions)
+
+	return evictionsPerMin
+}

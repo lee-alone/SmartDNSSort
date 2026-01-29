@@ -84,6 +84,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// 计算采样的平均字节数
 	avgBytesPerEntry := s.calculateAvgBytesPerEntry()
 
+	// 计算驱逐率
+	evictionsPerMin := s.calculateEvictionsPerMinute()
+
 	var memoryPercent float64
 	if maxEntries > 0 {
 		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
@@ -103,6 +106,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"expired_entries":   expiredEntries,
 		"expired_percent":   expiredPercent,
 		"protected_entries": s.dnsCache.GetProtectedEntries(),
+		"evictions_per_min": evictionsPerMin,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -128,6 +132,9 @@ func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) 
 	// 计算采样的平均字节数
 	avgBytesPerEntry := s.calculateAvgBytesPerEntry()
 
+	// 计算驱逐率
+	evictionsPerMin := s.calculateEvictionsPerMinute()
+
 	var memoryPercent float64
 	if maxEntries > 0 {
 		memoryPercent = (float64(currentEntries) / float64(maxEntries)) * 100
@@ -147,6 +154,7 @@ func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) 
 		"expired_entries":   expiredEntries,
 		"expired_percent":   expiredPercent,
 		"protected_entries": protectedEntries,
+		"evictions_per_min": evictionsPerMin,
 	}
 
 	s.writeJSONSuccess(w, "Cache memory stats retrieved successfully", stats)

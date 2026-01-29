@@ -32,6 +32,10 @@ type Stats struct {
 	// 新增：Hot Domains 追踪器
 	hotDomains *HotDomainsTracker
 
+	// 缓存驱逐统计
+	lastEvictionCount int64     // 上次记录的驱逐计数
+	lastCheckTime     time.Time // 上次检查时间
+
 	// 启动时间
 	startTime time.Time
 }
@@ -53,6 +57,7 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 		upstreamFailure: make(map[string]*int64),
 		hotDomains:      NewHotDomainsTracker(cfg),
 		startTime:       time.Now(),
+		lastCheckTime:   time.Now(),
 	}
 }
 
@@ -245,12 +250,46 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"system_stats":        sysStats,
 		"top_domains":         topDomains,
 		"uptime_seconds":      time.Since(s.startTime).Seconds(),
+		"evictions_per_min":   0.0, // 占位符，由 API 处理器计算
 	}
 }
 
 // RecordDomainQuery 记录域名查询次数
 func (s *Stats) RecordDomainQuery(domain string) {
 	s.hotDomains.RecordQuery(domain)
+}
+
+// RecordCacheEviction 记录缓存驱逐事件
+func (s *Stats) RecordCacheEviction(evictionCount int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(s.lastCheckTime).Seconds()
+
+	// 如果距离上次检查超过1分钟，重置计数
+	if elapsed >= 60 {
+		s.lastEvictionCount = evictionCount
+		s.lastCheckTime = now
+	}
+}
+
+// GetEvictionsPerMinute 获取每分钟的驱逐率
+func (s *Stats) GetEvictionsPerMinute(currentEvictionCount int64) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	elapsed := now.Sub(s.lastCheckTime).Seconds()
+
+	if elapsed < 1 {
+		return 0.0
+	}
+
+	evictionDelta := currentEvictionCount - s.lastEvictionCount
+	evictionsPerMin := float64(evictionDelta) / elapsed * 60
+
+	return evictionsPerMin
 }
 
 // DomainCount 用于排序的结构体

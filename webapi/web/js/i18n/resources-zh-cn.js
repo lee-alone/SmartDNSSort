@@ -47,6 +47,7 @@ const resourcesZhCn = {
         "cacheEntries": "缓存条目",
         "expiredEntries": "过期条目",
         "protectedEntries": "受保护条目",
+        "evictionsPerMin": "驱逐率/分钟",
         "upstreamServers": "上游服务器",
         "server": "服务器",
         "success": "成功",
