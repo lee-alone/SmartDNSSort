@@ -27,7 +27,7 @@ const resourcesZhCn = {
         "totalQueries": "总查询数",
         "cacheHits": "缓存命中",
         "cacheMisses": "缓存未命中",
-        "cacheStaleRefresh": "缓冲更新",
+        "cacheStaleRefresh": "缓存更新",
         "cacheHitRate": "缓存命中率",
         "upstreamFailures": "上游失败",
         "uptime": "上线时长",

@@ -27,7 +27,7 @@ const resourcesEn = {
         "totalQueries": "Total Queries",
         "cacheHits": "Cache Hits",
         "cacheMisses": "Cache Misses",
-        "cacheStaleRefresh": "Stale Refresh",
+        "cacheStaleRefresh": "Cache Refresh",
         "cacheHitRate": "Cache Hit Rate",
         "upstreamFailures": "Upstream Failures",
         "uptime": "System Uptime",

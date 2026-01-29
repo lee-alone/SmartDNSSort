@@ -18,7 +18,7 @@ type Stats struct {
 	queries           int64
 	cacheHits         int64
 	cacheMisses       int64
-	cacheStaleRefresh int64 // 缓冲更新：缓存已过期但返回给用户，同时向上游查询
+	cacheStaleRefresh int64 // 缓存更新：缓存已过期但返回给用户，同时向上游查询
 	upstreamFailures  int64 // 总失败计数
 	pingSuccesses     int64
 	pingFailures      int64
@@ -71,7 +71,7 @@ func (s *Stats) IncCacheMisses() {
 	atomic.AddInt64(&s.cacheMisses, 1)
 }
 
-// IncCacheStaleRefresh 增加缓冲更新计数（缓存已过期但返回给用户，同时向上游查询）
+// IncCacheStaleRefresh 增加缓存更新计数（缓存已过期但返回给用户，同时向上游查询）
 func (s *Stats) IncCacheStaleRefresh() {
 	atomic.AddInt64(&s.cacheStaleRefresh, 1)
 }
