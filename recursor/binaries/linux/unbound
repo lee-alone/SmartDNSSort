@@ -1,0 +1,5 @@
+#!/bin/bash
+# Placeholder for Unbound 1.19.1 binary (Linux/Debian)
+# This file should be replaced with the actual compiled binary
+echo "Unbound binary placeholder - replace with actual binary"
+exit 1
