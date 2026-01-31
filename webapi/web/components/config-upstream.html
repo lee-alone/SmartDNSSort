@@ -4,10 +4,30 @@
                 <h2 class="text-xl font-bold" data-i18n="config.upstream.legend">Upstream</h2>
         </div>
         <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <!-- 递归状态提示 -->
+                <div id="recursor-status-alert" class="form-group md:col-span-2 hidden p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <div class="flex items-start gap-3">
+                                <svg class="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                                </svg>
+                                <div>
+                                        <h4 class="font-semibold text-blue-900 dark:text-blue-100 mb-1" data-i18n="config.upstream.recursorEnabled">Recursive Resolver Enabled</h4>
+                                        <p class="text-sm text-blue-800 dark:text-blue-200 mb-2" data-i18n="config.upstream.recursorEnabledDesc">
+                                                Local recursive resolver is active. You can:
+                                        </p>
+                                        <ul class="text-sm text-blue-800 dark:text-blue-200 space-y-1 ml-4">
+                                                <li data-i18n="config.upstream.recursorOption1">• Leave upstream servers empty for pure recursive resolution</li>
+                                                <li data-i18n="config.upstream.recursorOption2">• Add upstream servers as fallback for queries the recursor cannot resolve</li>
+                                        </ul>
+                                </div>
+                        </div>
+                </div>
+
                 <div class="form-group md:col-span-2"><label for="upstream.servers"
                                 class="block text-sm font-medium mb-2" data-i18n="config.upstream.servers">Upstream
                                 Servers</label><textarea id="upstream.servers" name="upstream.servers"
-                                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"></textarea><small
+                                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"
+                                placeholder="e.g., 8.8.8.8:53&#10;1.1.1.1:53"></textarea><small
                                 data-i18n="config.upstream.serversHelp">One per line.</small></div>
                 <div class="form-group md:col-span-2"><label for="upstream.bootstrap_dns"
                                 class="block text-sm font-medium mb-2"

@@ -129,8 +129,8 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 		cfg.Upstream.BootstrapDNS[i] = strings.Trim(server, "' ")
 	}
 
-	if len(cfg.Upstream.Servers) == 0 {
-		return fmt.Errorf("at least one upstream server is required")
+	if len(cfg.Upstream.Servers) == 0 && !cfg.Upstream.EnableRecursor {
+		return fmt.Errorf("at least one upstream server is required, or enable local recursion")
 	}
 	if cfg.Upstream.TimeoutMs <= 0 {
 		return fmt.Errorf("upstream timeout must be positive")

@@ -83,6 +83,12 @@ const resourcesZhCn = {
             "legend": "上游",
             "servers": "上游服务器",
             "serversHelp": "每行一个服务器。",
+            "recursorEnabled": "递归解析器已启用",
+            "recursorEnabledDesc": "本地递归解析器已启用。您可以：",
+            "recursorOption1": "将上游服务器留空，使用纯递归解析",
+            "recursorOption2": "添加上游服务器作为备用，用于递归解析器无法解决的查询",
+            "defaultServersAdded": "已添加默认服务器",
+            "defaultServersAddedDesc": "已自动添加 Google 和 Cloudflare 的 DoH 服务器，以防止 DNS 解析失败。",
             "bootstrapDns": "引导 DNS",
             "bootstrapDnsHelp": "用于解析 DoH/DoT 域名的引导 DNS 服务器（必须是 IP 地址）。每行一个服务器。",
             "strategy": {

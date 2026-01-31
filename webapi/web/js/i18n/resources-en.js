@@ -83,6 +83,12 @@ const resourcesEn = {
             "legend": "Upstream",
             "servers": "Upstream Servers",
             "serversHelp": "One server per line.",
+            "recursorEnabled": "Recursive Resolver Enabled",
+            "recursorEnabledDesc": "Local recursive resolver is active. You can:",
+            "recursorOption1": "Leave upstream servers empty for pure recursive resolution",
+            "recursorOption2": "Add upstream servers as fallback for queries the recursor cannot resolve",
+            "defaultServersAdded": "Default Servers Added",
+            "defaultServersAddedDesc": "Google and Cloudflare DoH servers have been added to prevent DNS resolution failure.",
             "bootstrapDns": "Bootstrap DNS",
             "bootstrapDnsHelp": "Bootstrap DNS servers (must be IP addresses) for resolving DoH/DoT domain names. One server per line.",
             "strategy": {

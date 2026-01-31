@@ -86,6 +86,14 @@ function populateForm(config) {
 
         // 初始化 Recursor 状态
         updateRecursorStatus();
+        
+        // 添加递归状态变化监听
+        const recursorCheckbox = document.getElementById('upstream.enable_recursor');
+        if (recursorCheckbox) {
+            recursorCheckbox.addEventListener('change', updateUpstreamRecursorAlert);
+            // 初始化提示
+            updateUpstreamRecursorAlert();
+        }
 
         // Load AdBlock settings
         if (config.adblock) {
@@ -298,6 +306,72 @@ function initializeConfigUI() {
             updateStrategyUI();
         }, 100);
     }
+}
+
+/**
+ * 更新上游配置中的递归状态提示
+ */
+function updateUpstreamRecursorAlert() {
+    const recursorCheckbox = document.getElementById('upstream.enable_recursor');
+    const alertBox = document.getElementById('recursor-status-alert');
+    const upstreamServersField = document.getElementById('upstream.servers');
+    
+    if (!recursorCheckbox || !alertBox) return;
+    
+    if (recursorCheckbox.checked) {
+        // 显示提示
+        alertBox.classList.remove('hidden');
+    } else {
+        // 隐藏提示
+        alertBox.classList.add('hidden');
+        
+        // 当取消递归时，检查是否需要填充默认服务器
+        if (upstreamServersField) {
+            const currentServers = upstreamServersField.value.trim();
+            
+            // 如果上游服务器为空，自动填充默认的 DoH 服务器
+            if (!currentServers) {
+                const defaultServers = [
+                    'https://dns.google/dns-query',
+                    'https://cloudflare-dns.com/dns-query'
+                ].join('\n');
+                
+                upstreamServersField.value = defaultServers;
+                
+                // 显示提示信息
+                showDefaultServersNotification();
+            }
+        }
+    }
+}
+
+/**
+ * 显示默认服务器已填充的通知
+ */
+function showDefaultServersNotification() {
+    // 创建临时通知
+    const notification = document.createElement('div');
+    notification.className = 'fixed bottom-4 right-4 p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 shadow-lg z-50 max-w-sm';
+    notification.innerHTML = `
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <div>
+                <h4 class="font-semibold text-green-900 dark:text-green-100 mb-1" data-i18n="config.upstream.defaultServersAdded">Default Servers Added</h4>
+                <p class="text-sm text-green-800 dark:text-green-200" data-i18n="config.upstream.defaultServersAddedDesc">
+                    Google and Cloudflare DoH servers have been added to prevent DNS resolution failure.
+                </p>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // 3 秒后自动移除
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
 }
 
 document.addEventListener('componentsLoaded', initializeConfigUI);
