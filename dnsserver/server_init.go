@@ -41,7 +41,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 如果启用了 Recursor，将其添加为上游源
 	if cfg.Upstream.EnableRecursor {
-		recursorAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Upstream.RecursorPort)
+		recursorAddr := fmt.Sprintf("tcp://127.0.0.1:%d", cfg.Upstream.RecursorPort)
 		u, err := upstream.NewUpstream(recursorAddr, boot, &cfg.Upstream)
 		if err != nil {
 			logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)

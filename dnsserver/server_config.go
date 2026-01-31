@@ -44,7 +44,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 			if recursorPort == 0 {
 				recursorPort = 5353
 			}
-			recursorAddr := fmt.Sprintf("127.0.0.1:%d", recursorPort)
+			recursorAddr := fmt.Sprintf("tcp://127.0.0.1:%d", recursorPort)
 			u, err := upstream.NewUpstream(recursorAddr, boot, &newCfg.Upstream)
 			if err != nil {
 				logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)

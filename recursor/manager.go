@@ -317,8 +317,8 @@ func (m *Manager) waitForReady(timeout time.Duration) error {
 			return fmt.Errorf("timeout waiting for unbound to be ready")
 		}
 
-		// 尝试连接到 Unbound 端口
-		conn, err := net.DialTimeout("udp", fmt.Sprintf("127.0.0.1:%d", m.port), 100*time.Millisecond)
+		// 尝试连接到 Unbound TCP 端口
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", m.port), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			return nil
