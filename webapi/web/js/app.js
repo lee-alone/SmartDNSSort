@@ -20,4 +20,7 @@ document.addEventListener('componentsLoaded', () => {
 
     // Load config on startup
     loadConfig();
+    
+    // Load custom settings on startup
+    loadCustomSettings();
 });

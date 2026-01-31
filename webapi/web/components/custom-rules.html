@@ -61,4 +61,33 @@
             </div>
         </section>
     </div>
+
+    <!-- Unbound 配置编辑器 -->
+    <section id="unbound-config-section" class="flex flex-col bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden hidden">
+        <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
+            <h3 class="text-lg font-bold" data-i18n="custom.unboundConfig">Unbound Configuration</h3>
+        </div>
+        <div class="flex-1 p-6 flex flex-col gap-4">
+            <div class="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
+                <p class="text-xs text-blue-800 dark:text-blue-200" data-i18n="custom.unboundConfigHelp">
+                    Edit the Unbound recursive resolver configuration. Changes will be applied immediately after saving.
+                </p>
+            </div>
+            <textarea id="unbound-config-content"
+                class="w-full h-full min-h-[400px] resize-none rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-[#1a190b] p-4 font-mono text-sm"
+                placeholder="Loading configuration..." spellcheck="false"></textarea>
+            <div class="text-xs text-text-sub-light dark:text-text-sub-dark flex gap-4">
+                <span id="unbound-line-count">0 lines</span>
+                <span id="unbound-char-count">0 characters</span>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 flex justify-end items-center gap-3">
+            <button onclick="reloadUnboundConfig(this)"
+                class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-gray-400 hover:bg-gray-500 text-black text-sm font-bold"><span
+                    data-i18n="custom.reload">Reload</span></button>
+            <button onclick="saveUnboundConfig(this)"
+                class="flex cursor-pointer items-center justify-center rounded-full h-10 px-6 bg-primary hover:bg-yellow-300 text-black text-sm font-bold"><span
+                    data-i18n="custom.saveUnbound">Save & Restart</span></button>
+        </div>
+    </section>
 </div>

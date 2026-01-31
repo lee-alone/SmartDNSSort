@@ -98,6 +98,7 @@ func (s *Server) Start() error {
 
 	// Recursor API 路由
 	mux.HandleFunc("/api/recursor/status", s.handleRecursorStatus)
+	mux.HandleFunc("/api/unbound/config", s.handleUnboundConfig)
 
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")

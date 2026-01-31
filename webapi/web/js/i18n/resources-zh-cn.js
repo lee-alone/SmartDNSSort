@@ -309,6 +309,14 @@ const resourcesZhCn = {
         "customResponses": "自定义回复管理",
         "customResponsesHelp": "格式：域名 类型 值 TTL。此处的规则优先级高于拦截列表和上游查询。",
         "customResponsesExample": "示例：example.com A 1.2.3.4 300",
-        "saveResponse": "保存回复规则"
+        "saveResponse": "保存回复规则",
+        "unboundConfig": "Unbound 配置",
+        "unboundConfigHelp": "编辑 Unbound 递归解析器的配置文件。保存后更改将立即应用。",
+        "reload": "重新加载",
+        "saveUnbound": "保存并重启"
     }
 };
+
+// Add missing message keys for Unbound
+resourcesZhCn.messages.unboundConfigSaved = "Unbound 配置已成功保存，进程已重启。";
+resourcesZhCn.messages.unboundConfigSaveError = "保存 Unbound 配置时出错：{error}";

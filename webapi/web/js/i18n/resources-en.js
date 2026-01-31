@@ -309,6 +309,14 @@ const resourcesEn = {
         "customResponses": "Custom Responses",
         "customResponsesHelp": "Format: domain type value ttl. Rules here take precedence over block lists and upstream.",
         "customResponsesExample": "Example: example.com A 1.2.3.4 300",
-        "saveResponse": "Save Response Rules"
+        "saveResponse": "Save Response Rules",
+        "unboundConfig": "Unbound Configuration",
+        "unboundConfigHelp": "Edit the Unbound recursive resolver configuration. Changes will be applied immediately after saving.",
+        "reload": "Reload",
+        "saveUnbound": "Save & Restart"
     }
 };
+
+// Add missing message keys for Unbound
+resourcesEn.messages.unboundConfigSaved = "Unbound configuration saved and process restarted successfully.";
+resourcesEn.messages.unboundConfigSaveError = "Error saving Unbound configuration: {error}";
