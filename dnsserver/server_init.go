@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"smartdnssort/adblock"
@@ -10,6 +11,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
+	"smartdnssort/recursor"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 	"smartdnssort/upstream/bootstrap"
@@ -35,6 +37,18 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 			continue
 		}
 		upstreams = append(upstreams, u)
+	}
+
+	// 如果启用了 Recursor，将其添加为上游源
+	if cfg.Upstream.EnableRecursor {
+		recursorAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Upstream.RecursorPort)
+		u, err := upstream.NewUpstream(recursorAddr, boot, &cfg.Upstream)
+		if err != nil {
+			logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
+		} else {
+			upstreams = append(upstreams, u)
+			logger.Infof("Added recursor as upstream: %s", recursorAddr)
+		}
 	}
 
 	server := &Server{
@@ -98,6 +112,16 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 设置上游管理器的缓存更新回调
 	server.setupUpstreamCallback(server.upstream)
+
+	// 初始化嵌入式递归解析器（如果启用）
+	if cfg.Upstream.EnableRecursor {
+		recursorPort := cfg.Upstream.RecursorPort
+		if recursorPort == 0 {
+			recursorPort = 5353
+		}
+		server.recursorMgr = recursor.NewManager(recursorPort)
+		logger.Infof("[Recursor] Manager initialized for port %d", recursorPort)
+	}
 
 	return server
 }

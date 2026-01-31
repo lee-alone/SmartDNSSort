@@ -56,6 +56,7 @@ const ComponentLoader = {
         // Load config sub-components
         const configComponents = [
             { path: 'components/config-upstream.html', containerId: 'upstream-config-container' },
+            { path: 'components/config-recursor.html', containerId: 'recursor-config-container' },
             { path: 'components/config-ping.html', containerId: 'ping-config-container' },
             { path: 'components/config-cache.html', containerId: 'cache-config-container' },
             { path: 'components/config-adblock.html', containerId: 'adblock-config-container' },

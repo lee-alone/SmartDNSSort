@@ -24,6 +24,7 @@ type Manager struct {
 	stopCh          chan struct{}
 	exitCh          chan error
 	lastHealthCheck time.Time
+	startTime       time.Time // 进程启动时间
 }
 
 // NewManager 创建新的 Manager
@@ -36,6 +37,7 @@ func NewManager(port int) *Manager {
 }
 
 // Start 启动嵌入的 Unbound 进程
+// 二进制文件和配置文件解压到主程序目录下的 unbound/ 子目录
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -44,12 +46,13 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("recursor already running")
 	}
 
-	// 1. 解压 Unbound 二进制文件
+	// 1. 解压 Unbound 二进制文件到主程序目录
 	unboundPath, err := ExtractUnboundBinary()
 	if err != nil {
 		return fmt.Errorf("failed to extract unbound binary: %w", err)
 	}
 	m.unboundPath = unboundPath
+	logger.Infof("[Recursor] Extracted unbound binary to: %s", unboundPath)
 
 	// 2. 提取 root.key 文件
 	if err := extractRootKey(); err != nil {
@@ -62,6 +65,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to generate unbound config: %w", err)
 	}
 	m.configPath = configPath
+	logger.Infof("[Recursor] Generated config file: %s", configPath)
 
 	// 4. 启动 Unbound 进程
 	// -d: 前台运行（便于日志和进程管理）
@@ -77,7 +81,9 @@ func (m *Manager) Start() error {
 	}
 
 	m.enabled = true
+	m.startTime = time.Now()
 	m.lastHealthCheck = time.Now()
+	logger.Infof("[Recursor] Unbound process started (PID: %d)", m.cmd.Process.Pid)
 
 	// 5. 等待 Unbound 启动完成（检查端口是否可用）
 	if err := m.waitForReady(5 * time.Second); err != nil {
@@ -99,6 +105,7 @@ func (m *Manager) Start() error {
 }
 
 // Stop 停止 Unbound 进程
+// 清理主程序目录下 unbound/ 子目录中的文件
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -131,7 +138,7 @@ func (m *Manager) Stop() error {
 		}
 	}
 
-	// 3. 清理临时文件
+	// 3. 清理主程序目录下的 unbound 目录
 	if m.configPath != "" {
 		_ = os.Remove(m.configPath)
 	}
@@ -141,6 +148,8 @@ func (m *Manager) Stop() error {
 	}
 
 	m.enabled = false
+	m.startTime = time.Time{} // 重置启动时间
+	logger.Infof("[Recursor] Unbound process stopped")
 	return nil
 }
 
@@ -325,6 +334,13 @@ func (m *Manager) GetLastHealthCheck() time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.lastHealthCheck
+}
+
+// GetStartTime 获取进程启动时间
+func (m *Manager) GetStartTime() time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.startTime
 }
 
 // Query 执行 DNS 查询（用于测试）

@@ -50,6 +50,10 @@ type UpstreamConfig struct {
 
 	// 健康检查配置
 	HealthCheck HealthCheckConfig `yaml:"health_check,omitempty" json:"health_check"`
+
+	// Recursor 配置
+	EnableRecursor bool `yaml:"enable_recursor,omitempty" json:"enable_recursor"`
+	RecursorPort   int  `yaml:"recursor_port,omitempty" json:"recursor_port"`
 }
 
 // DynamicParamOptimizationConfig 动态参数优化配置

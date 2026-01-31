@@ -9,6 +9,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
+	"smartdnssort/recursor"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 
@@ -36,6 +37,7 @@ type Server struct {
 	tcpServer          *dns.Server             // Used in: server_lifecycle.go
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 	customRespManager  *CustomResponseManager  // 自定义回复管理器
+	recursorMgr        *recursor.Manager       // 嵌入式递归解析器管理器
 }
 
 // GetCustomResponseManager returns the custom response manager instance
@@ -126,4 +128,11 @@ func (s *Server) SetAdBlockEnabled(enabled bool) {
 
 	s.cfg.AdBlock.Enable = enabled
 	logger.Infof("[AdBlock] Filtering status changed to: %v", enabled)
+}
+
+// GetRecursorManager returns the recursor manager instance
+func (s *Server) GetRecursorManager() *recursor.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.recursorMgr
 }

@@ -18,10 +18,18 @@ import (
 //	└── data/
 //	    └── root.key
 //
-//go:embed binaries/linux/unbound binaries/windows/unbound.exe data/root.key
+//go:embed binaries/* data/*
 var unboundBinaries embed.FS
 
-// ExtractUnboundBinary 将嵌入的 unbound 二进制文件解压到临时目录
+// unboundDir 存储 unbound 相关文件的目录（相对于主程序）
+var unboundDir = "unbound"
+
+// SetUnboundDir 设置 unbound 目录（用于测试或自定义路径）
+func SetUnboundDir(dir string) {
+	unboundDir = dir
+}
+
+// ExtractUnboundBinary 将嵌入的 unbound 二进制文件解压到主程序目录下
 // 返回解压后的二进制文件路径
 // 仅支持 Linux x86-64 和 Windows x86-64
 func ExtractUnboundBinary() (string, error) {
@@ -39,8 +47,8 @@ func ExtractUnboundBinary() (string, error) {
 		binName = "unbound.exe"
 	}
 
-	// 构建嵌入文件路径
-	binPath := filepath.Join("binaries", platform, binName)
+	// 构建嵌入文件路径 - 必须使用正斜杠，embed.FS 总是使用 /
+	binPath := "binaries/" + platform + "/" + binName
 
 	// 尝试读取嵌入的二进制文件
 	data, err := unboundBinaries.ReadFile(binPath)
@@ -48,14 +56,13 @@ func ExtractUnboundBinary() (string, error) {
 		return "", fmt.Errorf("unbound binary not found for %s/%s: %w", platform, arch, err)
 	}
 
-	// 创建临时目录
-	tmpDir := filepath.Join(os.TempDir(), "smartdnssort-unbound")
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	// 创建主程序目录下的 unbound 目录
+	if err := os.MkdirAll(unboundDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create unbound directory: %w", err)
 	}
 
 	// 写入二进制文件
-	outPath := filepath.Join(tmpDir, binName)
+	outPath := filepath.Join(unboundDir, binName)
 	if err := os.WriteFile(outPath, data, 0755); err != nil {
 		return "", fmt.Errorf("failed to write unbound binary: %w", err)
 	}
@@ -70,25 +77,23 @@ func isSupportedPlatform(platform, arch string) bool {
 		(platform == "windows" && arch == "amd64")
 }
 
-// GetUnboundConfigDir 获取 Unbound 配置目录
+// GetUnboundConfigDir 获取 Unbound 配置目录（主程序目录下）
 func GetUnboundConfigDir() (string, error) {
-	tmpDir := filepath.Join(os.TempDir(), "smartdnssort-unbound")
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create config directory: %w", err)
+	if err := os.MkdirAll(unboundDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create unbound directory: %w", err)
 	}
-	return tmpDir, nil
+	return unboundDir, nil
 }
 
-// CleanupUnboundFiles 清理临时文件
+// CleanupUnboundFiles 清理 unbound 目录下的文件
 func CleanupUnboundFiles() error {
-	tmpDir := filepath.Join(os.TempDir(), "smartdnssort-unbound")
-	if err := os.RemoveAll(tmpDir); err != nil {
+	if err := os.RemoveAll(unboundDir); err != nil {
 		return fmt.Errorf("failed to cleanup unbound files: %w", err)
 	}
 	return nil
 }
 
-// extractRootKey 将嵌入的 root.key 文件提取到临时目录
+// extractRootKey 将嵌入的 root.key 文件提取到 unbound 目录
 func extractRootKey() error {
 	configDir, err := GetUnboundConfigDir()
 	if err != nil {
@@ -101,7 +106,7 @@ func extractRootKey() error {
 		return fmt.Errorf("root.key not found in embedded data: %w", err)
 	}
 
-	// 写入到临时目录
+	// 写入到 unbound 目录
 	rootKeyPath := filepath.Join(configDir, "root.key")
 	if err := os.WriteFile(rootKeyPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write root.key: %w", err)

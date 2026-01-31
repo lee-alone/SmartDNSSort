@@ -47,6 +47,15 @@ func (s *Server) Start() error {
 	// Start the prefetcher
 	s.prefetcher.Start()
 
+	// 启动嵌入式递归解析器（如果启用）
+	if s.recursorMgr != nil {
+		if err := s.recursorMgr.Start(); err != nil {
+			logger.Warnf("[Recursor] Failed to start recursor: %v", err)
+		} else {
+			logger.Infof("[Recursor] Recursor started on %s", s.recursorMgr.GetAddress())
+		}
+	}
+
 	logger.Infof("UDP DNS server started on %s", addr)
 	return s.udpServer.ListenAndServe()
 }
@@ -54,6 +63,15 @@ func (s *Server) Start() error {
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown() {
 	logger.Info("[Server] 开始关闭服务器...")
+
+	// 停止嵌入式递归解析器（如果启用）
+	if s.recursorMgr != nil {
+		if err := s.recursorMgr.Stop(); err != nil {
+			logger.Warnf("[Recursor] Failed to stop recursor: %v", err)
+		} else {
+			logger.Info("[Recursor] Recursor stopped successfully.")
+		}
+	}
 
 	// 关闭上游连接池
 	logger.Info("[Upstream] Closing upstream connection pools...")

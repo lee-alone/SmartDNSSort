@@ -188,6 +188,22 @@ const resourcesZhCn = {
             "refreshWorkers": "刷新工作者",
             "refreshWorkersHelp": "异步缓存刷新工作者的数量。"
         },
+        "recursor": {
+            "legend": "递归解析器",
+            "enable": "启用嵌入式 Unbound 递归解析器",
+            "enableHelp": "提供递归 DNS 解析功能。需要 Unbound 1.24.2 二进制文件。",
+            "port": "递归解析器端口",
+            "portHelp": "默认：5353。必须与 DNS 监听端口不同。",
+            "status": "状态",
+            "statusUnknown": "未知",
+            "statusRunning": "运行中（端口：{{port}}，运行时间：{{uptime}}）",
+            "statusStopped": "已停止",
+            "info": "信息",
+            "infoVersion": "• 版本：Unbound 1.24.2",
+            "infoArch": "• 架构：x86-64（Linux 和 Windows）",
+            "infoFeatures": "• 功能：DNSSEC 验证、缓存、预取",
+            "infoNote": "• 注意：递归解析器作为独立进程运行在本地主机上"
+        },
         "other": {
             "legend": "系统与高级设置"
         },

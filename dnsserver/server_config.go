@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
+	"smartdnssort/recursor"
 	"smartdnssort/upstream"
 	"smartdnssort/upstream/bootstrap"
 )
@@ -34,6 +36,22 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 				continue
 			}
 			upstreams = append(upstreams, u)
+		}
+
+		// 如果新配置启用了 Recursor，将其添加为上游源
+		if newCfg.Upstream.EnableRecursor {
+			recursorPort := newCfg.Upstream.RecursorPort
+			if recursorPort == 0 {
+				recursorPort = 5353
+			}
+			recursorAddr := fmt.Sprintf("127.0.0.1:%d", recursorPort)
+			u, err := upstream.NewUpstream(recursorAddr, boot, &newCfg.Upstream)
+			if err != nil {
+				logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
+			} else {
+				upstreams = append(upstreams, u)
+				logger.Infof("Added recursor as upstream: %s", recursorAddr)
+			}
 		}
 
 		newUpstream = upstream.NewManager(&newCfg.Upstream, upstreams, s.stats)
@@ -72,6 +90,44 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	// Now, acquire the lock and swap the components.
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	//处理 Recursor 生命周期 (必须在锁内进行，因为不仅涉及 s.recursorMgr 的替换，
+	// 还因为需要先停止旧的才能释放端口给新的使用)
+	recursorChanged := s.cfg.Upstream.EnableRecursor != newCfg.Upstream.EnableRecursor ||
+		s.cfg.Upstream.RecursorPort != newCfg.Upstream.RecursorPort
+
+	if recursorChanged {
+		logger.Info("Recursor configuration changed, updating manager...")
+
+		// 1. 停止现有的 Recursor (如果存在)
+		if s.recursorMgr != nil {
+			logger.Info("Stopping existing recursor...")
+			if err := s.recursorMgr.Stop(); err != nil {
+				logger.Warnf("Failed to stop existing recursor: %v", err)
+			}
+			s.recursorMgr = nil
+		}
+
+		// 2. 如果新配置启用，创建并启动新的
+		if newCfg.Upstream.EnableRecursor {
+			recursorPort := newCfg.Upstream.RecursorPort
+			if recursorPort == 0 {
+				recursorPort = 5353
+			}
+
+			logger.Infof("Initializing new recursor on port %d...", recursorPort)
+			newMgr := recursor.NewManager(recursorPort)
+
+			// 尝试启动
+			if err := newMgr.Start(); err != nil {
+				logger.Errorf("Failed to start new recursor: %v", err)
+				// 即使启动失败也保留 manager 引用，以便后续可以查询状态或重试
+			} else {
+				logger.Infof("New recursor started successfully on port %d", recursorPort)
+			}
+			s.recursorMgr = newMgr
+		}
+	}
 
 	if newUpstream != nil {
 		s.upstream = newUpstream

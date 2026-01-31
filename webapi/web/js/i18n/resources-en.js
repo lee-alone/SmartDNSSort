@@ -188,6 +188,22 @@ const resourcesEn = {
             "refreshWorkers": "Refresh Workers",
             "refreshWorkersHelp": "Number of async cache refresh workers."
         },
+        "recursor": {
+            "legend": "Recursive Resolver",
+            "enable": "Enable Embedded Unbound Recursor",
+            "enableHelp": "Provides recursive DNS resolution capability. Requires Unbound 1.24.2 binary.",
+            "port": "Recursor Port",
+            "portHelp": "Default: 5353. Must be different from DNS listen port.",
+            "status": "Status",
+            "statusUnknown": "Unknown",
+            "statusRunning": "Running on port {{port}} (Uptime: {{uptime}})",
+            "statusStopped": "Stopped",
+            "info": "Information",
+            "infoVersion": "• Version: Unbound 1.24.2",
+            "infoArch": "• Architecture: x86-64 (Linux & Windows)",
+            "infoFeatures": "• Features: DNSSEC validation, caching, prefetching",
+            "infoNote": "• Note: Recursor runs as a separate process on localhost"
+        },
         "other": {
             "legend": "System & Advanced Settings"
         },

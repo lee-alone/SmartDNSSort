@@ -141,6 +141,19 @@ prefetch:
   # 是否启用预取功能
   enabled: false
 
+# 嵌入式递归解析器配置
+# 注意：Recursor 是纯根递归解析器，直接从根服务器递归查询，不配置其他上游服务器
+# 启用后，可作为本地 DNS 缓存的上游源之一
+# 默认禁用，由用户在 Web 页面中决定是否启用
+recursor:
+  # 是否启用嵌入式 Unbound 递归解析器
+  # 启用后，系统将在本地运行 Unbound 1.24.2 进行纯根递归 DNS 解析
+  # 该服务可作为本地 DNS 缓存的上游源
+  enable_recursor: false
+  # Recursor 监听端口，默认 5353
+  # 必须与 DNS 监听端口不同
+  recursor_port: 5353
+
 # Web UI 管理界面配置
 webui:
   # 是否启用 Web 管理界面，默认 true

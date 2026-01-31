@@ -96,6 +96,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/custom/blocked", s.handleCustomBlocked)
 	mux.HandleFunc("/api/custom/response", s.handleCustomResponse)
 
+	// Recursor API 路由
+	mux.HandleFunc("/api/recursor/status", s.handleRecursorStatus)
+
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {

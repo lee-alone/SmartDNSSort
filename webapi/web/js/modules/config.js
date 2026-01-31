@@ -80,6 +80,13 @@ function populateForm(config) {
         setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
         setValue('upstream.bootstrap_dns', (config.upstream.bootstrap_dns || []).join('\n'));
 
+        // Recursor 配置
+        setChecked('upstream.enable_recursor', config.upstream.enable_recursor || false);
+        setValue('upstream.recursor_port', config.upstream.recursor_port || 5353);
+
+        // 初始化 Recursor 状态
+        updateRecursorStatus();
+
         // Load AdBlock settings
         if (config.adblock) {
             setValue('adblock_update_interval_hours', config.adblock.update_interval_hours || 0);
@@ -151,7 +158,9 @@ function saveConfig() {
                 dynamic_param_optimization: {
                     ewma_alpha: parseFloat(document.getElementById('upstream.dynamic_param_optimization.ewma_alpha').value) || 0.2,
                     max_step_ms: parseInt(document.getElementById('upstream.dynamic_param_optimization.max_step_ms').value) || 10,
-                }
+                },
+                enable_recursor: form.elements['upstream.enable_recursor'].checked,
+                recursor_port: parseInt(form.elements['upstream.recursor_port'].value) || 5353,
             },
             ping: {
                 enabled: form.elements['ping.enabled'].checked,

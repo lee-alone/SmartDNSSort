@@ -86,6 +86,11 @@ func setUpstreamDefaults(cfg *UpstreamConfig) {
 		c := runtime.NumCPU() * 20
 		cfg.MaxConnections = &c
 	}
+
+	// Recursor 默认配置
+	if cfg.RecursorPort == 0 {
+		cfg.RecursorPort = 5353
+	}
 }
 
 // setHealthCheckDefaults 设置健康检查配置的默认值
