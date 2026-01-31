@@ -1,4 +1,4 @@
-.PHONY: help build build-linux build-arm build-windows build-all run test clean deps release
+.PHONY: help build build-linux build-windows build-all run test clean deps release
 
 # 变量
 BINARY_NAME=SmartDNSSort
@@ -12,9 +12,9 @@ help:
 	@echo "可用命令:"
 	@echo "  make deps           - 下载依赖"
 	@echo "  make build          - 编译（当前平台）"
-	@echo "  make build-windows  - 编译 Windows（x86和x64）"
-	@echo "  make build-linux    - 编译 Linux（x86和ARM）"
-	@echo "  make build-all      - 编译所有平台"
+	@echo "  make build-windows  - 编译 Windows x86-64"
+	@echo "  make build-linux    - 编译 Linux x86-64"
+	@echo "  make build-all      - 编译所有平台 (仅 x86-64)"
 	@echo "  make run            - 运行服务器"
 	@echo "  make test           - 运行测试"
 	@echo "  make clean          - 清理编译文件"
@@ -30,39 +30,21 @@ deps:
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-# Windows x64
+# Windows x86-64
 build-windows-x64: deps $(BIN_DIR)
-	@echo "编译 Windows x64..."
+	@echo "编译 Windows x86-64..."
 	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/$(BINARY_NAME)-windows-x64.exe $(MAIN_PATH)
 	@echo "✓ 完成: $(BIN_DIR)/$(BINARY_NAME)-windows-x64.exe"
 
-# Windows x86
-build-windows-x86: deps $(BIN_DIR)
-	@echo "编译 Windows x86..."
-	GOOS=windows GOARCH=386 go build -o $(BIN_DIR)/$(BINARY_NAME)-windows-x86.exe $(MAIN_PATH)
-	@echo "✓ 完成: $(BIN_DIR)/$(BINARY_NAME)-windows-x86.exe"
-
-# Linux x86
-build-linux-x86: deps $(BIN_DIR)
-	@echo "编译 Debian x86..."
-	GOOS=linux GOARCH=386 go build -o $(BIN_DIR)/$(BINARY_NAME)-debian-x86 $(MAIN_PATH)
-	@echo "✓ 完成: $(BIN_DIR)/$(BINARY_NAME)-debian-x86"
-
-# Linux x64
+# Linux x86-64
 build-linux-x64: deps $(BIN_DIR)
-	@echo "编译 Debian x64..."
+	@echo "编译 Linux x86-64..."
 	GOOS=linux GOARCH=amd64 go build -o $(BIN_DIR)/$(BINARY_NAME)-debian-x64 $(MAIN_PATH)
 	@echo "✓ 完成: $(BIN_DIR)/$(BINARY_NAME)-debian-x64"
 
-# Linux ARM
-build-linux-arm: deps $(BIN_DIR)
-	@echo "编译 Debian ARM64..."
-	GOOS=linux GOARCH=arm64 go build -o $(BIN_DIR)/$(BINARY_NAME)-debian-arm64 $(MAIN_PATH)
-	@echo "✓ 完成: $(BIN_DIR)/$(BINARY_NAME)-debian-arm64"
-
 # 简化别名
-build-windows: build-windows-x86 build-windows-x64
-build-linux: build-linux-x86 build-linux-x64 build-linux-arm
+build-windows: build-windows-x64
+build-linux: build-linux-x64
 
 # 当前平台编译
 build: deps $(BIN_DIR)
@@ -70,9 +52,9 @@ build: deps $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "✓ 编译完成"
 
-# 所有平台编译
+# 所有平台编译 (仅 x86-64)
 build-all: build-windows build-linux
-	@echo "✓ 全平台编译完成"
+	@echo "✓ 全平台编译完成 (x86-64 only)"
 	@echo ""
 	@echo "输出文件位置: $(BIN_DIR)/"
 	@ls -lh $(BIN_DIR)/
@@ -97,7 +79,7 @@ clean:
 
 # 发布打包
 release: clean build-all
-	@echo "✓ 发布版本已生成"
+	@echo "✓ 发布版本已生成 (x86-64 only)"
 	@echo ""
 	@echo "生成的二进制文件:"
 	@ls -lh $(BIN_DIR)/

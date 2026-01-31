@@ -4,7 +4,7 @@
     SmartDNSSort Build Script
     
 .DESCRIPTION
-    跨平台编译脚本，支持Windows、Linux、ARM等架构
+    跨平台编译脚本，仅支持 x86-64 (amd64) 架构
     
 .PARAMETER Target
     编译目标: windows, linux, all (默认: windows)
@@ -73,6 +73,7 @@ function Build-Binary {
 Write-Host ""
 Write-Host "$Blue=====================================$Reset"
 Write-Host "$Blue SmartDNSSort Build System$Reset"
+Write-Host "$Blue (x86-64 only)$Reset"
 Write-Host "$Blue=====================================$Reset"
 Write-Host ""
 
@@ -100,26 +101,20 @@ $compiled = @()
 switch ($Target.ToLower()) {
     "windows" {
         $compiled += @(
-            (Build-Binary "windows" "amd64" "$BinDir/SmartDNSSort-windows-x64.exe" "Windows x64"),
-            (Build-Binary "windows" "386" "$BinDir/SmartDNSSort-windows-x86.exe" "Windows x86")
+            (Build-Binary "windows" "amd64" "$BinDir/SmartDNSSort-windows-x64.exe" "Windows x86-64")
         )
     }
     
     "linux" {
         $compiled += @(
-            (Build-Binary "linux" "amd64" "$BinDir/SmartDNSSort-debian-x64" "Linux x64"),
-            (Build-Binary "linux" "386" "$BinDir/SmartDNSSort-debian-x86" "Linux x86"),
-            (Build-Binary "linux" "arm64" "$BinDir/SmartDNSSort-debian-arm64" "Linux ARM64")
+            (Build-Binary "linux" "amd64" "$BinDir/SmartDNSSort-debian-x64" "Linux x86-64")
         )
     }
     
     "all" {
         $compiled += @(
-            (Build-Binary "windows" "amd64" "$BinDir/SmartDNSSort-windows-x64.exe" "Windows x64"),
-            (Build-Binary "windows" "386" "$BinDir/SmartDNSSort-windows-x86.exe" "Windows x86"),
-            (Build-Binary "linux" "amd64" "$BinDir/SmartDNSSort-debian-x64" "Linux x64"),
-            (Build-Binary "linux" "386" "$BinDir/SmartDNSSort-debian-x86" "Linux x86"),
-            (Build-Binary "linux" "arm64" "$BinDir/SmartDNSSort-debian-arm64" "Linux ARM64")
+            (Build-Binary "windows" "amd64" "$BinDir/SmartDNSSort-windows-x64.exe" "Windows x86-64"),
+            (Build-Binary "linux" "amd64" "$BinDir/SmartDNSSort-debian-x64" "Linux x86-64")
         )
     }
     
@@ -127,15 +122,15 @@ switch ($Target.ToLower()) {
         Write-Host "使用方法: .\build.ps1 [目标]"
         Write-Host ""
         Write-Host "可用目标:"
-        Write-Host "  windows     - 编译Windows版本 (默认)"
-        Write-Host "  linux       - 编译Linux版本"
-        Write-Host "  all         - 编译所有平台"
+        Write-Host "  windows     - 编译Windows x86-64版本 (默认)"
+        Write-Host "  linux       - 编译Linux x86-64版本"
+        Write-Host "  all         - 编译所有平台 (仅 x86-64)"
         Write-Host "  help        - 显示此帮助信息"
         Write-Host ""
         Write-Host "示例:"
-        Write-Host "  .\build.ps1               # 编译Windows版本"
+        Write-Host "  .\build.ps1               # 编译Windows x86-64版本"
         Write-Host "  .\build.ps1 all           # 编译所有平台"
-        Write-Host "  .\build.ps1 -Target linux # 编译Linux版本"
+        Write-Host "  .\build.ps1 -Target linux # 编译Linux x86-64版本"
         exit 0
     }
     

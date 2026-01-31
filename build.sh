@@ -3,6 +3,7 @@
 # SmartDNSSort Build Script for Unix-like systems
 # Usage: ./build.sh [target]
 # Targets: windows, linux, all (default: linux)
+# 仅支持 x86-64 (amd64) 架构
 
 set -e
 
@@ -60,19 +61,18 @@ SmartDNSSort Build Script
 使用方法: ./build.sh [目标]
 
 可用目标:
-  linux       - 编译Linux版本 (默认)
-  windows     - 编译Windows版本
-  all         - 编译所有平台
+  linux       - 编译Linux x86-64版本 (默认)
+  windows     - 编译Windows x86-64版本
+  all         - 编译所有平台 (仅 x86-64)
   clean       - 清理编译文件
   help        - 显示此帮助信息
 
 示例:
-  ./build.sh              # 编译Linux版本
+  ./build.sh              # 编译Linux x86-64版本
   ./build.sh all          # 编译所有平台
-  ./build.sh windows      # 编译Windows版本
+  ./build.sh windows      # 编译Windows x86-64版本
 
-环境变量:
-  VERSION     - 版本号 (默认: v1.0)
+注意: 仅支持 x86-64 (amd64) 架构
 
 EOF
 }
@@ -83,6 +83,7 @@ TARGET="${1:-linux}"
 echo ""
 echo -e "${BLUE}====================================${NC}"
 echo -e "${BLUE} SmartDNSSort Build System${NC}"
+echo -e "${BLUE} (x86-64 only)${NC}"
 echo -e "${BLUE}====================================${NC}"
 echo ""
 
@@ -103,22 +104,16 @@ compiled=()
 
 case "$TARGET" in
     linux)
-        build_binary "linux" "amd64" "$BIN_DIR/SmartDNSSort-debian-x64" "Linux x64" && compiled+=(0) || compiled+=(1)
-        build_binary "linux" "386" "$BIN_DIR/SmartDNSSort-debian-x86" "Linux x86" && compiled+=(0) || compiled+=(1)
-        build_binary "linux" "arm64" "$BIN_DIR/SmartDNSSort-debian-arm64" "Linux ARM64" && compiled+=(0) || compiled+=(1)
+        build_binary "linux" "amd64" "$BIN_DIR/SmartDNSSort-debian-x64" "Linux x86-64" && compiled+=(0) || compiled+=(1)
         ;;
     
     windows)
-        build_binary "windows" "amd64" "$BIN_DIR/SmartDNSSort-windows-x64.exe" "Windows x64" && compiled+=(0) || compiled+=(1)
-        build_binary "windows" "386" "$BIN_DIR/SmartDNSSort-windows-x86.exe" "Windows x86" && compiled+=(0) || compiled+=(1)
+        build_binary "windows" "amd64" "$BIN_DIR/SmartDNSSort-windows-x64.exe" "Windows x86-64" && compiled+=(0) || compiled+=(1)
         ;;
     
     all)
-        build_binary "windows" "amd64" "$BIN_DIR/SmartDNSSort-windows-x64.exe" "Windows x64" && compiled+=(0) || compiled+=(1)
-        build_binary "windows" "386" "$BIN_DIR/SmartDNSSort-windows-x86.exe" "Windows x86" && compiled+=(0) || compiled+=(1)
-        build_binary "linux" "amd64" "$BIN_DIR/SmartDNSSort-debian-x64" "Linux x64" && compiled+=(0) || compiled+=(1)
-        build_binary "linux" "386" "$BIN_DIR/SmartDNSSort-debian-x86" "Linux x86" && compiled+=(0) || compiled+=(1)
-        build_binary "linux" "arm64" "$BIN_DIR/SmartDNSSort-debian-arm64" "Linux ARM64" && compiled+=(0) || compiled+=(1)
+        build_binary "windows" "amd64" "$BIN_DIR/SmartDNSSort-windows-x64.exe" "Windows x86-64" && compiled+=(0) || compiled+=(1)
+        build_binary "linux" "amd64" "$BIN_DIR/SmartDNSSort-debian-x64" "Linux x86-64" && compiled+=(0) || compiled+=(1)
         ;;
     
     clean)
