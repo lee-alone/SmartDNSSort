@@ -132,9 +132,9 @@ func main() {
 	fmt.Printf("Ping concurrency: %d, timeout: %dms\n", cfg.Ping.Concurrency, cfg.Ping.TimeoutMs)
 
 	// 启动 Web API 服务（可选）
+	var webServer *webapi.Server
+	webServerDone := make(chan error, 1)
 	if cfg.WebUI.Enabled {
-		var webServer *webapi.Server
-
 		// 定义重启回调函数
 		restartFunc := func() {
 			restartService(dnsServer, webServer)
@@ -143,15 +143,16 @@ func main() {
 		webServer = webapi.NewServer(cfg, dnsServer.GetCache(), dnsServer, effectiveConfigPath, restartFunc)
 		go func() {
 			if err := webServer.Start(); err != nil {
-				logger.Errorf("Web API server error: %v", err)
+				webServerDone <- err
 			}
 		}()
 	}
 
 	// 在 goroutine 中启动 DNS 服务器，以非阻塞方式运行
+	dnsServerDone := make(chan error, 1)
 	go func() {
 		if err := dnsServer.Start(); err != nil {
-			logger.Fatalf("Failed to start DNS server: %v", err)
+			dnsServerDone <- err
 		}
 	}()
 
@@ -162,8 +163,24 @@ func main() {
 
 	logger.Info("Shutting down server...")
 
-	// 停止服务
+	// 先关闭 Web 服务器
+	if webServer != nil {
+		logger.Info("Stopping Web API server...")
+		if err := webServer.Stop(); err != nil {
+			logger.Errorf("Failed to stop Web API server: %v", err)
+		}
+	}
+
+	// 停止 DNS 服务
 	dnsServer.Shutdown()
+
+	// 等待 DNS 服务器完全停止
+	select {
+	case <-dnsServerDone:
+		logger.Info("DNS server stopped.")
+	case <-time.After(5 * time.Second):
+		logger.Warn("DNS server shutdown timeout.")
+	}
 
 	logger.Info("Server gracefully stopped.")
 }

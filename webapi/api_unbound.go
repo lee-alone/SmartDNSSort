@@ -125,7 +125,16 @@ func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request,
 
 // getUnboundConfigPath 获取 Unbound 配置文件路径
 func (s *Server) getUnboundConfigPath() string {
-	// 与 recursor/embedded.go 中的 GetUnboundConfigDir 保持一致
+	// 在 Linux 上，配置文件在 /etc/unbound/unbound.conf.d/smartdnssort.conf
+	// 在 Windows 上，配置文件在嵌入式目录
+
+	// 首先尝试 Linux 标准位置
+	linuxPath := "/etc/unbound/unbound.conf.d/smartdnssort.conf"
+	if _, err := os.Stat(linuxPath); err == nil {
+		return linuxPath
+	}
+
+	// 备选：嵌入式路径
 	unboundDir := "unbound"
 	return filepath.Join(unboundDir, "unbound.conf")
 }

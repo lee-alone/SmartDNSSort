@@ -197,7 +197,7 @@ const resourcesZhCn = {
         "recursor": {
             "legend": "递归解析器",
             "enable": "启用嵌入式 Unbound 递归解析器",
-            "enableHelp": "提供递归 DNS 解析功能。需要 Unbound 1.24.2 二进制文件。",
+            "enableHelp": "提供递归 DNS 解析功能。自动安装和管理 Unbound。",
             "port": "递归解析器端口",
             "portHelp": "默认：5353。必须与 DNS 监听端口不同。",
             "status": "状态",
@@ -205,10 +205,16 @@ const resourcesZhCn = {
             "statusRunning": "运行中（端口：{{port}}，运行时间：{{uptime}}）",
             "statusStopped": "已停止",
             "info": "信息",
-            "infoVersion": "• 版本：Unbound 1.24.2",
-            "infoArch": "• 架构：x86-64（Linux 和 Windows）",
+            "infoVersion": "• 版本：从系统自动检测",
+            "infoArch": "• 架构：根据您的系统自动配置",
             "infoFeatures": "• 功能：DNSSEC 验证、缓存、预取",
-            "infoNote": "• 注意：递归解析器作为独立进程运行在本地主机上"
+            "infoNote": "• 注意：递归解析器作为独立进程运行在本地主机上",
+            "installing": "正在安装 Unbound...",
+            "systemInfo": "系统信息",
+            "error": "错误",
+            "enableBtn": "启用",
+            "disableBtn": "禁用",
+            "refreshBtn": "刷新状态"
         },
         "other": {
             "legend": "系统与高级设置"

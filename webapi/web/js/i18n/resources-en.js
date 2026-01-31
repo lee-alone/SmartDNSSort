@@ -197,7 +197,7 @@ const resourcesEn = {
         "recursor": {
             "legend": "Recursive Resolver",
             "enable": "Enable Embedded Unbound Recursor",
-            "enableHelp": "Provides recursive DNS resolution capability. Requires Unbound 1.24.2 binary.",
+            "enableHelp": "Provides recursive DNS resolution capability. Automatically installs and manages Unbound.",
             "port": "Recursor Port",
             "portHelp": "Default: 5353. Must be different from DNS listen port.",
             "status": "Status",
@@ -205,10 +205,16 @@ const resourcesEn = {
             "statusRunning": "Running on port {{port}} (Uptime: {{uptime}})",
             "statusStopped": "Stopped",
             "info": "Information",
-            "infoVersion": "• Version: Unbound 1.24.2",
-            "infoArch": "• Architecture: x86-64 (Linux & Windows)",
+            "infoVersion": "• Version: Auto-detected from system",
+            "infoArch": "• Architecture: Auto-configured for your system",
             "infoFeatures": "• Features: DNSSEC validation, caching, prefetching",
-            "infoNote": "• Note: Recursor runs as a separate process on localhost"
+            "infoNote": "• Note: Recursor runs as a separate process on localhost",
+            "installing": "Installing Unbound...",
+            "systemInfo": "System Information",
+            "error": "Error",
+            "enableBtn": "Enable",
+            "disableBtn": "Disable",
+            "refreshBtn": "Refresh Status"
         },
         "other": {
             "legend": "System & Advanced Settings"

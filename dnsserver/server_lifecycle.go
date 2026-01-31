@@ -64,6 +64,9 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() {
 	logger.Info("[Server] 开始关闭服务器...")
 
+	// 关闭停止通道，通知所有后台 goroutine 停止
+	close(s.stopCh)
+
 	// 停止嵌入式递归解析器（如果启用）
 	if s.recursorMgr != nil {
 		if err := s.recursorMgr.Stop(); err != nil {

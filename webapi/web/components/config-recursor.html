@@ -4,6 +4,54 @@
     </div>
     <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
         
+        <!-- 安装进度提示 -->
+        <div id="recursor-install-progress" class="hidden md:col-span-2 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+            <div class="flex items-center gap-3">
+                <div class="animate-spin text-yellow-600 dark:text-yellow-400">⏳</div>
+                <div class="flex-1">
+                    <h4 class="font-semibold text-yellow-900 dark:text-yellow-100" data-i18n="config.recursor.installing">Installing Unbound...</h4>
+                    <p class="text-sm text-yellow-800 dark:text-yellow-200" id="recursor-install-message">Initializing installation process...</p>
+                    <div class="mt-2 w-full bg-yellow-200 dark:bg-yellow-900 rounded-full h-2">
+                        <div id="recursor-install-progress-bar" class="bg-yellow-600 dark:bg-yellow-400 h-2 rounded-full transition-all" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统信息面板 -->
+        <div id="recursor-system-info" class="hidden md:col-span-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+            <h4 class="font-semibold mb-3 text-blue-900 dark:text-blue-100" data-i18n="config.recursor.systemInfo">System Information</h4>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                    <span class="text-blue-600 dark:text-blue-300 font-medium">OS</span>
+                    <p class="text-blue-900 dark:text-blue-100" id="recursor-sys-os">-</p>
+                </div>
+                <div>
+                    <span class="text-blue-600 dark:text-blue-300 font-medium">CPU Cores</span>
+                    <p class="text-blue-900 dark:text-blue-100" id="recursor-sys-cpu">-</p>
+                </div>
+                <div>
+                    <span class="text-blue-600 dark:text-blue-300 font-medium">Memory</span>
+                    <p class="text-blue-900 dark:text-blue-100" id="recursor-sys-memory">-</p>
+                </div>
+                <div>
+                    <span class="text-blue-600 dark:text-blue-300 font-medium">Unbound</span>
+                    <p class="text-blue-900 dark:text-blue-100" id="recursor-sys-unbound">-</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div id="recursor-error-alert" class="hidden md:col-span-2 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <div class="flex items-start gap-3">
+                <span class="text-red-600 dark:text-red-400 text-xl">⚠️</span>
+                <div class="flex-1">
+                    <h4 class="font-semibold text-red-900 dark:text-red-100" data-i18n="config.recursor.error">Error</h4>
+                    <p class="text-sm text-red-800 dark:text-red-200" id="recursor-error-message"></p>
+                </div>
+            </div>
+        </div>
+        
         <!-- 启用/禁用开关 -->
         <div class="form-group md:col-span-2">
             <label class="flex items-center gap-3">
@@ -14,7 +62,7 @@
                 <span data-i18n="config.recursor.enable">Enable Embedded Unbound Recursor</span>
             </label>
             <small data-i18n="config.recursor.enableHelp">
-                Provides recursive DNS resolution capability. Requires Unbound 1.24.2 binary.
+                Provides recursive DNS resolution capability. Automatically installs and manages Unbound.
             </small>
         </div>
 
@@ -41,12 +89,14 @@
             </div>
         </div>
 
+
+
         <!-- 信息面板 -->
         <div class="form-group md:col-span-2 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
             <h4 class="font-semibold mb-2 text-blue-900 dark:text-blue-100" data-i18n="config.recursor.info">Information</h4>
             <ul class="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                <li data-i18n="config.recursor.infoVersion">• Version: Unbound 1.24.2</li>
-                <li data-i18n="config.recursor.infoArch">• Architecture: x86-64 (Linux & Windows)</li>
+                <li data-i18n="config.recursor.infoVersion">• Version: Auto-detected from system</li>
+                <li data-i18n="config.recursor.infoArch">• Architecture: Auto-configured for your system</li>
                 <li data-i18n="config.recursor.infoFeatures">• Features: DNSSEC validation, caching, prefetching</li>
                 <li data-i18n="config.recursor.infoNote">• Note: Recursor runs as a separate process on localhost</li>
             </ul>

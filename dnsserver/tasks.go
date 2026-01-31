@@ -13,8 +13,13 @@ func (s *Server) cleanCacheRoutine() {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.cache.CleanExpired()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.cache.CleanExpired()
+		}
 	}
 }
 
@@ -27,12 +32,17 @@ func (s *Server) saveCacheRoutine() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		logger.Info("[Cache] Saving cache to disk...")
-		if err := s.cache.SaveToDisk("dns_cache.bin"); err != nil {
-			logger.Errorf("[Cache] Failed to save cache: %v", err)
-		} else {
-			logger.Info("[Cache] Cache saved successfully.")
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			logger.Info("[Cache] Saving cache to disk...")
+			if err := s.cache.SaveToDisk("dns_cache.bin"); err != nil {
+				logger.Errorf("[Cache] Failed to save cache: %v", err)
+			} else {
+				logger.Info("[Cache] Cache saved successfully.")
+			}
 		}
 	}
 }

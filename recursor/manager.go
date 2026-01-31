@@ -13,6 +13,16 @@ import (
 	"time"
 )
 
+// InstallState 安装状态
+type InstallState int
+
+const (
+	StateNotInstalled InstallState = iota
+	StateInstalling
+	StateInstalled
+	StateError
+)
+
 // Manager 管理嵌入的 Unbound 递归解析器
 type Manager struct {
 	mu              sync.RWMutex
@@ -25,14 +35,22 @@ type Manager struct {
 	exitCh          chan error
 	lastHealthCheck time.Time
 	startTime       time.Time // 进程启动时间
+
+	// 新增字段 - 系统级管理
+	sysManager    *SystemManager
+	configGen     *ConfigGenerator
+	isSystemLevel bool
+	installState  InstallState
 }
 
 // NewManager 创建新的 Manager
 func NewManager(port int) *Manager {
 	return &Manager{
-		port:   port,
-		stopCh: make(chan struct{}),
-		exitCh: make(chan error, 1),
+		port:         port,
+		stopCh:       make(chan struct{}),
+		exitCh:       make(chan error, 1),
+		sysManager:   NewSystemManager(),
+		installState: StateNotInstalled,
 	}
 }
 
@@ -46,20 +64,40 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("recursor already running")
 	}
 
-	// 1. 解压 Unbound 二进制文件到主程序目录
-	unboundPath, err := ExtractUnboundBinary()
-	if err != nil {
-		return fmt.Errorf("failed to extract unbound binary: %w", err)
+	// 首次启用时执行初始化
+	if m.installState == StateNotInstalled {
+		m.installState = StateInstalling
+		m.mu.Unlock()
+		if err := m.Initialize(); err != nil {
+			m.mu.Lock()
+			m.installState = StateError
+			return err
+		}
+		m.mu.Lock()
+		m.installState = StateInstalled
 	}
-	m.unboundPath = unboundPath
-	logger.Infof("[Recursor] Extracted unbound binary to: %s", unboundPath)
 
-	// 2. 提取 root.key 文件
-	if err := extractRootKey(); err != nil {
-		return fmt.Errorf("failed to extract root.key: %w", err)
+	// 1. 解压 Unbound 二进制文件到主程序目录（仅 Windows）
+	if runtime.GOOS == "windows" {
+		unboundPath, err := ExtractUnboundBinary()
+		if err != nil {
+			return fmt.Errorf("failed to extract unbound binary: %w", err)
+		}
+		m.unboundPath = unboundPath
+		logger.Infof("[Recursor] Extracted unbound binary to: %s", unboundPath)
+
+		// 提取 root.key 文件
+		if err := extractRootKey(); err != nil {
+			return fmt.Errorf("failed to extract root.key: %w", err)
+		}
+	} else {
+		// Linux: 使用系统级 unbound
+		if m.sysManager != nil {
+			m.unboundPath = m.sysManager.unboundPath
+		}
 	}
 
-	// 3. 生成配置文件
+	// 2. 生成配置文件
 	configPath, err := m.generateConfig()
 	if err != nil {
 		return fmt.Errorf("failed to generate unbound config: %w", err)
@@ -67,7 +105,7 @@ func (m *Manager) Start() error {
 	m.configPath = configPath
 	logger.Infof("[Recursor] Generated config file: %s", configPath)
 
-	// 4. 启动 Unbound 进程
+	// 3. 启动 Unbound 进程
 	// -d: 前台运行（便于日志和进程管理）
 	// -c: 指定配置文件
 	m.cmd = exec.Command(m.unboundPath, "-c", m.configPath, "-d")
@@ -85,12 +123,12 @@ func (m *Manager) Start() error {
 	m.lastHealthCheck = time.Now()
 	logger.Infof("[Recursor] Unbound process started (PID: %d)", m.cmd.Process.Pid)
 
-	// 5. 等待 Unbound 启动完成（检查端口是否可用）
+	// 4. 等待 Unbound 启动完成（检查端口是否可用）
 	if err := m.waitForReady(5 * time.Second); err != nil {
 		return fmt.Errorf("unbound may not be ready: %v", err)
 	}
 
-	// 6. 启动进程监控 goroutine
+	// 5. 启动进程监控 goroutine
 	m.exitCh = make(chan error, 1)
 	go func() {
 		// 等待进程退出
@@ -98,7 +136,7 @@ func (m *Manager) Start() error {
 		m.exitCh <- err
 	}()
 
-	// 7. 启动健康检查/保活 loop
+	// 6. 启动健康检查/保活 loop
 	go m.healthCheckLoop()
 
 	return nil
@@ -138,13 +176,12 @@ func (m *Manager) Stop() error {
 		}
 	}
 
-	// 3. 清理主程序目录下的 unbound 目录
+	// 3. 清理配置文件
+	// 注意：只清理配置文件，不清理 unbound 二进制文件
+	// 在 Linux 上，unbound 是系统包，不应该被删除
+	// 在 Windows 上，unbound 是嵌入式的，但也不应该在这里删除
 	if m.configPath != "" {
 		_ = os.Remove(m.configPath)
-	}
-
-	if m.unboundPath != "" {
-		_ = os.Remove(m.unboundPath)
 	}
 
 	m.enabled = false
@@ -156,6 +193,31 @@ func (m *Manager) Stop() error {
 // generateConfig 生成 Unbound 配置文件
 // 根据运行时的机器情况动态调整参数
 func (m *Manager) generateConfig() (string, error) {
+	// 如果已有 ConfigGenerator，使用它
+	if m.configGen != nil {
+		config, err := m.configGen.GenerateConfig()
+		if err != nil {
+			return "", err
+		}
+
+		// 确定配置文件路径
+		var configPath string
+		if runtime.GOOS == "linux" {
+			configPath = "/etc/unbound/unbound.conf.d/smartdnssort.conf"
+		} else {
+			configDir, _ := GetUnboundConfigDir()
+			configPath = filepath.Join(configDir, "unbound.conf")
+		}
+
+		// 写入配置文件
+		if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+			return "", fmt.Errorf("failed to write config file: %w", err)
+		}
+
+		return configPath, nil
+	}
+
+	// 回退到原有的配置生成逻辑（用于兼容性）
 	configDir, err := GetUnboundConfigDir()
 	if err != nil {
 		return "", err
@@ -352,4 +414,129 @@ func (m *Manager) Query(ctx context.Context, domain string) error {
 	// 这里可以添加实际的 DNS 查询逻辑
 	// 用于验证 Unbound 是否正常工作
 	return nil
+}
+
+// Initialize 初始化（首次启用时调用）
+func (m *Manager) Initialize() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. 检测系统
+	if err := m.sysManager.DetectSystem(); err != nil {
+		return fmt.Errorf("failed to detect system: %w", err)
+	}
+
+	logger.Infof("[Recursor] System detected: OS=%s, Distro=%s", m.sysManager.osType, m.sysManager.distro)
+
+	// 2. 检查 unbound 是否已安装
+	if !m.sysManager.IsUnboundInstalled() {
+		logger.Infof("[Recursor] Unbound not installed, installing...")
+		// 3. 安装 unbound
+		if err := m.sysManager.InstallUnbound(); err != nil {
+			return fmt.Errorf("failed to install unbound: %w", err)
+		}
+		logger.Infof("[Recursor] Unbound installed successfully")
+	} else {
+		logger.Infof("[Recursor] Unbound already installed")
+		// 4. 处理已存在的 unbound
+		if err := m.sysManager.handleExistingUnbound(); err != nil {
+			logger.Warnf("[Recursor] Failed to handle existing unbound: %v", err)
+		}
+	}
+
+	// 5. 获取版本信息
+	version, err := m.sysManager.GetUnboundVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get unbound version: %w", err)
+	}
+
+	logger.Infof("[Recursor] Unbound version: %s", version)
+
+	// 6. 获取 unbound 路径
+	path, err := m.sysManager.getUnboundPath()
+	if err != nil {
+		return fmt.Errorf("failed to get unbound path: %w", err)
+	}
+
+	m.sysManager.unboundPath = path
+	m.sysManager.unboundVer = version
+	logger.Infof("[Recursor] Unbound path: %s", path)
+
+	// 7. 创建配置生成器
+	sysInfo := m.sysManager.GetSystemInfo()
+	m.configGen = NewConfigGenerator(version, sysInfo, m.port)
+
+	// 8. 验证配置
+	if err := m.configGen.ValidateConfig(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// 9. 确定是否为系统级
+	m.isSystemLevel = runtime.GOOS == "linux"
+
+	logger.Infof("[Recursor] Initialization complete: OS=%s, Version=%s, SystemLevel=%v",
+		sysInfo.OS, version, m.isSystemLevel)
+
+	return nil
+}
+
+// Cleanup 清理（卸载时调用）
+func (m *Manager) Cleanup() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. 停止 unbound
+	if m.enabled {
+		m.mu.Unlock()
+		err := m.Stop()
+		m.mu.Lock()
+		if err != nil {
+			logger.Warnf("[Recursor] Failed to stop unbound: %v", err)
+		}
+	}
+
+	// 2. 删除配置文件
+	if m.configPath != "" {
+		_ = os.Remove(m.configPath)
+	}
+
+	// 3. Linux: 卸载 unbound
+	if runtime.GOOS == "linux" && m.sysManager != nil {
+		if err := m.sysManager.UninstallUnbound(); err != nil {
+			logger.Warnf("[Recursor] Failed to uninstall unbound: %v", err)
+		}
+	}
+
+	logger.Infof("[Recursor] Cleanup complete")
+	return nil
+}
+
+// GetSystemInfo 获取系统信息
+func (m *Manager) GetSystemInfo() SystemInfo {
+	if m.sysManager == nil {
+		return SystemInfo{}
+	}
+	return m.sysManager.GetSystemInfo()
+}
+
+// GetUnboundVersion 获取 unbound 版本
+func (m *Manager) GetUnboundVersion() string {
+	if m.sysManager == nil {
+		return ""
+	}
+	return m.sysManager.unboundVer
+}
+
+// GetInstallState 获取安装状态
+func (m *Manager) GetInstallState() InstallState {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.installState
+}
+
+// SetInstallState 设置安装状态
+func (m *Manager) SetInstallState(state InstallState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.installState = state
 }

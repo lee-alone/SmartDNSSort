@@ -60,6 +60,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json"),
 		sortQueue:    sortQueue,
 		refreshQueue: refreshQueue,
+		stopCh:       make(chan struct{}),
 	}
 
 	// 尝试加载持久化缓存

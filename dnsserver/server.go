@@ -38,6 +38,7 @@ type Server struct {
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 	customRespManager  *CustomResponseManager  // 自定义回复管理器
 	recursorMgr        *recursor.Manager       // 嵌入式递归解析器管理器
+	stopCh             chan struct{}           // 用于优雅关闭后台 goroutine
 }
 
 // GetCustomResponseManager returns the custom response manager instance
