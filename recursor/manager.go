@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"smartdnssort/logger"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,6 +42,10 @@ type Manager struct {
 	configGen     *ConfigGenerator
 	isSystemLevel bool
 	installState  InstallState
+
+	// 重启管理
+	restartAttempts int       // 当前重启尝试次数
+	lastRestartTime time.Time // 最后一次重启时间
 }
 
 // NewManager 创建新的 Manager
@@ -58,52 +63,41 @@ func NewManager(port int) *Manager {
 // 二进制文件和配置文件解压到主程序目录下的 unbound/ 子目录
 func (m *Manager) Start() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if m.enabled {
+		m.mu.Unlock()
 		return fmt.Errorf("recursor already running")
 	}
 
-	// 首次启用时执行初始化
-	if m.installState == StateNotInstalled {
+	// 首次启用时执行初始化（仅 Linux）
+	if m.installState == StateNotInstalled && runtime.GOOS == "linux" {
 		m.installState = StateInstalling
+		// 立即标记为启用，防止其他goroutine在Initialize期间调用Start
+		m.enabled = true
 		m.mu.Unlock()
+
 		if err := m.Initialize(); err != nil {
 			m.mu.Lock()
+			m.enabled = false
 			m.installState = StateError
+			m.mu.Unlock()
 			return err
 		}
+
 		m.mu.Lock()
 		m.installState = StateInstalled
-	}
-
-	// 1. 解压 Unbound 二进制文件到主程序目录（仅 Windows）
-	if runtime.GOOS == "windows" {
-		unboundPath, err := ExtractUnboundBinary()
-		if err != nil {
-			return fmt.Errorf("failed to extract unbound binary: %w", err)
-		}
-		m.unboundPath = unboundPath
-		logger.Infof("[Recursor] Extracted unbound binary to: %s", unboundPath)
-
-		// 提取 root.key 文件
-		if err := extractRootKey(); err != nil {
-			return fmt.Errorf("failed to extract root.key: %w", err)
-		}
+		m.mu.Unlock()
 	} else {
-		// Linux: 使用系统级 unbound
-		if m.sysManager != nil {
-			m.unboundPath = m.sysManager.unboundPath
-		}
+		m.mu.Unlock()
 	}
 
-	// 2. 生成配置文件
-	configPath, err := m.generateConfig()
-	if err != nil {
-		return fmt.Errorf("failed to generate unbound config: %w", err)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 调用平台特定的启动逻辑
+	if err := m.startPlatformSpecific(); err != nil {
+		return err
 	}
-	m.configPath = configPath
-	logger.Infof("[Recursor] Generated config file: %s", configPath)
 
 	// 3. 启动 Unbound 进程
 	// -d: 前台运行（便于日志和进程管理）
@@ -114,7 +108,13 @@ func (m *Manager) Start() error {
 	m.cmd.Stdout = os.Stdout
 	m.cmd.Stderr = os.Stderr
 
+	logger.Infof("[Recursor] Starting unbound: %s -c %s -d", m.unboundPath, m.configPath)
+
 	if err := m.cmd.Start(); err != nil {
+		// 提供更详细的错误信息
+		logger.Errorf("[Recursor] Failed to start unbound process: %v", err)
+		logger.Errorf("[Recursor] Unbound path: %s (exists: %v)", m.unboundPath, fileExists(m.unboundPath))
+		logger.Errorf("[Recursor] Config path: %s (exists: %v)", m.configPath, fileExists(m.configPath))
 		return fmt.Errorf("failed to start unbound process: %w", err)
 	}
 
@@ -124,9 +124,20 @@ func (m *Manager) Start() error {
 	logger.Infof("[Recursor] Unbound process started (PID: %d)", m.cmd.Process.Pid)
 
 	// 4. 等待 Unbound 启动完成（检查端口是否可用）
-	if err := m.waitForReady(5 * time.Second); err != nil {
-		return fmt.Errorf("unbound may not be ready: %v", err)
+	// 获取平台特定的启动超时
+	waitTimeout := m.getWaitForReadyTimeout()
+
+	if err := m.waitForReady(waitTimeout); err != nil {
+		logger.Errorf("[Recursor] Unbound failed to be ready: %v", err)
+		// 强制关闭进程
+		if m.cmd != nil && m.cmd.Process != nil {
+			_ = m.cmd.Process.Kill()
+		}
+		m.enabled = false
+		return fmt.Errorf("unbound startup timeout: %w", err)
 	}
+
+	logger.Infof("[Recursor] Unbound is ready and listening on port %d", m.port)
 
 	// 5. 启动进程监控 goroutine
 	m.exitCh = make(chan error, 1)
@@ -185,6 +196,7 @@ func (m *Manager) Stop() error {
 	}
 
 	m.enabled = false
+	m.restartAttempts = 0     // 重置重启计数器
 	m.startTime = time.Time{} // 重置启动时间
 	logger.Infof("[Recursor] Unbound process stopped")
 	return nil
@@ -207,6 +219,9 @@ func (m *Manager) generateConfig() (string, error) {
 		} else {
 			configDir, _ := GetUnboundConfigDir()
 			configPath = filepath.Join(configDir, "unbound.conf")
+			// 在 Windows 上，使用绝对路径
+			absPath, _ := filepath.Abs(configPath)
+			configPath = absPath
 		}
 
 		// 写入配置文件
@@ -224,6 +239,11 @@ func (m *Manager) generateConfig() (string, error) {
 	}
 
 	configPath := filepath.Join(configDir, "unbound.conf")
+	// 在 Windows 上，使用绝对路径
+	if runtime.GOOS == "windows" {
+		absPath, _ := filepath.Abs(configPath)
+		configPath = absPath
+	}
 
 	// 动态计算线程数（基于 CPU 核数）
 	// min(CPU, 8) 且至少为 1
@@ -236,6 +256,10 @@ func (m *Manager) generateConfig() (string, error) {
 
 	// 获取 root.key 路径
 	rootKeyPath := filepath.Join(configDir, "root.key")
+	// 在 Windows 上，unbound 配置文件中的路径需要使用正斜杠或转义反斜杠
+	if runtime.GOOS == "windows" {
+		rootKeyPath = strings.ReplaceAll(rootKeyPath, "\\", "/")
+	}
 
 	// 生成配置内容
 	config := fmt.Sprintf(`# SmartDNSSort Embedded Unbound Configuration
@@ -311,20 +335,31 @@ server:
 // waitForReady 等待 Unbound 启动完成
 func (m *Manager) waitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	attempts := 0
+	lastLogTime := time.Now()
 
 	for {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout waiting for unbound to be ready")
+			return fmt.Errorf("timeout waiting for unbound to be ready after %d attempts", attempts)
 		}
 
 		// 尝试连接到 Unbound TCP 端口
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", m.port), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
+			logger.Infof("[Recursor] Unbound is ready on port %d (after %d attempts, %.1fs)", m.port, attempts, time.Since(deadline.Add(-timeout)).Seconds())
 			return nil
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		attempts++
+		// 每 5 次尝试输出一次日志
+		if time.Since(lastLogTime) > 500*time.Millisecond {
+			logger.Debugf("[Recursor] Waiting for unbound to be ready... (attempt %d, elapsed: %.1fs)", attempts, time.Since(deadline.Add(-timeout)).Seconds())
+			lastLogTime = time.Now()
+		}
+
+		// 更频繁地检查（50ms 而不是 100ms）
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -342,23 +377,46 @@ func (m *Manager) healthCheckLoop() {
 		case <-m.exitCh:
 			// 进程意外退出
 			m.mu.Lock()
-			// 标记为未启用，以便 Start() 可以重新运行
 			m.enabled = false
+			m.restartAttempts++
+			m.lastRestartTime = time.Now()
+			attempts := m.restartAttempts
 			m.mu.Unlock()
 
-			logger.Warnf("[Recursor] Process exited unexpectedly, attempting restart...")
+			// 检查重启次数是否超过限制
+			if attempts > 5 {
+				logger.Errorf("[Recursor] Process exited unexpectedly. Max restart attempts (%d) exceeded, giving up", attempts)
+				return
+			}
 
-			// 简单的防抖动延迟
-			time.Sleep(1 * time.Second)
+			// 计算指数退避延迟：1s, 2s, 4s, 8s, 16s
+			backoffDuration := time.Duration(1<<uint(attempts-1)) * time.Second
+			logger.Warnf("[Recursor] Process exited unexpectedly. Restart attempt %d/%d after %v delay...",
+				attempts, 5, backoffDuration)
+
+			// 等待指数退避时间
+			select {
+			case <-m.stopCh:
+				// 在等待期间收到停止信号
+				return
+			case <-time.After(backoffDuration):
+				// 继续重启
+			}
 
 			// 尝试重启
-			// 注意：Start 会启动新的 healthCheckLoop，所以当前循环必须退出
 			if err := m.Start(); err != nil {
-				logger.Errorf("[Recursor] Failed to restart: %v", err)
-				// 重启失败，退出循环
-				// 调用者需要处理重启失败的情况
+				logger.Errorf("[Recursor] Failed to restart (attempt %d): %v", attempts, err)
+				// 继续循环，等待下一次退出或停止信号
+				// 注意：如果Start()失败，enabled仍然是false，下次退出时会继续重试
+			} else {
+				// 重启成功，重置计数器
+				m.mu.Lock()
+				m.restartAttempts = 0
+				m.mu.Unlock()
+				logger.Infof("[Recursor] Process restarted successfully")
+				// 新的healthCheckLoop已启动，当前循环应该退出
+				return
 			}
-			return
 
 		case <-ticker.C:
 			// 定期端口健康检查
@@ -403,6 +461,20 @@ func (m *Manager) GetStartTime() time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.startTime
+}
+
+// GetRestartAttempts 获取当前重启尝试次数
+func (m *Manager) GetRestartAttempts() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.restartAttempts
+}
+
+// GetLastRestartTime 获取最后一次重启时间
+func (m *Manager) GetLastRestartTime() time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastRestartTime
 }
 
 // Query 执行 DNS 查询（用于测试）
@@ -539,4 +611,27 @@ func (m *Manager) SetInstallState(state InstallState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.installState = state
+}
+
+// fileExists 检查文件是否存在
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// getWorkingDir 获取当前工作目录
+func getWorkingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "unknown"
+	}
+	return wd
+}
+
+// getWaitForReadyTimeout 获取平台特定的启动超时
+func (m *Manager) getWaitForReadyTimeout() time.Duration {
+	if runtime.GOOS == "windows" {
+		return m.waitForReadyTimeoutWindows()
+	}
+	return m.waitForReadyTimeoutLinux()
 }

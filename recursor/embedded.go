@@ -67,6 +67,20 @@ func ExtractUnboundBinary() (string, error) {
 		return "", fmt.Errorf("failed to write unbound binary: %w", err)
 	}
 
+	// 验证文件是否成功写入
+	fileInfo, err := os.Stat(outPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to verify unbound binary after extraction: %w", err)
+	}
+
+	if fileInfo.Size() == 0 {
+		return "", fmt.Errorf("extracted unbound binary is empty (size: 0)")
+	}
+
+	if fileInfo.Size() != int64(len(data)) {
+		return "", fmt.Errorf("extracted unbound binary size mismatch: expected %d, got %d", len(data), fileInfo.Size())
+	}
+
 	return outPath, nil
 }
 

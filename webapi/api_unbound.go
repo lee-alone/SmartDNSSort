@@ -15,8 +15,15 @@ type UnboundConfigPayload struct {
 
 // handleUnboundConfig 处理 Unbound 配置文件的读写
 func (s *Server) handleUnboundConfig(w http.ResponseWriter, r *http.Request) {
-	// 检查递归是否启用
-	if !s.cfg.Upstream.EnableRecursor {
+	// 获取 Recursor Manager
+	mgr := s.dnsServer.GetRecursorManager()
+
+	// 检查递归是否启用：
+	// 1. 配置中启用了递归
+	// 2. 或者 Manager 存在且已启用
+	recursorEnabled := s.cfg.Upstream.EnableRecursor || (mgr != nil && mgr.IsEnabled())
+
+	if !recursorEnabled {
 		// 递归未启用时，返回空内容而不是错误
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -24,8 +31,7 @@ func (s *Server) handleUnboundConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取 Recursor Manager
-	mgr := s.dnsServer.GetRecursorManager()
+	// Manager 必须存在才能继续
 	if mgr == nil {
 		// Manager 未初始化时，返回空内容
 		w.Header().Set("Content-Type", "application/json")
@@ -59,7 +65,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 		if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"content": ""})
+			json.NewEncoder(w).Encode(map[string]interface{}{"content": "", "enabled": true})
 			return
 		}
 		logger.Errorf("[Unbound] Failed to read config file: %v", err)
@@ -69,7 +75,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"content": string(content)})
+	json.NewEncoder(w).Encode(map[string]interface{}{"content": string(content), "enabled": true})
 }
 
 // handleUnboundConfigPost 保存 Unbound 配置文件并重启

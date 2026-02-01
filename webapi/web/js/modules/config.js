@@ -259,6 +259,8 @@ function saveConfig() {
                 console.log('[DEBUG] Config saved successfully:', result);
                 alert(i18n.t('messages.configSaved'));
                 loadConfig();
+                // 重新加载自定义设置，以便显示/隐藏 unbound 配置窗口
+                loadCustomSettings();
                 resolve(result);
             })
             .catch(error => {

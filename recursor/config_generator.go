@@ -222,9 +222,11 @@ func (cg *ConfigGenerator) getRootKeyPath() string {
 	if runtime.GOOS == "linux" {
 		return "/etc/unbound/root.key"
 	}
-	// Windows
+	// Windows - 使用绝对路径
 	configDir, _ := GetUnboundConfigDir()
-	return filepath.Join(configDir, "root.key")
+	absPath, _ := filepath.Abs(filepath.Join(configDir, "root.key"))
+	// 在 Windows 上，unbound 配置文件中的路径需要使用正斜杠或转义反斜杠
+	return strings.ReplaceAll(absPath, "\\", "/")
 }
 
 // ValidateConfig 验证配置

@@ -124,9 +124,17 @@ func NewConnectionPool(address, network string, maxConnections int, idleTimeout 
 	pool.wg.Add(1)
 	go pool.cleanupLoop()
 
-	// 自动预热 50% 的连接
+	// 自动预热 50% 的连接（延迟启动，给 unbound 足够的启动时间）
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		// 根据平台调整延迟时间
+		// Windows 上 unbound 启动可能需要更长时间
+		var delay time.Duration
+		if runtime.GOOS == "windows" {
+			delay = 3 * time.Second
+		} else {
+			delay = 1 * time.Second
+		}
+		time.Sleep(delay)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		warmupCount := maxConnections / 2
