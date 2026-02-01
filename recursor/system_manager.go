@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"smartdnssort/logger"
 	"strings"
 	"time"
 )
@@ -313,7 +314,7 @@ func (sm *SystemManager) executeInstall() error {
 	}
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to install unbound with %s: %w", sm.pkgManager, err)
+		return fmt.Errorf("failed to install unbound on %s using %s: %w", sm.distro, sm.pkgManager, err)
 	}
 
 	return nil
@@ -330,6 +331,28 @@ func (sm *SystemManager) StopService() error {
 			return nil
 		}
 	}
+	return nil
+}
+
+// backupConfig 备份 unbound 配置文件
+// 使用 Go 标准库而不是 Shell 命令
+func (sm *SystemManager) backupConfig() error {
+	src := "/etc/unbound/unbound.conf"
+	dst := "/etc/unbound/unbound.conf.bak"
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 配置文件不存在，这不是错误
+			return nil
+		}
+		return fmt.Errorf("failed to read config file %s: %w", src, err)
+	}
+
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		return fmt.Errorf("failed to write backup config to %s: %w", dst, err)
+	}
+
 	return nil
 }
 
@@ -350,8 +373,10 @@ func (sm *SystemManager) handleExistingUnbound() error {
 	}
 
 	// 步骤 3：备份配置
-	cmd := exec.Command("cp", "/etc/unbound/unbound.conf", "/etc/unbound/unbound.conf.bak")
-	_ = cmd.Run() // 忽略错误，可能不存在
+	if err := sm.backupConfig(); err != nil {
+		// 备份失败不应该中断整个流程
+		logger.Warnf("[SystemManager] Failed to backup config: %v", err)
+	}
 
 	return nil
 }

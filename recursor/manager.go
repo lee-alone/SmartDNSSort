@@ -24,6 +24,16 @@ const (
 	StateError
 )
 
+// 常量定义 - 重启和超时配置
+const (
+	MaxRestartAttempts      = 5
+	MaxBackoffDuration      = 30 * time.Second
+	HealthCheckInterval     = 30 * time.Second
+	ProcessStopTimeout      = 5 * time.Second
+	WaitReadyTimeoutWindows = 30 * time.Second
+	WaitReadyTimeoutLinux   = 20 * time.Second
+)
+
 // Manager 管理嵌入的 Unbound 递归解析器
 type Manager struct {
 	mu              sync.RWMutex
@@ -49,6 +59,12 @@ type Manager struct {
 
 	// 进程管理 - 平台特定
 	jobObject interface{} // Windows Job Object 句柄
+
+	// Goroutine 生命周期管理
+	monitorCtx    context.Context
+	monitorCancel context.CancelFunc
+	healthCtx     context.Context
+	healthCancel  context.CancelFunc
 }
 
 // NewManager 创建新的 Manager
@@ -63,7 +79,14 @@ func NewManager(port int) *Manager {
 }
 
 // Start 启动嵌入的 Unbound 进程
-// 二进制文件和配置文件解压到主程序目录下的 unbound/ 子目录
+// 流程：
+// 1. 首次启用时执行初始化（仅 Linux）
+// 2. 启动 Unbound 进程
+// 3. 等待进程启动完成（检查端口可达性）
+// 4. 启动进程监控 goroutine
+// 5. 启动健康检查循环
+// 使用 context 管理 goroutine 生命周期，防止泄漏
+// 创建新的 stopCh 支持多次启停
 func (m *Manager) Start() error {
 	m.mu.Lock()
 
@@ -96,6 +119,21 @@ func (m *Manager) Start() error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// 取消旧的监控 goroutine（如果存在）
+	if m.monitorCancel != nil {
+		m.monitorCancel()
+	}
+	if m.healthCancel != nil {
+		m.healthCancel()
+	}
+
+	// 创建新的 context 用于管理 goroutine 生命周期
+	m.monitorCtx, m.monitorCancel = context.WithCancel(context.Background())
+	m.healthCtx, m.healthCancel = context.WithCancel(context.Background())
+
+	// 创建新的 stopCh（旧的已关闭）
+	m.stopCh = make(chan struct{})
 
 	// 调用平台特定的启动逻辑（不再调用 Initialize，已在上面处理）
 	if err := m.startPlatformSpecificNoInit(); err != nil {
@@ -153,7 +191,11 @@ func (m *Manager) Start() error {
 	go func() {
 		// 等待进程退出
 		err := m.cmd.Wait()
-		m.exitCh <- err
+		select {
+		case m.exitCh <- err:
+		case <-m.monitorCtx.Done():
+			// Context 已取消，不发送错误
+		}
 	}()
 
 	// 6. 启动健康检查/保活 loop
@@ -163,7 +205,13 @@ func (m *Manager) Start() error {
 }
 
 // Stop 停止 Unbound 进程
-// 清理主程序目录下 unbound/ 子目录中的文件
+// 流程：
+// 1. 标记为禁用，防止 healthCheckLoop 尝试重启
+// 2. 取消所有 goroutine（通过 context）
+// 3. 优雅停止进程（SIGTERM，超时后 SIGKILL）
+// 4. 清理配置文件
+// 5. 清理平台特定的进程管理资源
+// 支持多次启停，每次 Stop 后可以再次 Start
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 
@@ -174,10 +222,21 @@ func (m *Manager) Stop() error {
 
 	// 标记为禁用，防止 healthCheckLoop 尝试重启
 	m.enabled = false
+
+	// 取消所有 goroutine
+	if m.monitorCancel != nil {
+		m.monitorCancel()
+	}
+	if m.healthCancel != nil {
+		m.healthCancel()
+	}
+
+	// 保存旧的 stopCh 用于关闭
+	oldStopCh := m.stopCh
 	m.mu.Unlock()
 
-	// 1. 停止健康检查
-	close(m.stopCh)
+	// 1. 停止健康检查（关闭旧的 stopCh）
+	close(oldStopCh)
 
 	// 2. 优雅停止进程
 	if m.cmd != nil && m.cmd.Process != nil {
@@ -188,12 +247,10 @@ func (m *Manager) Stop() error {
 		}
 
 		// 等待进程退出（最多 5 秒）
-		// 注意：这里不再需要单独的 wait goroutine，因为 Start 中已经启动了一个
-		// 但我们需要处理超时强制 kill
 		select {
 		case <-m.exitCh:
 			// 进程已退出
-		case <-time.After(5 * time.Second):
+		case <-time.After(ProcessStopTimeout):
 			if err := m.cmd.Process.Kill(); err != nil {
 				// 忽略 kill 错误
 			}
@@ -205,7 +262,9 @@ func (m *Manager) Stop() error {
 	// 在 Linux 上，unbound 是系统包，不应该被删除
 	// 在 Windows 上，unbound 是嵌入式的，但也不应该在这里删除
 	if m.configPath != "" {
-		_ = os.Remove(m.configPath)
+		if err := os.Remove(m.configPath); err != nil && !os.IsNotExist(err) {
+			logger.Warnf("[Recursor] Failed to remove config file: %v", err)
+		}
 	}
 
 	// 4. 清理平台特定的进程管理资源
@@ -221,7 +280,10 @@ func (m *Manager) Stop() error {
 }
 
 // generateConfig 生成 Unbound 配置文件
-// 根据运行时的机器情况动态调整参数
+// 根据运行时的机器情况动态调整参数：
+// - 线程数：基于 CPU 核数（最多 8 个）
+// - 缓存大小：基于线程数动态计算
+// - 路径处理：Windows 使用正斜杠，Linux 使用标准路径
 func (m *Manager) generateConfig() (string, error) {
 	// 如果已有 ConfigGenerator，使用它
 	if m.configGen != nil {
@@ -351,6 +413,8 @@ server:
 }
 
 // waitForReady 等待 Unbound 启动完成
+// 通过检查 TCP 端口是否可达来判断服务是否就绪
+// 使用指数退避策略，每次尝试间隔 50ms
 func (m *Manager) waitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	attempts := 0
@@ -383,13 +447,19 @@ func (m *Manager) waitForReady(timeout time.Duration) error {
 
 // healthCheckLoop 监控进程状态并执行健康检查
 func (m *Manager) healthCheckLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-m.healthCtx.Done():
+			// Context 已取消，退出循环
+			logger.Debugf("[Recursor] Health check loop cancelled")
+			return
+
 		case <-m.stopCh:
 			// 收到停止信号，退出循环
+			logger.Debugf("[Recursor] Health check loop received stop signal")
 			return
 
 		case <-m.exitCh:
@@ -409,7 +479,7 @@ func (m *Manager) healthCheckLoop() {
 			m.mu.Unlock()
 
 			// 检查重启次数是否超过限制
-			if attempts > 5 {
+			if attempts > MaxRestartAttempts {
 				logger.Errorf("[Recursor] Process exited unexpectedly. Max restart attempts (%d) exceeded, giving up", attempts)
 				m.mu.Lock()
 				m.enabled = false
@@ -419,11 +489,18 @@ func (m *Manager) healthCheckLoop() {
 
 			// 计算指数退避延迟：1s, 2s, 4s, 8s, 16s
 			backoffDuration := time.Duration(1<<uint(attempts-1)) * time.Second
+			if backoffDuration > MaxBackoffDuration {
+				backoffDuration = MaxBackoffDuration
+			}
+
 			logger.Warnf("[Recursor] Process exited unexpectedly. Restart attempt %d/%d after %v delay...",
-				attempts, 5, backoffDuration)
+				attempts, MaxRestartAttempts, backoffDuration)
 
 			// 等待指数退避时间
 			select {
+			case <-m.healthCtx.Done():
+				// Context 已取消
+				return
 			case <-m.stopCh:
 				// 在等待期间收到停止信号
 				return
@@ -434,15 +511,12 @@ func (m *Manager) healthCheckLoop() {
 			// 尝试重启
 			if err := m.Start(); err != nil {
 				logger.Errorf("[Recursor] Failed to restart (attempt %d): %v", attempts, err)
-				// 继续循环，等待下一次退出或停止信号
-				// 注意：如果Start()失败，enabled仍然是false，下次退出时会继续重试
+				// 不继续循环，因为 Start() 失败意味着无法恢复
+				// 等待下一次进程退出或停止信号
 			} else {
-				// 重启成功，重置计数器
-				m.mu.Lock()
-				m.restartAttempts = 0
-				m.mu.Unlock()
+				// 重启成功，当前 goroutine 应该退出
+				// 因为 Start() 已经启动了新的 healthCheckLoop
 				logger.Infof("[Recursor] Process restarted successfully")
-				// 新的healthCheckLoop已启动，当前循环应该退出
 				return
 			}
 
@@ -453,11 +527,21 @@ func (m *Manager) healthCheckLoop() {
 	}
 }
 
-// performHealthCheck 执行一次健康检查（更新最后检查时间）
+// performHealthCheck 执行一次健康检查
+// 通过尝试连接端口来验证服务实际可用
+// 更新最后检查时间戳，用于监控 Unbound 的活跃状态
 func (m *Manager) performHealthCheck() {
-	m.mu.Lock()
-	m.lastHealthCheck = time.Now()
-	m.mu.Unlock()
+	// 尝试连接端口验证服务实际可用
+	conn, err := net.DialTimeout("tcp", m.GetAddress(), 500*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		m.mu.Lock()
+		m.lastHealthCheck = time.Now()
+		m.mu.Unlock()
+		logger.Debugf("[Recursor] Health check passed")
+	} else {
+		logger.Warnf("[Recursor] Health check failed: %v", err)
+	}
 }
 
 // IsEnabled 检查 Recursor 是否启用
@@ -516,7 +600,15 @@ func (m *Manager) Query(ctx context.Context, domain string) error {
 	return nil
 }
 
-// Initialize 初始化（首次启用时调用）
+// Initialize 初始化 Unbound（首次启用时调用）
+// 流程：
+// 1. 检测系统类型和包管理器
+// 2. 检查 unbound 是否已安装
+// 3. 如果未安装，执行安装
+// 4. 获取版本信息和路径
+// 5. 创建配置生成器
+// 6. 验证配置
+// 仅在 Linux 上执行，Windows 使用嵌入式 unbound
 func (m *Manager) Initialize() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -580,7 +672,11 @@ func (m *Manager) Initialize() error {
 	return nil
 }
 
-// Cleanup 清理（卸载时调用）
+// Cleanup 清理资源（卸载时调用）
+// 流程：
+// 1. 停止 unbound 进程
+// 2. 删除配置文件
+// 3. Linux: 卸载 unbound 系统包
 func (m *Manager) Cleanup() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -37,8 +37,25 @@ type VersionFeatures struct {
 }
 
 // GetVersionFeatures 获取版本特性
+// 如果版本解析失败，返回保守的特性集合
 func (cg *ConfigGenerator) GetVersionFeatures() VersionFeatures {
-	ver := cg.parseVersion(cg.version)
+	ver, err := cg.parseVersion(cg.version)
+	if err != nil {
+		// 版本解析失败，使用保守的特性集合
+		return VersionFeatures{
+			ServeExpired:         false,
+			ServeExpiredTTL:      false,
+			ServeExpiredReplyTTL: false,
+			PrefetchKey:          false,
+			QnameMinimisation:    false,
+			MinimalResponses:     false,
+			UseCapsForID:         false,
+			SoReuseport:          false,
+		}
+	}
+
+	// Windows 不支持 so-reuseport
+	soReuseportSupported := (ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 6)) && runtime.GOOS != "windows"
 
 	return VersionFeatures{
 		ServeExpired:         ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 9),
@@ -48,27 +65,46 @@ func (cg *ConfigGenerator) GetVersionFeatures() VersionFeatures {
 		QnameMinimisation:    ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 6),
 		MinimalResponses:     ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 9),
 		UseCapsForID:         ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 6),
-		SoReuseport:          ver.Major > 1 || (ver.Major == 1 && ver.Minor >= 6),
+		SoReuseport:          soReuseportSupported,
 	}
 }
 
 // parseVersion 解析版本号
-func (cg *ConfigGenerator) parseVersion(version string) struct {
+// 返回错误如果版本字符串无效
+func (cg *ConfigGenerator) parseVersion(version string) (struct {
 	Major, Minor, Patch int
-} {
+}, error) {
+	if version == "" {
+		return struct{ Major, Minor, Patch int }{}, fmt.Errorf("empty version string")
+	}
+
 	parts := strings.Split(version, ".")
-	major, _ := strconv.Atoi(parts[0])
+	if len(parts) == 0 {
+		return struct{ Major, Minor, Patch int }{}, fmt.Errorf("invalid version format: %s", version)
+	}
+
+	major, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return struct{ Major, Minor, Patch int }{}, fmt.Errorf("invalid major version: %w", err)
+	}
+
 	minor := 0
-	patch := 0
 	if len(parts) > 1 {
-		minor, _ = strconv.Atoi(parts[1])
+		minor, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return struct{ Major, Minor, Patch int }{}, fmt.Errorf("invalid minor version: %w", err)
+		}
 	}
+
+	patch := 0
 	if len(parts) > 2 {
-		patch, _ = strconv.Atoi(parts[2])
+		patch, err = strconv.Atoi(strings.TrimSpace(parts[2]))
+		if err != nil {
+			return struct{ Major, Minor, Patch int }{}, fmt.Errorf("invalid patch version: %w", err)
+		}
 	}
-	return struct {
-		Major, Minor, Patch int
-	}{major, minor, patch}
+
+	return struct{ Major, Minor, Patch int }{major, minor, patch}, nil
 }
 
 // ConfigParams 配置参数
@@ -81,22 +117,25 @@ type ConfigParams struct {
 }
 
 // CalculateParams 计算配置参数
+// 根据 CPU 核数和内存大小动态计算参数
+// 确保最小缓存大小以保证基本功能
 func (cg *ConfigGenerator) CalculateParams() ConfigParams {
 	// CPU 线程数
-	numThreads := min(cg.sysInfo.CPUCores, 8)
-	if numThreads < 1 {
-		numThreads = 1
-	}
+	numThreads := max(1, min(cg.sysInfo.CPUCores, 8))
 
 	// 缓存大小（基于内存）
 	// 如果无法获取内存信息，使用默认值
-	msgCacheSize := 100
-	rrsetCacheSize := 200
+	var msgCacheSize, rrsetCacheSize int
 
 	if cg.sysInfo.MemoryGB > 0 {
 		memMB := int(cg.sysInfo.MemoryGB * 1024)
-		msgCacheSize = min(memMB*5/100, 500)
-		rrsetCacheSize = min(memMB*10/100, 1000)
+		// 确保最小缓存大小
+		msgCacheSize = max(25, min(memMB*5/100, 500))
+		rrsetCacheSize = max(50, min(memMB*10/100, 1000))
+	} else {
+		// 无内存信息时使用线程数的保守估计
+		msgCacheSize = 50 + (25 * numThreads)
+		rrsetCacheSize = 100 + (50 * numThreads)
 	}
 
 	return ConfigParams{
