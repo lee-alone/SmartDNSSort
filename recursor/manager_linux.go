@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"smartdnssort/logger"
+	"syscall"
 )
 
 // startPlatformSpecific Linux 特定的启动逻辑（已弃用，使用 startPlatformSpecificNoInit）
@@ -127,4 +128,38 @@ server:
 	}
 
 	return configPath, nil
+}
+
+// configureUnixProcessManagement 配置 Linux 进程管理
+// 使用进程组确保 Ctrl+C 时能正确关闭子进程
+func (m *Manager) configureUnixProcessManagement() {
+	// 在 Linux 上，使用 SysProcAttr 设置进程组
+	// 这样可以通过发送信号给进程组来关闭所有子进程
+	if m.cmd.SysProcAttr == nil {
+		m.cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+
+	// 设置进程组 ID，使其成为新进程组的领导者
+	// 这样可以通过 syscall.Kill(-pid, signal) 向整个进程组发送信号
+	m.cmd.SysProcAttr.Setsid = true
+}
+
+// cleanupUnixProcessManagement Linux 进程清理（无需特殊处理）
+func (m *Manager) cleanupUnixProcessManagement() {
+	// Linux 进程组会自动清理，无需特殊处理
+}
+
+// configureProcessManagement 配置 Linux 进程管理
+func (m *Manager) configureProcessManagement() {
+	m.configureUnixProcessManagement()
+}
+
+// cleanupProcessManagement 清理 Linux 进程管理
+func (m *Manager) cleanupProcessManagement() {
+	m.cleanupUnixProcessManagement()
+}
+
+// postStartProcessManagement Linux 启动后的处理（无需特殊处理）
+func (m *Manager) postStartProcessManagement() {
+	// Linux 进程组已在 configureProcessManagement 中配置
 }

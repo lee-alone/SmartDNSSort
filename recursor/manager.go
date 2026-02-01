@@ -46,6 +46,9 @@ type Manager struct {
 	// 重启管理
 	restartAttempts int       // 当前重启尝试次数
 	lastRestartTime time.Time // 最后一次重启时间
+
+	// 进程管理 - 平台特定
+	jobObject interface{} // Windows Job Object 句柄
 }
 
 // NewManager 创建新的 Manager
@@ -108,6 +111,9 @@ func (m *Manager) Start() error {
 	m.cmd.Stdout = os.Stdout
 	m.cmd.Stderr = os.Stderr
 
+	// 平台特定的进程管理配置
+	m.configureProcessManagement()
+
 	logger.Infof("[Recursor] Starting unbound: %s -c %s -d", m.unboundPath, m.configPath)
 
 	if err := m.cmd.Start(); err != nil {
@@ -117,6 +123,9 @@ func (m *Manager) Start() error {
 		logger.Errorf("[Recursor] Config path: %s (exists: %v)", m.configPath, fileExists(m.configPath))
 		return fmt.Errorf("failed to start unbound process: %w", err)
 	}
+
+	// 启动后的平台特定处理（如 Windows Job Object 分配）
+	m.postStartProcessManagement()
 
 	m.enabled = true
 	m.startTime = time.Now()
@@ -198,6 +207,9 @@ func (m *Manager) Stop() error {
 	if m.configPath != "" {
 		_ = os.Remove(m.configPath)
 	}
+
+	// 4. 清理平台特定的进程管理资源
+	m.cleanupProcessManagement()
 
 	m.mu.Lock()
 	m.restartAttempts = 0     // 重置重启计数器
