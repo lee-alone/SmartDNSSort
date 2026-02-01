@@ -1,9 +1,5 @@
 package cache
 
-import (
-	"container/list"
-)
-
 // GetSorted 获取排序后的缓存
 // 注意：sortedCache 内部已实现线程安全，无需全局锁
 func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool) {
@@ -96,21 +92,10 @@ func (c *Cache) CancelSort(domain string, qtype uint16) {
 
 // cleanExpiredSortedCache 清理过期的排序缓存
 func (c *Cache) cleanExpiredSortedCache() {
-	c.sortedCache.mu.Lock()
-	defer c.sortedCache.mu.Unlock()
-
-	elemsToRemove := make([]*list.Element, 0)
-	for elem := c.sortedCache.list.Front(); elem != nil; elem = elem.Next() {
-		if node, ok := elem.Value.(*lruNode); ok {
-			if entry, ok := node.value.(*SortedCacheEntry); ok && entry.IsExpired() {
-				elemsToRemove = append(elemsToRemove, elem)
-			}
+	c.sortedCache.CleanExpired(func(value any) bool {
+		if entry, ok := value.(*SortedCacheEntry); ok {
+			return entry.IsExpired()
 		}
-	}
-
-	for _, elem := range elemsToRemove {
-		c.sortedCache.list.Remove(elem)
-		key := elem.Value.(*lruNode).key
-		delete(c.sortedCache.cache, key)
-	}
+		return false
+	})
 }

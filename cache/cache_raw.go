@@ -32,6 +32,7 @@ func (c *Cache) SetRawWithVersion(domain string, qtype uint16, ips []string, cna
 func (c *Cache) SetRawWithDNSSEC(domain string, qtype uint16, ips []string, cnames []string, upstreamTTL uint32, authData bool) {
 	key := cacheKey(domain, qtype)
 	effTTL := c.calculateEffectiveTTL(upstreamTTL)
+	queryVersion := timeNow().UnixNano() // 使用当前时间作为版本号
 	entry := &RawCacheEntry{
 		Records:           nil, // 向后兼容，暂时保持为 nil
 		IPs:               ips,
@@ -40,14 +41,14 @@ func (c *Cache) SetRawWithDNSSEC(domain string, qtype uint16, ips []string, cnam
 		EffectiveTTL:      effTTL,
 		AcquisitionTime:   timeNow(),
 		AuthenticatedData: authData,
-		QueryVersion:      timeNow().UnixNano(), // 使用当前时间作为版本号
+		QueryVersion:      queryVersion,
 	}
 	c.rawCache.Set(key, entry)
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
 	// 使用 EffectiveTTL 确保即使上游 TTL 很短，数据也在本地生存足够长时间
 	expiryTime := timeNow().Unix() + int64(effTTL)
-	c.addToExpiredHeap(key, expiryTime)
+	c.addToExpiredHeap(key, expiryTime, queryVersion)
 }
 
 // SetRawWithDNSSECAndVersion 设置带 DNSSEC 标记和版本号的原始缓存
@@ -68,7 +69,7 @@ func (c *Cache) SetRawWithDNSSECAndVersion(domain string, qtype uint16, ips []st
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
 	expiryTime := timeNow().Unix() + int64(effTTL)
-	c.addToExpiredHeap(key, expiryTime)
+	c.addToExpiredHeap(key, expiryTime, queryVersion)
 }
 
 // SetRawRecords 设置通用记录的原始缓存
@@ -108,6 +109,7 @@ func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []d
 
 	key := cacheKey(domain, qtype)
 	effTTL := c.calculateEffectiveTTL(upstreamTTL)
+	queryVersion := timeNow().UnixNano() // 使用当前时间作为版本号
 	entry := &RawCacheEntry{
 		Records:           records,
 		IPs:               ips, // 从 records 派生，已去重
@@ -116,14 +118,14 @@ func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []d
 		EffectiveTTL:      effTTL,
 		AcquisitionTime:   timeNow(),
 		AuthenticatedData: authData,
-		QueryVersion:      timeNow().UnixNano(), // 使用当前时间作为版本号
+		QueryVersion:      queryVersion,
 	}
 	c.rawCache.Set(key, entry)
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
 	// 使用 EffectiveTTL 确保即使上游 TTL 很短，数据也在本地生存足够长时间
 	expiryTime := timeNow().Unix() + int64(effTTL)
-	c.addToExpiredHeap(key, expiryTime)
+	c.addToExpiredHeap(key, expiryTime, queryVersion)
 }
 
 // SetRawRecordsWithDNSSECAndVersion 设置带 DNSSEC 标记和版本号的通用记录原始缓存
@@ -164,7 +166,7 @@ func (c *Cache) SetRawRecordsWithDNSSECAndVersion(domain string, qtype uint16, r
 
 	// 将过期数据添加到堆中（异步化，无全局锁）
 	expiryTime := timeNow().Unix() + int64(effTTL)
-	c.addToExpiredHeap(key, expiryTime)
+	c.addToExpiredHeap(key, expiryTime, queryVersion)
 }
 
 // GetRawCacheSnapshot 获取 rawCache 中所有值的快照（用于采样计算）

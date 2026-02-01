@@ -1,9 +1,5 @@
 package cache
 
-import (
-	"container/list"
-)
-
 // GetError 获取错误缓存
 // 注意：errorCache 内部已实现线程安全，无需全局锁
 func (c *Cache) GetError(domain string, qtype uint16) (*ErrorCacheEntry, bool) {
@@ -39,23 +35,12 @@ func (c *Cache) SetError(domain string, qtype uint16, rcode int, ttl int) {
 
 // cleanExpiredErrorCache 清理过期的错误缓存
 func (c *Cache) cleanExpiredErrorCache() {
-	c.errorCache.mu.Lock()
-	defer c.errorCache.mu.Unlock()
-
-	elemsToRemove := make([]*list.Element, 0)
-	for elem := c.errorCache.list.Front(); elem != nil; elem = elem.Next() {
-		if node, ok := elem.Value.(*lruNode); ok {
-			if entry, ok := node.value.(*ErrorCacheEntry); ok && entry.IsExpired() {
-				elemsToRemove = append(elemsToRemove, elem)
-			}
+	c.errorCache.CleanExpired(func(value any) bool {
+		if entry, ok := value.(*ErrorCacheEntry); ok {
+			return entry.IsExpired()
 		}
-	}
-
-	for _, elem := range elemsToRemove {
-		c.errorCache.list.Remove(elem)
-		key := elem.Value.(*lruNode).key
-		delete(c.errorCache.cache, key)
-	}
+		return false
+	})
 }
 
 // cleanCompletedSortingStates 清理已完成的排序任务

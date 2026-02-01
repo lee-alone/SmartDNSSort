@@ -189,3 +189,29 @@ func (lru *LRUCache) Close() error {
 func (lru *LRUCache) GetPendingAccess() int32 {
 	return atomic.LoadInt32(&lru.pending)
 }
+
+// CleanExpired 清理过期的条目，调用方需要提供过期检查函数
+// 这个方法安全地遍历链表，收集过期条目，然后删除
+// 避免在清理过程中持有锁过长时间
+func (lru *LRUCache) CleanExpired(isExpired func(value any) bool) int {
+	lru.mu.Lock()
+	defer lru.mu.Unlock()
+
+	elemsToRemove := make([]*list.Element, 0)
+	for elem := lru.list.Front(); elem != nil; elem = elem.Next() {
+		if node, ok := elem.Value.(*lruNode); ok {
+			if isExpired(node.value) {
+				elemsToRemove = append(elemsToRemove, elem)
+			}
+		}
+	}
+
+	count := 0
+	for _, elem := range elemsToRemove {
+		lru.list.Remove(elem)
+		key := elem.Value.(*lruNode).key
+		delete(lru.cache, key)
+		count++
+	}
+	return count
+}

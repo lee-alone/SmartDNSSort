@@ -11,8 +11,9 @@ import (
 
 // expireEntry 过期堆中的条目
 type expireEntry struct {
-	key    string
-	expiry int64
+	key          string
+	expiry       int64
+	queryVersion int64 // 查询版本号，用于识别陈旧索引
 }
 
 // expireHeap 实现 container/heap.Interface
@@ -172,7 +173,7 @@ func (c *Cache) RecordAccess(domain string, qtype uint16) {
 //   - 如果开启了 KeepExpiredEntries (尽量存储)：完全不清理已过期的数据，直到内存压力升高
 //   - 如果未开启 KeepExpiredEntries：仅清理超过 24 小时的极其古老的数据
 //
-// 4. 修复：在执行删除前检查缓存中的真实条目，防止由于域名刷新导致的新数据被旧索引误删
+// 4. 改进：使用版本号识别陈旧索引，避免被旧的堆索引误删新数据
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -213,12 +214,9 @@ func (c *Cache) CleanExpired() {
 			continue
 		}
 
-		// 情况 1 修复：由于域名被反复查询刷新，堆中可能存在同一个 key 的多个过期索引
-		// 我们必须确保当前处理的这个索引确实对应缓存中已过期的数据，而不是一个正在活跃的新数据
-		currentExpiry := currentEntry.AcquisitionTime.Unix() + int64(currentEntry.EffectiveTTL)
-		if currentExpiry > entry.expiry {
-			// 缓存中的数据比堆索引更早过期？不，这里是 cache 中的数据存活时间更长
-			// 意味着堆中的 entry.expiry 是旧的，直接扔掉，等待堆中该 key 较新的索引浮上来
+		// 版本号检查：如果堆中的版本号与缓存中的不一致，说明这是一个陈旧索引
+		// 直接丢弃，等待堆中该 key 较新的索引浮上来
+		if currentEntry.QueryVersion != entry.queryVersion {
 			heap.Pop(&c.expiredHeap)
 			continue
 		}
@@ -283,21 +281,27 @@ func (c *Cache) getMemoryUsagePercentLocked() float64 {
 	return float64(c.rawCache.Len()) / float64(c.maxEntries)
 }
 
-// GetExpiredEntries 统计已过期的条目数
+// GetExpiredEntries 统计已过期的条目数（快速估算）
+// 使用过期堆快速估算，而不是遍历所有条目
+// 时间复杂度从 O(n) 降低到 O(k)，其中 k 是堆中已过期的条目数
 func (c *Cache) GetExpiredEntries() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	now := timeNow().Unix()
 	count := 0
-	// 由于 LRUCache 内部是锁定的，我们需要获取所有值并检查
-	// 这里通过遍历实现（注意：这需要 LRUCache 提供迭代方法）
-	// 为了简化，我们先获取所有项的快照
-	entries := c.GetRawCacheSnapshot()
-	for _, entry := range entries {
-		if entry.IsExpired() {
+
+	// 遍历堆中的条目，统计已过期的数量
+	// 由于堆是按过期时间排序的，一旦遇到未过期的条目就可以停止
+	for _, entry := range c.expiredHeap {
+		if entry.expiry <= now {
 			count++
+		} else {
+			// 堆中后续条目都未过期，可以停止
+			break
 		}
 	}
+
 	return count
 }
 
@@ -408,10 +412,11 @@ func timeNow() time.Time {
 // addToExpiredHeap 将过期数据添加到堆中（异步化）
 // 使用 channel 发送，避免 Set 路径上的全局锁
 // 这是情况 1 的核心改进：消除高频操作上的全局锁
-func (c *Cache) addToExpiredHeap(key string, expiryTime int64) {
+func (c *Cache) addToExpiredHeap(key string, expiryTime int64, queryVersion int64) {
 	entry := expireEntry{
-		key:    key,
-		expiry: expiryTime,
+		key:          key,
+		expiry:       expiryTime,
+		queryVersion: queryVersion,
 	}
 
 	// 非阻塞发送，如果 channel 满则丢弃
