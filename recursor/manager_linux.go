@@ -10,20 +10,21 @@ import (
 	"smartdnssort/logger"
 )
 
-// startPlatformSpecific Linux 特定的启动逻辑
+// startPlatformSpecific Linux 特定的启动逻辑（已弃用，使用 startPlatformSpecificNoInit）
 func (m *Manager) startPlatformSpecific() error {
-	// 1. 初始化系统级 unbound
-	if err := m.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize unbound: %w", err)
-	}
+	// 此方法已弃用，保留以兼容性
+	return m.startPlatformSpecificNoInit()
+}
 
-	// 2. 获取 unbound 路径
+// startPlatformSpecificNoInit Linux 特定的启动逻辑（不调用 Initialize）
+func (m *Manager) startPlatformSpecificNoInit() error {
+	// 1. 获取 unbound 路径
 	if m.sysManager != nil {
 		m.unboundPath = m.sysManager.unboundPath
 		logger.Infof("[Recursor] Using system unbound: %s", m.unboundPath)
 	}
 
-	// 3. 生成配置文件
+	// 2. 生成配置文件
 	configPath, err := m.generateConfigLinux()
 	if err != nil {
 		return fmt.Errorf("failed to generate unbound config: %w", err)

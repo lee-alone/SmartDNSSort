@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,14 +129,16 @@ func NewConnectionPool(address, network string, maxConnections int, idleTimeout 
 	go func() {
 		// 根据平台调整延迟时间
 		// Windows 上 unbound 启动可能需要更长时间
+		// Linux 上系统 unbound 启动也需要时间
 		var delay time.Duration
 		if runtime.GOOS == "windows" {
-			delay = 3 * time.Second
+			delay = 5 * time.Second
 		} else {
-			delay = 1 * time.Second
+			// Linux: 系统 unbound 启动通常需要 2-3 秒
+			delay = 3 * time.Second
 		}
 		time.Sleep(delay)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		warmupCount := maxConnections / 2
 		if warmupCount > 0 {
@@ -166,6 +169,19 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 		if poolConn.closed {
 			p.mu.Lock()
 			p.activeCount--
+			p.mu.Unlock()
+			return p.Exchange(ctx, msg) // 递归获取下一个
+		}
+
+		// TCP 连接额外检查：验证连接是否仍然有效
+		// 如果连接已被远端关闭，应该立即销毁而不是尝试复用
+		if p.network == "tcp" && p.isConnectionStale(poolConn) {
+			logger.Debugf("[ConnectionPool] TCP 连接已过期或被远端关闭，销毁并重新获取: %s", p.address)
+			poolConn.conn.Close()
+			poolConn.closed = true
+			p.mu.Lock()
+			p.activeCount--
+			p.totalDestroyed++
 			p.mu.Unlock()
 			return p.Exchange(ctx, msg) // 递归获取下一个
 		}
@@ -225,6 +241,11 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 
 	// 3. 处理结果并归还连接
 	if err != nil {
+		errStr := err.Error()
+		isBrokenPipe := strings.Contains(errStr, "broken pipe") ||
+			strings.Contains(errStr, "connection reset") ||
+			strings.Contains(errStr, "EOF")
+
 		if p.isTemporaryError(err) {
 			// 特殊修复：UDP 超时后必须销毁连接，防止后续复用时读到迟到的脏包（串号问题）
 			if p.network == "udp" {
@@ -256,6 +277,69 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 				p.totalDestroyed++
 				p.totalErrors++
 				p.mu.Unlock()
+			}
+		} else if isBrokenPipe && p.network == "tcp" {
+			// TCP broken pipe 特殊处理：关闭连接，然后重试一次
+			logger.Warnf("[ConnectionPool] TCP 连接被远端关闭 (broken pipe)，销毁连接并重试: %s", p.address)
+			poolConn.conn.Close()
+			poolConn.closed = true
+			p.mu.Lock()
+			p.activeCount--
+			p.totalDestroyed++
+			p.totalErrors++
+			p.mu.Unlock()
+
+			// 重试一次：创建新连接并重新执行查询
+			// 为了避免无限递归，我们直接创建新连接而不是调用 Exchange
+			p.mu.Lock()
+			if p.activeCount < p.maxConnections {
+				p.activeCount++
+				p.mu.Unlock()
+
+				newConn, err := p.createConnection(ctx)
+				if err != nil {
+					p.mu.Lock()
+					p.activeCount--
+					p.mu.Unlock()
+					logger.Warnf("[ConnectionPool] 重试创建连接失败: %v", err)
+					return nil, err
+				}
+
+				// 使用新连接重新执行查询
+				reply, err := p.exchangeOnConnection(ctx, newConn, msg)
+				if err != nil {
+					// 重试失败，关闭连接
+					newConn.conn.Close()
+					newConn.closed = true
+					p.mu.Lock()
+					p.activeCount--
+					p.totalDestroyed++
+					p.totalErrors++
+					p.mu.Unlock()
+					logger.Warnf("[ConnectionPool] 重试查询失败: %v", err)
+					return nil, err
+				}
+
+				// 重试成功，更新延迟并放回连接
+				p.updateAvgLatency(time.Since(startTime))
+				newConn.lastUsed = time.Now()
+				newConn.usageCount++
+				select {
+				case p.idleConns <- newConn:
+					// 成功归还
+				default:
+					newConn.conn.Close()
+					newConn.closed = true
+					p.mu.Lock()
+					p.activeCount--
+					p.totalDestroyed++
+					p.mu.Unlock()
+				}
+				return reply, nil
+			} else {
+				p.mu.Unlock()
+				logger.Warnf("[ConnectionPool] 连接池已满，无法重试: %s", p.address)
+				return nil, err
 			}
 		} else {
 			// 永久错误：关闭连接
@@ -406,6 +490,8 @@ func (p *ConnectionPool) isTemporaryError(err error) bool {
 		return false
 	}
 
+	errStr := err.Error()
+
 	// 检查网络错误 - 只检查 Timeout，Temporary() 已弃用
 	if ne, ok := err.(net.Error); ok {
 		return ne.Timeout()
@@ -416,6 +502,74 @@ func (p *ConnectionPool) isTemporaryError(err error) bool {
 		return true // 超时是临时错误
 	}
 
+	// TCP broken pipe 和 connection reset 是永久错误
+	// 这些错误表示连接已被远端关闭，不应该重试
+	if strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "EOF") {
+		return false // 永久错误
+	}
+
+	return false
+}
+
+// isConnectionStale 检查 TCP 连接是否已过期或被远端关闭
+// 通过检查连接空闲时间和尝试轻量级读取来检测连接状态
+func (p *ConnectionPool) isConnectionStale(poolConn *PooledConnection) bool {
+	if poolConn == nil || poolConn.conn == nil {
+		return true
+	}
+
+	// 只检查 TCP 连接
+	if p.network != "tcp" {
+		return false
+	}
+
+	// 如果连接空闲时间超过 5 分钟，认为已过期
+	if time.Since(poolConn.lastUsed) > 5*time.Minute {
+		logger.Debugf("[ConnectionPool] TCP 连接空闲超过 5 分钟，标记为过期: %s", p.address)
+		return true
+	}
+
+	// 尝试设置一个非常短的读超时来检测连接是否仍然有效
+	// 这是一个轻量级的检查，不会阻塞太长时间
+	tcpConn, ok := poolConn.conn.(*net.TCPConn)
+	if !ok {
+		return false
+	}
+
+	// 设置 1ms 的读超时来进行快速检查
+	tcpConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+	defer tcpConn.SetReadDeadline(time.Time{}) // 清除超时
+
+	// 尝试读取一个字节（不会真正读取数据，只是检查连接状态）
+	buf := make([]byte, 1)
+	_, err := tcpConn.Read(buf)
+
+	// 如果没有错误或只是超时，连接仍然有效
+	if err == nil {
+		// 不应该有数据可读，这表示连接可能有问题
+		logger.Debugf("[ConnectionPool] TCP 连接有未读数据，可能已损坏: %s", p.address)
+		return true
+	}
+
+	// 检查错误类型
+	if ne, ok := err.(net.Error); ok {
+		if ne.Timeout() {
+			// 超时是正常的，表示连接仍然有效
+			return false
+		}
+	}
+
+	// 其他错误（如 EOF、broken pipe）表示连接已关闭
+	if strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "broken pipe") ||
+		strings.Contains(err.Error(), "connection reset") {
+		logger.Debugf("[ConnectionPool] TCP 连接已被远端关闭: %s, 错误: %v", p.address, err)
+		return true
+	}
+
+	// 默认认为连接仍然有效
 	return false
 }
 
@@ -668,10 +822,12 @@ func (p *ConnectionPool) Warmup(ctx context.Context, count int) error {
 		count = p.maxConnections
 	}
 
+	successCount := 0
 	for i := 0; i < count; i++ {
 		conn, err := p.createConnection(ctx)
 		if err != nil {
-			logger.Warnf("[ConnectionPool] 预热失败: %v", err)
+			// 预热失败不输出警告，只在调试模式下输出
+			logger.Debugf("[ConnectionPool] 预热连接失败 (尝试 %d/%d): %v", i+1, count, err)
 			continue
 		}
 
@@ -680,12 +836,17 @@ func (p *ConnectionPool) Warmup(ctx context.Context, count int) error {
 			p.mu.Lock()
 			p.activeCount++
 			p.mu.Unlock()
+			successCount++
 		default:
 			conn.conn.Close()
 		}
 	}
 
-	logger.Debugf("[ConnectionPool] 预热完成: %s, 预热连接数: %d", p.address, count)
+	if successCount > 0 {
+		logger.Debugf("[ConnectionPool] 预热完成: %s, 成功连接数: %d/%d", p.address, successCount, count)
+	} else if count > 0 {
+		logger.Warnf("[ConnectionPool] 预热失败: %s, 无法建立任何连接 (可能 unbound 还未启动)", p.address)
+	}
 	return nil
 }
 

@@ -11,8 +11,14 @@ import (
 	"strings"
 )
 
-// startPlatformSpecific Windows 特定的启动逻辑
+// startPlatformSpecific Windows 特定的启动逻辑（已弃用，使用 startPlatformSpecificNoInit）
 func (m *Manager) startPlatformSpecific() error {
+	// 此方法已弃用，保留以兼容性
+	return m.startPlatformSpecificNoInit()
+}
+
+// startPlatformSpecificNoInit Windows 特定的启动逻辑（不调用 Initialize）
+func (m *Manager) startPlatformSpecificNoInit() error {
 	// 1. 解压 Unbound 二进制文件
 	unboundPath, err := ExtractUnboundBinary()
 	if err != nil {

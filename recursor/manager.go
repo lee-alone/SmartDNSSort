@@ -94,8 +94,8 @@ func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 调用平台特定的启动逻辑
-	if err := m.startPlatformSpecific(); err != nil {
+	// 调用平台特定的启动逻辑（不再调用 Initialize，已在上面处理）
+	if err := m.startPlatformSpecificNoInit(); err != nil {
 		return err
 	}
 
@@ -157,11 +157,15 @@ func (m *Manager) Start() error {
 // 清理主程序目录下 unbound/ 子目录中的文件
 func (m *Manager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if !m.enabled {
+		m.mu.Unlock()
 		return nil
 	}
+
+	// 标记为禁用，防止 healthCheckLoop 尝试重启
+	m.enabled = false
+	m.mu.Unlock()
 
 	// 1. 停止健康检查
 	close(m.stopCh)
@@ -195,9 +199,11 @@ func (m *Manager) Stop() error {
 		_ = os.Remove(m.configPath)
 	}
 
-	m.enabled = false
+	m.mu.Lock()
 	m.restartAttempts = 0     // 重置重启计数器
 	m.startTime = time.Time{} // 重置启动时间
+	m.mu.Unlock()
+
 	logger.Infof("[Recursor] Unbound process stopped")
 	return nil
 }
@@ -377,7 +383,14 @@ func (m *Manager) healthCheckLoop() {
 		case <-m.exitCh:
 			// 进程意外退出
 			m.mu.Lock()
-			m.enabled = false
+			// 检查是否已被禁用（Stop() 调用时会禁用）
+			if !m.enabled {
+				m.mu.Unlock()
+				// 已禁用，不尝试重启
+				logger.Debugf("[Recursor] Process exited but recursor is disabled, not restarting")
+				return
+			}
+
 			m.restartAttempts++
 			m.lastRestartTime = time.Now()
 			attempts := m.restartAttempts
@@ -386,6 +399,9 @@ func (m *Manager) healthCheckLoop() {
 			// 检查重启次数是否超过限制
 			if attempts > 5 {
 				logger.Errorf("[Recursor] Process exited unexpectedly. Max restart attempts (%d) exceeded, giving up", attempts)
+				m.mu.Lock()
+				m.enabled = false
+				m.mu.Unlock()
 				return
 			}
 
