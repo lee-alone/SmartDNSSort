@@ -118,24 +118,25 @@ type ConfigParams struct {
 
 // CalculateParams 计算配置参数
 // 根据 CPU 核数和内存大小动态计算参数
-// 确保最小缓存大小以保证基本功能
+// 优化目标：降低内存占用，因为上层应用已有完整缓存
 func (cg *ConfigGenerator) CalculateParams() ConfigParams {
-	// CPU 线程数
+	// CPU 线程数 - 保持现有策略以维持高速响应
 	numThreads := max(1, min(cg.sysInfo.CPUCores, 8))
 
-	// 缓存大小（基于内存）
-	// 如果无法获取内存信息，使用默认值
+	// 缓存大小 - 大幅降低，因为上层 SmartDNSSort 已有优秀的缓存层
+	// Unbound 只作为递归解析器，不承载缓存压力
 	var msgCacheSize, rrsetCacheSize int
 
 	if cg.sysInfo.MemoryGB > 0 {
-		memMB := int(cg.sysInfo.MemoryGB * 1024)
-		// 确保最小缓存大小
-		msgCacheSize = max(25, min(memMB*5/100, 500))
-		rrsetCacheSize = max(50, min(memMB*10/100, 1000))
+		// 递归解析器模式：使用固定的小缓存
+		// msg-cache: 10-20MB（原 25-500MB）
+		// rrset-cache: 20-40MB（原 50-1000MB）
+		msgCacheSize = 10 + (2 * numThreads)   // 10-26MB
+		rrsetCacheSize = 20 + (4 * numThreads) // 20-52MB
 	} else {
-		// 无内存信息时使用线程数的保守估计
-		msgCacheSize = 50 + (25 * numThreads)
-		rrsetCacheSize = 100 + (50 * numThreads)
+		// 无内存信息时使用保守的小缓存
+		msgCacheSize = 10 + numThreads
+		rrsetCacheSize = 20 + (2 * numThreads)
 	}
 
 	return ConfigParams{
@@ -143,7 +144,7 @@ func (cg *ConfigGenerator) CalculateParams() ConfigParams {
 		MsgCacheSize:   msgCacheSize,
 		RRsetCacheSize: rrsetCacheSize,
 		OutgoingRange:  4096,
-		SoRcvbuf:       "8m",
+		SoRcvbuf:       "1m", // 降低从 8m 到 1m
 	}
 }
 
@@ -159,6 +160,9 @@ func (cg *ConfigGenerator) GenerateConfig() (string, error) {
 # Auto-generated, do not edit manually
 # Generated for %d CPU cores, %.1f GB memory
 # Unbound version: %s
+# 
+# 配置原则：Unbound 作为递归解析器，不重复缓存
+# 上层 SmartDNSSort 应用已有完整的缓存层
 
 server:
     # 监听配置
@@ -181,9 +185,11 @@ server:
     outgoing-range: %d
     so-rcvbuf: %s
     
-    # 缓存策略
-    cache-max-ttl: 86400
-    cache-min-ttl: 60
+    # 缓存策略 - 快速刷新，不重复缓存
+    cache-max-ttl: 300
+    cache-min-ttl: 0
+    cache-max-negative-ttl: 60
+    serve-expired: no
 `,
 		cg.sysInfo.CPUCores,
 		cg.sysInfo.MemoryGB,
@@ -197,11 +203,8 @@ server:
 	)
 
 	// 条件性添加特性
-	if features.ServeExpired {
-		config += "    serve-expired: yes\n"
-	}
 	if features.ServeExpiredTTL {
-		config += "    serve-expired-ttl: 86400\n"
+		config += "    serve-expired-ttl: 300\n"
 	}
 	if features.ServeExpiredReplyTTL {
 		config += "    serve-expired-reply-ttl: 30\n"
@@ -211,8 +214,8 @@ server:
 	}
 
 	config += `    
-    # 预取优化
-    prefetch: yes
+    # 预取优化 - 禁用，因为上层已处理
+    prefetch: no
 `
 
 	if features.QnameMinimisation {

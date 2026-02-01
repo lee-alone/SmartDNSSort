@@ -329,10 +329,10 @@ func (m *Manager) generateConfig() (string, error) {
 	// min(CPU, 8) 且至少为 1
 	numThreads := max(1, min(runtime.NumCPU(), 8))
 
-	// 根据线程数调整缓存大小
-	// 基础缓存 + 每个线程额外缓存
-	msgCacheSize := 50 + (25 * numThreads)    // 基础 50m + 每线程 25m
-	rrsetCacheSize := 100 + (50 * numThreads) // 基础 100m + 每线程 50m
+	// 根据线程数调整缓存大小 - 递归优化模式
+	// 小型缓存，因为上层应用已有完整的缓存层
+	msgCacheSize := 10 + (2 * numThreads)   // 10-26MB（原 50-250MB）
+	rrsetCacheSize := 20 + (4 * numThreads) // 20-52MB（原 100-500MB）
 
 	// 获取 root.key 路径
 	rootKeyPath := filepath.Join(configDir, "root.key")
@@ -342,9 +342,12 @@ func (m *Manager) generateConfig() (string, error) {
 	}
 
 	// 生成配置内容
-	config := fmt.Sprintf(`# SmartDNSSort Embedded Unbound Configuration
+	config := fmt.Sprintf(`# SmartDNSSort Embedded Unbound Configuration (Fallback)
 # Auto-generated, do not edit manually
 # Generated for %d CPU cores
+# 
+# 配置原则：Unbound 作为递归解析器，不重复缓存
+# 上层 SmartDNSSort 应用已有完整的缓存层
 
 server:
     # 监听配置
@@ -365,17 +368,18 @@ server:
     msg-cache-size: %dm
     rrset-cache-size: %dm
     outgoing-range: 4096
-    so-rcvbuf: 8m
+    so-rcvbuf: 1m
     
-    # 缓存策略
-    cache-max-ttl: 86400
-    cache-min-ttl: 60
-    serve-expired: yes
-    serve-expired-ttl: 86400
+    # 缓存策略 - 快速刷新，不重复缓存
+    cache-max-ttl: 300
+    cache-min-ttl: 0
+    cache-max-negative-ttl: 60
+    serve-expired: no
+    serve-expired-ttl: 300
     serve-expired-reply-ttl: 30
     
-    # 预取优化
-    prefetch: yes
+    # 预取优化 - 禁用，因为上层已处理
+    prefetch: no
     prefetch-key: yes
     
     # 安全加固
