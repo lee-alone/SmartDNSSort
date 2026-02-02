@@ -188,7 +188,7 @@ server:
     # 缓存策略 - 快速刷新，不重复缓存
     cache-max-ttl: 86400
     cache-min-ttl: 60
-    cache-max-negative-ttl: 60
+    cache-max-negative-ttl: 3600
     serve-expired: yes
 `,
 		cg.sysInfo.CPUCores,
@@ -204,7 +204,7 @@ server:
 
 	// 条件性添加特性
 	if features.ServeExpiredTTL {
-		config += "    serve-expired-ttl: 300\n"
+		config += "    serve-expired-ttl: 3600\n"
 	}
 	if features.ServeExpiredReplyTTL {
 		config += "    serve-expired-reply-ttl: 30\n"
