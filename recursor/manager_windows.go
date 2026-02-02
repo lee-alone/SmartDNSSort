@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"smartdnssort/logger"
-	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -75,76 +74,22 @@ func (m *Manager) generateConfigWindows() (string, error) {
 	absPath, _ := filepath.Abs(configPath)
 	configPath = absPath
 
-	// 动态计算线程数
-	numThreads := max(1, min(runtime.NumCPU(), 8))
-	msgCacheSize := 50 + (25 * numThreads)
-	rrsetCacheSize := 100 + (50 * numThreads)
+	// 获取版本信息
+	version := ""
+	if m.sysManager != nil {
+		version = m.sysManager.unboundVer
+	}
 
-	// 获取 root.key 路径
-	rootKeyPath := filepath.Join(configDir, "root.key")
-	// 在 Windows 上，unbound 配置文件中的路径需要使用正斜杠
-	rootKeyPath = strings.ReplaceAll(rootKeyPath, "\\", "/")
-
-	// 生成配置内容
-	config := fmt.Sprintf(`# SmartDNSSort Embedded Unbound Configuration (Windows)
-# Auto-generated, do not edit manually
-# Generated for %d CPU cores
-
-server:
-    # 监听配置
-    interface: 127.0.0.1@%d
-    do-ip4: yes
-    do-ip6: no
-    do-udp: yes
-    do-tcp: yes
-    
-    # 访问控制 - 仅本地访问
-    access-control: 127.0.0.1 allow
-    access-control: ::1 allow
-    access-control: 0.0.0.0/0 deny
-    access-control: ::/0 deny
-    
-    # 性能优化
-    num-threads: %d
-    msg-cache-size: %dm
-    rrset-cache-size: %dm
-    outgoing-range: 4096
-    so-rcvbuf: 8m
-    
-    # 缓存策略
-    cache-max-ttl: 86400
-    cache-min-ttl: 60
-    serve-expired: yes
-    serve-expired-ttl: 86400
-    serve-expired-reply-ttl: 30
-    
-    # 预取优化
-    prefetch: yes
-    prefetch-key: yes
-    
-    # 安全加固
-    harden-dnssec-stripped: yes
-    harden-glue: yes
-    harden-referral-path: yes
-    qname-minimisation: yes
-    minimal-responses: yes
-    use-caps-for-id: yes
-    
-    # DNSSEC 信任锚
-    auto-trust-anchor-file: "%s"
-    
-    # 模块配置
-    module-config: "iterator"
-    
-    # 日志配置
-    verbosity: 1
-    log-queries: no
-    log-replies: no
-    
-    # 隐藏版本信息
-    hide-identity: yes
-    hide-version: yes
-`, runtime.NumCPU(), m.port, numThreads, msgCacheSize, rrsetCacheSize, rootKeyPath)
+	// 使用 ConfigGenerator 生成配置
+	sysInfo := SystemInfo{
+		CPUCores: runtime.NumCPU(),
+		MemoryGB: 0, // Windows 上从系统获取，这里使用 0 触发保守配置
+	}
+	generator := NewConfigGenerator(version, sysInfo, m.port)
+	config, err := generator.GenerateConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate config: %w", err)
+	}
 
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
 		return "", fmt.Errorf("failed to write config file: %w", err)

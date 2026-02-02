@@ -186,10 +186,10 @@ server:
     so-rcvbuf: %s
     
     # 缓存策略 - 快速刷新，不重复缓存
-    cache-max-ttl: 300
-    cache-min-ttl: 0
+    cache-max-ttl: 86400
+    cache-min-ttl: 60
     cache-max-negative-ttl: 60
-    serve-expired: no
+    serve-expired: yes
 `,
 		cg.sysInfo.CPUCores,
 		cg.sysInfo.MemoryGB,
