@@ -65,7 +65,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	response := APIResponse{
+		Success: true,
+		Message: "Query result",
+		Data:    result,
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleStats 处理统计信息请求
@@ -205,11 +210,7 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	queries := s.dnsServer.GetRecentQueries()
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(queries); err != nil {
-		logger.Errorf("Failed to encode recent queries: %v", err)
-		s.writeJSONError(w, "Failed to encode recent queries", http.StatusInternalServerError)
-	}
+	s.writeJSONSuccess(w, "Recent queries retrieved successfully", queries)
 }
 
 // handleHotDomains 处理热点域名请求
@@ -223,11 +224,7 @@ func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
 	if !ok || topDomainsList == nil {
 		topDomainsList = []interface{}{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(topDomainsList); err != nil {
-		logger.Errorf("Failed to encode hot domains: %v", err)
-		s.writeJSONError(w, "Failed to encode hot domains", http.StatusInternalServerError)
-	}
+	s.writeJSONSuccess(w, "Hot domains retrieved successfully", topDomainsList)
 }
 
 // handleRestart 处理重启请求
@@ -282,9 +279,5 @@ func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
 		domains = []string{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(domains); err != nil {
-		logger.Errorf("Failed to encode recently blocked domains: %v", err)
-		s.writeJSONError(w, "Failed to encode recently blocked domains", http.StatusInternalServerError)
-	}
+	s.writeJSONSuccess(w, "Recently blocked domains retrieved successfully", domains)
 }

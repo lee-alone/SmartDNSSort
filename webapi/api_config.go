@@ -12,6 +12,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// 配置验证的常量定义
+const (
+	MinSequentialTimeoutMs = 100
+	MaxSequentialTimeoutMs = 2000
+	MinRacingDelayMs       = 50
+	MaxRacingDelayMs       = 500
+	MinRacingMaxConcurrent = 2
+	MaxRacingMaxConcurrent = 10
+)
+
 // handleConfig 处理配置请求
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -152,22 +162,22 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	// User-provided sequential timeout, if any, must be within bounds.
 	if cfg.Upstream.SequentialTimeout != nil {
 		val := *cfg.Upstream.SequentialTimeout
-		if val < 100 || val > 2000 {
-			return fmt.Errorf("sequential timeout must be between 100ms and 2000ms if specified, got %dms", val)
+		if val < MinSequentialTimeoutMs || val > MaxSequentialTimeoutMs {
+			return fmt.Errorf("sequential timeout must be between %dms and %dms if specified, got %dms", MinSequentialTimeoutMs, MaxSequentialTimeoutMs, val)
 		}
 	}
 
 	// User-provided racing delay, if any, must be within bounds.
 	if cfg.Upstream.RacingDelay != nil {
 		val := *cfg.Upstream.RacingDelay
-		if val < 50 || val > 500 {
-			return fmt.Errorf("racing delay must be between 50ms and 500ms if specified, got %dms", val)
+		if val < MinRacingDelayMs || val > MaxRacingDelayMs {
+			return fmt.Errorf("racing delay must be between %dms and %dms if specified, got %dms", MinRacingDelayMs, MaxRacingDelayMs, val)
 		}
 	}
 	// User-provided racing max concurrent, if any, must be within bounds.
 	if cfg.Upstream.RacingMaxConcurrent != nil {
 		val := *cfg.Upstream.RacingMaxConcurrent
-		if val < 2 || val > 10 { // 适当放宽上限，manager 会根据服务器数再次限制
+		if val < MinRacingMaxConcurrent || val > MaxRacingMaxConcurrent { // 适当放宽上限，manager 会根据服务器数再次限制
 			return fmt.Errorf("racing max concurrent must be between 2 and 10 if specified, got %d", val)
 		}
 	}
