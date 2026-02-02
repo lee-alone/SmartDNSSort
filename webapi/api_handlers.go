@@ -211,7 +211,11 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	queries := s.dnsServer.GetRecentQueries()
-	s.writeJSONSuccess(w, "Recent queries retrieved successfully", queries)
+	if queries == nil {
+		queries = []string{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(queries)
 }
 
 // handleHotDomains 处理热点域名请求
@@ -280,5 +284,6 @@ func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
 		domains = []string{}
 	}
 
-	s.writeJSONSuccess(w, "Recently blocked domains retrieved successfully", domains)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(domains)
 }
