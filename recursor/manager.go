@@ -201,6 +201,11 @@ func (m *Manager) Start() error {
 	// 6. 启动健康检查/保活 loop
 	go m.healthCheckLoop()
 
+	// 7. 启动 root.key 定期更新任务（仅 Linux）
+	if runtime.GOOS == "linux" && m.sysManager != nil {
+		go m.updateRootKeyInBackground()
+	}
+
 	return nil
 }
 
@@ -762,4 +767,31 @@ func (m *Manager) getWaitForReadyTimeout() time.Duration {
 		return m.waitForReadyTimeoutWindows()
 	}
 	return m.waitForReadyTimeoutLinux()
+}
+
+// updateRootKeyInBackground 后台定期更新 root.key（仅 Linux）
+// 每 30 天尝试更新一次，首次更新在启动后 1 小时
+func (m *Manager) updateRootKeyInBackground() {
+	ticker := time.NewTicker(30 * 24 * time.Hour) // 每 30 天更新一次
+	defer ticker.Stop()
+
+	// 首次更新：启动后等待 1 小时，给系统一些时间稳定网络
+	time.Sleep(1 * time.Hour)
+
+	logger.Infof("[Recursor] Root key update scheduler started (every 30 days)")
+
+	for {
+		select {
+		case <-ticker.C:
+			logger.Infof("[Recursor] Scheduled root.key update...")
+			if m.sysManager != nil {
+				if err := m.sysManager.tryUpdateRootKey(); err != nil {
+					logger.Warnf("[Recursor] Root key update failed: %v", err)
+				}
+			}
+		case <-m.healthCtx.Done():
+			logger.Debugf("[Recursor] Root key update scheduler cancelled")
+			return
+		}
+	}
 }

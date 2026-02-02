@@ -456,3 +456,51 @@ type SystemInfo struct {
 	IsInstalled bool
 	IsRunning   bool
 }
+
+// ensureRootKey 确保 root.key 存在（平台无关的通用方法）
+// 在 Linux 上会尝试使用 unbound-anchor，失败时使用嵌入的 root.key
+// 在 Windows 上直接返回错误（Windows 使用嵌入的 root.key）
+func (sm *SystemManager) ensureRootKey() (string, error) {
+	if sm.osType == "windows" {
+		return "", fmt.Errorf("ensureRootKey not supported on Windows")
+	}
+
+	if sm.osType != "linux" {
+		return "", fmt.Errorf("ensureRootKey only supported on Linux")
+	}
+
+	// 调用 Linux 特定的实现
+	return sm.ensureRootKeyLinux()
+}
+
+// tryUpdateRootKey 尝试更新 root.key（后台任务）
+// 仅在 Linux 上有效
+func (sm *SystemManager) tryUpdateRootKey() error {
+	if sm.osType != "linux" {
+		return fmt.Errorf("tryUpdateRootKey only supported on Linux")
+	}
+
+	rootKeyPath := "/etc/unbound/root.key"
+
+	// 检查文件是否存在
+	if _, err := os.Stat(rootKeyPath); os.IsNotExist(err) {
+		// 文件不存在，调用 ensureRootKey 生成
+		_, err := sm.ensureRootKey()
+		return err
+	}
+
+	// 文件存在，尝试更新
+	logger.Infof("[SystemManager] Attempting to update root.key...")
+	cmd := exec.Command("unbound-anchor", "-a", rootKeyPath, "-4")
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		logger.Debugf("[SystemManager] Root key update failed (non-critical): %v", err)
+		logger.Debugf("[SystemManager] Output: %s", string(output))
+		// 更新失败不是致命错误，继续使用现有的 root.key
+		return nil
+	}
+
+	logger.Infof("[SystemManager] Root key updated successfully")
+	return nil
+}

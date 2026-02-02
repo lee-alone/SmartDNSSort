@@ -23,9 +23,17 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 	if m.sysManager != nil {
 		m.unboundPath = m.sysManager.unboundPath
 		logger.Infof("[Recursor] Using system unbound: %s", m.unboundPath)
+
+		// 2. 确保 root.key 存在（Linux 特定）
+		if _, err := m.sysManager.ensureRootKey(); err != nil {
+			logger.Warnf("[Recursor] Failed to ensure root.key: %v", err)
+			logger.Warnf("[Recursor] DNSSEC validation may be disabled")
+		} else {
+			logger.Infof("[Recursor] Root key ready")
+		}
 	}
 
-	// 2. 生成配置文件
+	// 3. 生成配置文件
 	configPath, err := m.generateConfigLinux()
 	if err != nil {
 		return fmt.Errorf("failed to generate unbound config: %w", err)
