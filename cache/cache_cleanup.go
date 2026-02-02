@@ -180,6 +180,9 @@ func (c *Cache) addToExpiredHeap(key string, expiryTime int64, queryVersion int6
 	select {
 	case c.addHeapChan <- entry:
 	default:
-		// channel 满，丢弃此次记录
+		// channel 满，记录监控指标
+		c.mu.Lock()
+		c.heapChannelFullCount++
+		c.mu.Unlock()
 	}
 }

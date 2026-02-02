@@ -52,15 +52,16 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	server := &Server{
-		cfg:          cfg,
-		stats:        s,
-		cache:        cache.NewCache(&cfg.Cache),
-		msgPool:      cache.NewMsgPool(),
-		upstream:     upstream.NewManager(&cfg.Upstream, upstreams, s),
-		pinger:       ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json"),
-		sortQueue:    sortQueue,
-		refreshQueue: refreshQueue,
-		stopCh:       make(chan struct{}),
+		cfg:           cfg,
+		stats:         s,
+		cache:         cache.NewCache(&cfg.Cache),
+		msgPool:       cache.NewMsgPool(),
+		upstream:      upstream.NewManager(&cfg.Upstream, upstreams, s),
+		pinger:        ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json"),
+		sortQueue:     sortQueue,
+		refreshQueue:  refreshQueue,
+		stopCh:        make(chan struct{}),
+		sortSemaphore: make(chan struct{}, 50), // 限制最多 50 个并发排序任务
 	}
 
 	// 尝试加载持久化缓存

@@ -51,6 +51,9 @@ type Cache struct {
 
 	// 持久化状态追踪
 	lastSavedDirty uint64
+
+	// 监控指标
+	heapChannelFullCount int64 // channel 满的次数（原子操作）
 }
 
 // NewCache 创建新的缓存实例
@@ -77,7 +80,7 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		msgCache:        NewLRUCache(msgCacheEntries),
 		recentlyBlocked: NewRecentlyBlockedTracker(),
 		expiredHeap:     make(expireHeap, 0),
-		addHeapChan:     make(chan expireEntry, 1000), // 缓冲 channel，避免阻塞
+		addHeapChan:     make(chan expireEntry, 10000), // 增加缓冲至 10000，消除突发流量下的阻塞点
 		stopHeapChan:    make(chan struct{}),
 	}
 
@@ -159,6 +162,13 @@ func (c *Cache) Close() error {
 	}
 
 	return nil
+}
+
+// GetHeapChannelFullCount 获取 channel 满的次数（用于监控）
+func (c *Cache) GetHeapChannelFullCount() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.heapChannelFullCount
 }
 
 // timeNow 返回当前时间（便于测试 mock）

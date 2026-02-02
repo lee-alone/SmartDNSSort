@@ -132,23 +132,37 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 	logger.Debugf("[sortIPsAsync] 启动异步排序任务: %s (type=%s), IP数量=%d",
 		domain, dns.TypeToString[qtype], len(ips))
 
-	// 创建排序任务
-	task := &cache.SortTask{
-		Domain: domain,
-		Qtype:  qtype,
-		IPs:    ips,
-		TTL:    uint32(s.calculateRemainingTTL(upstreamTTL, acquisitionTime)),
-		Callback: func(result *cache.SortedCacheEntry, err error) {
-			s.handleSortComplete(domain, qtype, result, err, state)
-		},
-	}
+	// 尝试获取信号量（限制并发排序任务）
+	select {
+	case s.sortSemaphore <- struct{}{}:
+		// 成功获取信号量，启动排序 goroutine
+		go func() {
+			defer func() { <-s.sortSemaphore }() // 释放信号量
 
-	// 提交到排序队列
-	// 如果队列已满，回退到同步排序（立即执行）
-	if !s.sortQueue.Submit(task) {
-		logger.Warnf("[sortIPsAsync] 排序队列已满，改用同步排序: %s (type=%s)",
+			// 创建排序任务
+			task := &cache.SortTask{
+				Domain: domain,
+				Qtype:  qtype,
+				IPs:    ips,
+				TTL:    uint32(s.calculateRemainingTTL(upstreamTTL, acquisitionTime)),
+				Callback: func(result *cache.SortedCacheEntry, err error) {
+					s.handleSortComplete(domain, qtype, result, err, state)
+				},
+			}
+
+			// 提交到排序队列
+			// 如果队列已满，回退到同步排序（立即执行）
+			if !s.sortQueue.Submit(task) {
+				logger.Warnf("[sortIPsAsync] 排序队列已满，改用同步排序: %s (type=%s)",
+					domain, dns.TypeToString[qtype])
+				task.Callback(nil, fmt.Errorf("sort queue full"))
+			}
+		}()
+	default:
+		// 信号量已满，跳过此次排序
+		logger.Warnf("[sortIPsAsync] 并发排序任务已达上限 (50)，跳过排序: %s (type=%s)",
 			domain, dns.TypeToString[qtype])
-		task.Callback(nil, fmt.Errorf("sort queue full"))
+		s.cache.FinishSort(domain, qtype, nil, fmt.Errorf("sort semaphore full"), state)
 	}
 }
 
