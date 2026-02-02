@@ -8,8 +8,10 @@ import (
 // shardedRttCache 分片 RTT 缓存
 // 将缓存分成多个分片，每个分片有独立的锁，减少锁竞争
 type shardedRttCache struct {
-	shards    []*rttCacheShard
-	shardMask uint32 // 用于快速计算分片索引
+	shards            []*rttCacheShard
+	shardMask         uint32 // 用于快速计算分片索引
+	nextCleanupShard  uint32 // 下次清理的分片索引（用于增量清理）
+	cleanupShardBatch int    // 每次清理的分片数量（默认 4）
 }
 
 // rttCacheShard 单个缓存分片
@@ -34,8 +36,10 @@ func newShardedRttCache(shardCount int) *shardedRttCache {
 	}
 
 	sc := &shardedRttCache{
-		shards:    make([]*rttCacheShard, shardCount),
-		shardMask: uint32(shardCount - 1),
+		shards:            make([]*rttCacheShard, shardCount),
+		shardMask:         uint32(shardCount - 1),
+		nextCleanupShard:  0,
+		cleanupShardBatch: 4, // 每次清理 4 个分片
 	}
 
 	for i := 0; i < shardCount; i++ {
@@ -90,15 +94,19 @@ func (sc *shardedRttCache) delete(ip string) {
 	delete(shard.cache, ip)
 }
 
-// cleanupExpired 清理所有过期条目
+// cleanupExpired 增量式清理过期条目
+// 每次只清理部分分片（默认 4 个），避免一次性锁住所有分片导致的性能抖动
 // 返回清理的条目数
 func (sc *shardedRttCache) cleanupExpired() int {
 	now := time.Now()
 	cleaned := 0
 
-	// 遍历所有分片，并行清理
-	// 每个分片独立清理，不会相互阻塞
-	for _, shard := range sc.shards {
+	// 每次清理 cleanupShardBatch 个分片
+	shardCount := len(sc.shards)
+	for i := 0; i < sc.cleanupShardBatch && i < shardCount; i++ {
+		shardIdx := sc.nextCleanupShard
+		shard := sc.shards[shardIdx]
+
 		shard.mu.Lock()
 		for ip, entry := range shard.cache {
 			if now.After(entry.expiresAt) {
@@ -107,6 +115,9 @@ func (sc *shardedRttCache) cleanupExpired() int {
 			}
 		}
 		shard.mu.Unlock()
+
+		// 移动到下一个分片
+		sc.nextCleanupShard = (sc.nextCleanupShard + 1) & sc.shardMask
 	}
 
 	return cleaned

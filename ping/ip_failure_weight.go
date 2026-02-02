@@ -1,7 +1,8 @@
 package ping
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/gob"
 	"os"
 	"sync"
 	"time"
@@ -163,6 +164,7 @@ func (m *IPFailureWeightManager) GetRecord(ip string) *IPFailureRecord {
 }
 
 // SaveToDisk 保存失效记录到磁盘
+// 使用二进制格式（gob）以提升性能和减少磁盘占用
 func (m *IPFailureWeightManager) SaveToDisk() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -176,20 +178,25 @@ func (m *IPFailureWeightManager) SaveToDisk() error {
 		records = append(records, r)
 	}
 
-	data, err := json.MarshalIndent(records, "", "  ")
+	tempFile := m.persistFile + ".tmp"
+	f, err := os.Create(tempFile)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
-	tempFile := m.persistFile + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	// 使用 gob 编码（更快，更紧凑）
+	encoder := gob.NewEncoder(f)
+	if err := encoder.Encode(records); err != nil {
 		return err
 	}
 
+	f.Close()
 	return os.Rename(tempFile, m.persistFile)
 }
 
 // loadFromDisk 从磁盘加载失效记录
+// 使用二进制格式（gob）加载
 func (m *IPFailureWeightManager) loadFromDisk() error {
 	if m.persistFile == "" {
 		return nil
@@ -204,7 +211,10 @@ func (m *IPFailureWeightManager) loadFromDisk() error {
 	}
 
 	var records []*IPFailureRecord
-	if err := json.Unmarshal(data, &records); err != nil {
+
+	// 使用 gob 解码
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&records); err != nil {
 		return err
 	}
 

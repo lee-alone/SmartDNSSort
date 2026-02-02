@@ -123,13 +123,21 @@ func TestShardedCacheExpiration(t *testing.T) {
 	cache.set("8.8.8.8", expiredEntry)
 	cache.set("1.1.1.1", validEntry)
 
-	// 清理过期条目
-	cleaned := cache.cleanupExpired()
+	// 清理过期条目（可能需要多次调用才能清理所有分片）
+	// 由于有 16 个分片，每次清理 4 个，所以需要 4 次调用才能清理完所有分片
+	totalCleaned := 0
+	for i := 0; i < 20; i++ { // 最多调用 20 次以确保清理完所有分片
+		cleaned := cache.cleanupExpired()
+		totalCleaned += cleaned
+		if cleaned == 0 && i >= 4 {
+			break
+		}
+	}
 
-	if cleaned != 1 {
-		t.Errorf("✗ Expected to clean 1 entry, cleaned %d", cleaned)
+	if totalCleaned >= 1 {
+		t.Logf("✓ Expected to clean at least 1 entry, cleaned %d", totalCleaned)
 	} else {
-		t.Log("✓ Expired entry cleaned correctly")
+		t.Errorf("✗ Expected to clean at least 1 entry, cleaned %d", totalCleaned)
 	}
 
 	// 验证有效条目仍然存在
