@@ -54,6 +54,7 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 		}
 		// Add to AdBlock manager
 		if err := adblockMgr.AddSource(payload.URL); err != nil {
+			logger.Errorf("[AdBlock] Failed to add source %s: %v", payload.URL, err)
 			s.writeJSONError(w, "Failed to add source: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -87,6 +88,7 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := adblockMgr.SetSourceEnabled(payload.URL, payload.Enabled); err != nil {
+			logger.Errorf("[AdBlock] Failed to set source %s enabled to %v: %v", payload.URL, payload.Enabled, err)
 			s.writeJSONError(w, "Failed to update source: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -106,6 +108,7 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 		}
 		// Remove from AdBlock manager
 		if err := adblockMgr.RemoveSource(payload.URL); err != nil {
+			logger.Errorf("[AdBlock] Failed to remove source %s: %v", payload.URL, err)
 			s.writeJSONError(w, "Failed to remove source: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -196,6 +199,7 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to load config during toggle: %v", err)
 		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -206,11 +210,13 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 	// Save to file
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to marshal config during toggle: %v", err)
 		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := s.writeConfigFile(yamlData); err != nil {
+		logger.Errorf("[AdBlock] Failed to write config file during toggle: %v", err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -276,6 +282,7 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to load config for block mode change: %v", err)
 		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -286,17 +293,20 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 	// Save to file
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to marshal config for block mode change: %v", err)
 		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := s.writeConfigFile(yamlData); err != nil {
+		logger.Errorf("[AdBlock] Failed to write config file for block mode change: %v", err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Apply the new config to the running server
 	if err := s.dnsServer.ApplyConfig(cfg); err != nil {
+		logger.Errorf("[AdBlock] Failed to apply config for block mode change: %v", err)
 		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -355,6 +365,7 @@ func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Reques
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to load config for settings update: %v", err)
 		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -368,17 +379,20 @@ func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Reques
 	// Save to file
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {
+		logger.Errorf("[AdBlock] Failed to marshal config for settings update: %v", err)
 		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := s.writeConfigFile(yamlData); err != nil {
+		logger.Errorf("[AdBlock] Failed to write config file for settings update: %v", err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Apply the new config to the running server
 	if err := s.dnsServer.ApplyConfig(cfg); err != nil {
+		logger.Errorf("[AdBlock] Failed to apply config for settings update: %v", err)
 		s.writeJSONError(w, "Failed to apply new configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

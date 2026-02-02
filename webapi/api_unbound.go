@@ -47,7 +47,7 @@ func (s *Server) handleUnboundConfig(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		// 保存 Unbound 配置文件并重启
-		s.handleUnboundConfigPost(w, r, mgr)
+		s.handleUnboundConfigPost(w, r)
 
 	default:
 		s.writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -72,7 +72,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"content": "", "enabled": true})
 			return
 		}
-		logger.Errorf("[Unbound] Failed to read config file: %v", err)
+		logger.Errorf("[Unbound] Failed to read config file %s: %v", configPath, err)
 		s.writeJSONError(w, "Failed to read config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -83,7 +83,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 }
 
 // handleUnboundConfigPost 保存 Unbound 配置文件并重启
-func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request, mgr interface{}) {
+func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request) {
 	// 写入文件前加写锁
 	s.unboundConfigMutex.Lock()
 	defer s.unboundConfigMutex.Unlock()
@@ -102,14 +102,14 @@ func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request,
 	// 确保目录存在
 	dir := filepath.Dir(configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		logger.Errorf("[Unbound] Failed to create directory: %v", err)
+		logger.Errorf("[Unbound] Failed to create directory %s: %v", dir, err)
 		s.writeJSONError(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// 写入配置文件
 	if err := os.WriteFile(configPath, []byte(payload.Content), 0644); err != nil {
-		logger.Errorf("[Unbound] Failed to write config file: %v", err)
+		logger.Errorf("[Unbound] Failed to write config file %s: %v", configPath, err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

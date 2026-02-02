@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"smartdnssort/logger"
 )
 
 // handleCustomBlocked 处理自定义拦截域名请求
@@ -28,6 +29,7 @@ func (s *Server) handleCustomBlocked(w http.ResponseWriter, r *http.Request) {
 				s.writeJSONSuccess(w, "Custom blocked domains", map[string]string{"content": ""})
 				return
 			}
+			logger.Errorf("[CustomBlocked] Failed to read rules file %s: %v", customRulesFile, err)
 			s.writeJSONError(w, "Failed to read custom rules file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -49,12 +51,14 @@ func (s *Server) handleCustomBlocked(w http.ResponseWriter, r *http.Request) {
 		// Ensure directory exists
 		dir := filepath.Dir(customRulesFile)
 		if err := os.MkdirAll(dir, 0755); err != nil {
+			logger.Errorf("[CustomBlocked] Failed to create directory %s: %v", dir, err)
 			s.writeJSONError(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		// Write to file
 		if err := os.WriteFile(customRulesFile, []byte(payload.Content), 0644); err != nil {
+			logger.Errorf("[CustomBlocked] Failed to write rules file %s: %v", customRulesFile, err)
 			s.writeJSONError(w, "Failed to write custom rules file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -92,6 +96,7 @@ func (s *Server) handleCustomResponse(w http.ResponseWriter, r *http.Request) {
 				s.writeJSONSuccess(w, "Custom response rules", map[string]string{"content": ""})
 				return
 			}
+			logger.Errorf("[CustomResponse] Failed to read response file %s: %v", customResponseFile, err)
 			s.writeJSONError(w, "Failed to read custom response file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -126,18 +131,21 @@ func (s *Server) handleCustomResponse(w http.ResponseWriter, r *http.Request) {
 		// Ensure directory exists
 		dir := filepath.Dir(customResponseFile)
 		if err := os.MkdirAll(dir, 0755); err != nil {
+			logger.Errorf("[CustomResponse] Failed to create directory %s: %v", dir, err)
 			s.writeJSONError(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		// Write to file
 		if err := os.WriteFile(customResponseFile, []byte(payload.Content), 0644); err != nil {
+			logger.Errorf("[CustomResponse] Failed to write response file %s: %v", customResponseFile, err)
 			s.writeJSONError(w, "Failed to write custom response file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		// Reload manager
 		if err := mgr.Load(); err != nil {
+			logger.Errorf("[CustomResponse] Failed to reload custom response manager: %v", err)
 			s.writeJSONError(w, "Saved but failed to reload rules: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

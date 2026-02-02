@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"smartdnssort/logger"
 	"time"
 )
 
@@ -204,6 +205,7 @@ func (s *Server) handleRecursorConfig(w http.ResponseWriter, r *http.Request) {
 	// 尝试读取配置文件
 	content, err := os.ReadFile(configPath)
 	if err != nil {
+		logger.Errorf("[Recursor] Failed to read config file %s: %v", configPath, err)
 		s.writeJSONError(w, "Failed to read config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

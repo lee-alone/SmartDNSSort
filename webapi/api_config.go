@@ -30,7 +30,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		s.handlePostConfig(w, r)
 	default:
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -40,11 +40,12 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
 		logger.Errorf("Failed to encode config for API: %v", err)
-		http.Error(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
-// handlePostConfig 更新配置
+// handlePostConfig 处理配置更新请求
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 	// 获取写锁，保护配置文件更新
 	s.cfgMutex.Lock()
@@ -104,6 +105,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 	// 创建一个自定义编码器来确保格式正确
 	yamlData, err := yaml.Marshal(newCfg)
 	if err != nil {
+		logger.Errorf("Failed to marshal config to YAML: %v", err)
 		s.writeJSONError(w, "Failed to marshal config to YAML: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -112,6 +114,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	// 写入配置文件
 	if err := s.writeConfigFile(yamlData); err != nil {
+		logger.Errorf("Failed to write config file %s: %v", s.configPath, err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -15,7 +15,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	queryType := r.URL.Query().Get("type")
 
 	if domain == "" {
-		http.Error(w, "Missing domain parameter", http.StatusBadRequest)
+		s.writeJSONError(w, "Missing domain parameter", http.StatusBadRequest)
 		return
 	}
 	if queryType == "" {
@@ -29,7 +29,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	case "AAAA":
 		qtype = dns.TypeAAAA
 	default:
-		http.Error(w, "Invalid query type (must be A or AAAA)", http.StatusBadRequest)
+		s.writeJSONError(w, "Invalid query type (must be A or AAAA)", http.StatusBadRequest)
 		return
 	}
 
@@ -53,7 +53,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(ipsResult) == 0 {
-		http.Error(w, "Domain not found in cache", http.StatusNotFound)
+		s.writeJSONError(w, "Domain not found in cache", http.StatusNotFound)
 		return
 	}
 
@@ -185,7 +185,8 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 	// 删除磁盘缓存文件
 	cacheFile := "dns_cache.json"
 	if err := s.deleteCacheFile(cacheFile); err != nil {
-		s.writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		logger.Errorf("Failed to delete cache file during API clear request: %v", err)
+		s.writeJSONError(w, "Failed to clear disk cache: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
