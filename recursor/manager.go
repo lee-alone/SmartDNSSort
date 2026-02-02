@@ -29,7 +29,7 @@ const (
 	MaxRestartAttempts      = 5
 	MaxBackoffDuration      = 30 * time.Second
 	HealthCheckInterval     = 30 * time.Second
-	ProcessStopTimeout      = 5 * time.Second
+	ProcessStopTimeout      = 2 * time.Second
 	WaitReadyTimeoutWindows = 30 * time.Second
 	WaitReadyTimeoutLinux   = 20 * time.Second
 )

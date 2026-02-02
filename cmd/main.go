@@ -14,6 +14,7 @@ import (
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -163,23 +164,40 @@ func main() {
 
 	logger.Info("Shutting down server...")
 
-	// 先关闭 Web 服务器
+	// 并发关闭所有组件
+	var wg sync.WaitGroup
+
+	// 关闭 Web 服务器
 	if webServer != nil {
-		logger.Info("Stopping Web API server...")
-		if err := webServer.Stop(); err != nil {
-			logger.Errorf("Failed to stop Web API server: %v", err)
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("Stopping Web API server...")
+			if err := webServer.Stop(); err != nil {
+				logger.Errorf("Failed to stop Web API server: %v", err)
+			}
+		}()
 	}
 
-	// 停止 DNS 服务
-	dnsServer.Shutdown()
+	// 关闭 DNS 服务
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dnsServer.Shutdown()
+	}()
 
-	// 等待 DNS 服务器完全停止
+	// 等待所有关闭完成或超时
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
 	select {
-	case <-dnsServerDone:
-		logger.Info("DNS server stopped.")
-	case <-time.After(5 * time.Second):
-		logger.Warn("DNS server shutdown timeout.")
+	case <-done:
+		logger.Info("All components stopped.")
+	case <-time.After(3 * time.Second):
+		logger.Warn("Shutdown timeout, exiting...")
 	}
 
 	logger.Info("Server gracefully stopped.")
