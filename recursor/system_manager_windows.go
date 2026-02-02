@@ -2,27 +2,14 @@
 
 package recursor
 
-import (
-	"fmt"
-)
+// Windows 特定的 SystemManager 实现
+// 注意：Windows 上使用嵌入的 unbound 二进制文件和 root.key
+// 不需要系统级的 unbound 管理
 
-// ensureRootKeyLinux Windows 上的 root.key 管理（不支持）
-// Windows 使用嵌入的 root.key，无法通过 unbound-anchor 更新
+// ensureRootKeyLinux 在 Windows 上不支持
+// 此方法仅作为编译占位符，实际不会被调用
+// （因为 ensureRootKey() 在 Windows 上会直接返回错误）
 func (sm *SystemManager) ensureRootKeyLinux() (string, error) {
-	return "", fmt.Errorf("ensureRootKey not supported on Windows")
-}
-
-// runUnboundAnchor Windows 上不支持
-func (sm *SystemManager) runUnboundAnchor(rootKeyPath string) error {
-	return fmt.Errorf("unbound-anchor not available on Windows")
-}
-
-// isTemporaryAnchorError Windows 上不支持
-func (sm *SystemManager) isTemporaryAnchorError(err error, output string) bool {
-	return false
-}
-
-// extractEmbeddedRootKey Windows 上不支持（已在 manager_windows.go 中实现）
-func (sm *SystemManager) extractEmbeddedRootKey(targetPath string) error {
-	return fmt.Errorf("extractEmbeddedRootKey not supported on Windows")
+	// 此方法不会被调用，仅为编译占位符
+	panic("ensureRootKeyLinux should not be called on Windows")
 }
