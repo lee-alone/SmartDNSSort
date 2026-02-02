@@ -1,7 +1,6 @@
 package recursor
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,13 +12,16 @@ import (
 // recursor/
 //
 //	├── binaries/
-//	│   ├── linux/unbound
-//	│   └── windows/unbound.exe
+//	│   ├── linux/unbound (仅 Windows 编译时打包)
+//	│   └── windows/unbound.exe (仅 Windows 编译时打包)
 //	└── data/
-//	    └── root.key
+//	    └── root.key (所有平台都打包)
 //
-//go:embed binaries/* data/*
-var unboundBinaries embed.FS
+// 注意：Linux 上不打包 unbound 二进制文件，因为使用系统安装的 unbound
+// 仅打包 root.key 用于 DNSSEC 验证的 fallback
+// unboundBinaries 在平台特定的文件中定义：
+// - embedded_windows.go: 打包 binaries/windows/* 和 data/*
+// - embedded_linux.go: 仅打包 data/*
 
 // unboundDir 存储 unbound 相关文件的目录（相对于主程序）
 var unboundDir = "unbound"
@@ -31,21 +33,23 @@ func SetUnboundDir(dir string) {
 
 // ExtractUnboundBinary 将嵌入的 unbound 二进制文件解压到主程序目录下
 // 返回解压后的二进制文件路径
-// 仅支持 Linux x86-64 和 Windows x86-64
+// 仅在 Windows 上支持，Linux 使用系统安装的 unbound
 func ExtractUnboundBinary() (string, error) {
 	platform := runtime.GOOS
 	arch := runtime.GOARCH
 
+	// Linux 上不需要提取二进制文件，使用系统安装的 unbound
+	if platform == "linux" {
+		return "", fmt.Errorf("ExtractUnboundBinary not supported on Linux (use system unbound)")
+	}
+
 	// 验证支持的平台和架构
 	if !isSupportedPlatform(platform, arch) {
-		return "", fmt.Errorf("unsupported platform: %s/%s (only linux/amd64 and windows/amd64 are supported)", platform, arch)
+		return "", fmt.Errorf("unsupported platform: %s/%s (only windows/amd64 is supported)", platform, arch)
 	}
 
 	// 确定二进制文件名
-	binName := "unbound"
-	if platform == "windows" {
-		binName = "unbound.exe"
-	}
+	binName := "unbound.exe"
 
 	// 构建嵌入文件路径 - 必须使用正斜杠，embed.FS 总是使用 /
 	binPath := "binaries/" + platform + "/" + binName
@@ -85,10 +89,11 @@ func ExtractUnboundBinary() (string, error) {
 }
 
 // isSupportedPlatform 检查是否支持该平台和架构
+// 仅 Windows x86-64 支持提取嵌入的 unbound 二进制文件
+// Linux 使用系统安装的 unbound
 func isSupportedPlatform(platform, arch string) bool {
-	// 仅支持 Linux x86-64 和 Windows x86-64
-	return (platform == "linux" && arch == "amd64") ||
-		(platform == "windows" && arch == "amd64")
+	// 仅支持 Windows x86-64
+	return platform == "windows" && arch == "amd64"
 }
 
 // GetUnboundConfigDir 获取 Unbound 配置目录（主程序目录下）
