@@ -1,39 +1,11 @@
 package cache
 
 import (
-	"container/heap"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"smartdnssort/config"
 )
-
-// expireEntry 过期堆中的条目
-type expireEntry struct {
-	key          string
-	expiry       int64
-	queryVersion int64 // 查询版本号，用于识别陈旧索引
-}
-
-// expireHeap 实现 container/heap.Interface
-type expireHeap []expireEntry
-
-func (h expireHeap) Len() int           { return len(h) }
-func (h expireHeap) Less(i, j int) bool { return h[i].expiry < h[j].expiry }
-func (h expireHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-
-func (h *expireHeap) Push(x interface{}) {
-	*h = append(*h, x.(expireEntry))
-}
-
-func (h *expireHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
-}
 
 // PrefetchChecker 定义了检查域名是否为热点域名的接口
 // dnsserver 包中的 Prefetcher 将实现此接口
@@ -62,6 +34,11 @@ type Cache struct {
 	hits            int64                  // 缓存命中计数
 	misses          int64                  // 缓存未命中计数
 	evictions       int64                  // 驱逐计数（LRU驱逐 + 过期清理）
+
+	// 清理统计（用于监控）
+	lastCleanupTime     time.Time     // 最后一次清理的时间
+	lastCleanupCount    int           // 最后一次清理清理的条目数
+	lastCleanupDuration time.Duration // 最后一次清理的耗时
 
 	// 过期数据堆（使用 container/heap）
 	// 按过期时间排序，清理时只处理超过 Hard Limit 的数据
@@ -116,35 +93,6 @@ func (c *Cache) startHeapWorker() {
 	go c.heapWorker()
 }
 
-// heapWorker 后台协程，负责异步维护过期堆
-// 消除 Set 路径上的全局锁竞争
-func (c *Cache) heapWorker() {
-	defer c.heapWg.Done()
-
-	for {
-		select {
-		case entry := <-c.addHeapChan:
-			// 获取全局锁，添加到堆中
-			c.mu.Lock()
-			heap.Push(&c.expiredHeap, entry)
-			c.mu.Unlock()
-
-		case <-c.stopHeapChan:
-			// 处理剩余的条目
-			for {
-				select {
-				case entry := <-c.addHeapChan:
-					c.mu.Lock()
-					heap.Push(&c.expiredHeap, entry)
-					c.mu.Unlock()
-				default:
-					return
-				}
-			}
-		}
-	}
-}
-
 // SetPrefetcher 设置 prefetcher 实例，用于解耦
 func (c *Cache) SetPrefetcher(p PrefetchChecker) {
 	c.mu.Lock()
@@ -163,183 +111,6 @@ func (c *Cache) GetRecentlyBlocked() RecentlyBlockedTracker {
 func (c *Cache) RecordAccess(domain string, qtype uint16) {
 	// LRUCache 的 Get 方法已经自动将访问的元素移动到链表头部
 	// 所以这里不需要额外操作
-}
-
-// CleanExpired 清理过期缓存
-// 新策略：压力驱动 + 尽量存储 (Keep as much as possible)
-// 1. 获取当前内存使用率，并对比配置的压测阈值 (默认 0.9)
-// 2. 高压力下 (>= 阈值)：积极清理所有已过期的数据 (entry.expiry <= now)
-// 3. 低压力下 (< 阈值)：
-//   - 如果开启了 KeepExpiredEntries (尽量存储)：完全不清理已过期的数据，直到内存压力升高
-//   - 如果未开启 KeepExpiredEntries：仅清理超过 24 小时的极其古老的数据
-//
-// 4. 改进：使用版本号识别陈旧索引，避免被旧的堆索引误删新数据
-func (c *Cache) CleanExpired() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	usage := c.getMemoryUsagePercentLocked()
-	now := timeNow().Unix()
-
-	// 压力阈值：优先使用用户配置，若未设置则默认 0.9
-	pressureThreshold := c.config.EvictionThreshold
-	if pressureThreshold <= 0 {
-		pressureThreshold = 0.9
-	}
-	isHighPressure := usage >= pressureThreshold
-
-	// 古老数据的界限：24 小时（86400 秒）
-	const ancientLimit = 86400
-
-	// 堆是按过期时间排序的
-	for len(c.expiredHeap) > 0 {
-		entry := c.expiredHeap[0]
-
-		// 如果域名还没过期（语义上的过期），无论如何都不删，直接跳出（因为后续的更晚过期）
-		if entry.expiry > now {
-			break
-		}
-
-		// 获取缓存中该键的当前真实状态（使用 GetNoUpdate 避免干扰 LRU 统计）
-		val, exists := c.rawCache.GetNoUpdate(entry.key)
-		if !exists {
-			// 缓存中已不存在（可能已被 LRU 驱逐），移除堆中的废弃索引
-			heap.Pop(&c.expiredHeap)
-			continue
-		}
-
-		currentEntry, ok := val.(*RawCacheEntry)
-		if !ok {
-			heap.Pop(&c.expiredHeap)
-			continue
-		}
-
-		// 版本号检查：如果堆中的版本号与缓存中的不一致，说明这是一个陈旧索引
-		// 直接丢弃，等待堆中该 key 较新的索引浮上来
-		if currentEntry.QueryVersion != entry.queryVersion {
-			heap.Pop(&c.expiredHeap)
-			continue
-		}
-
-		// 判定是否应当删除
-		shouldDelete := false
-		if isHighPressure {
-			// A. 高压状态下，清理所有已过期的数据
-			shouldDelete = true
-		} else if !c.config.KeepExpiredEntries {
-			// B. 低压状态，但未开启过保存期保护，则清理超过 24 小时的古老数据
-			if entry.expiry+ancientLimit <= now {
-				shouldDelete = true
-			} else {
-				// 未及 24 小时，保留
-				break
-			}
-		} else {
-			// C. 低压状态且开启了 KeepExpiredEntries (尽量存储)
-			// 哪怕数据已经物理过期了，也保留，以供 Stale-While-Revalidate 使用
-			break
-		}
-
-		if shouldDelete {
-			c.rawCache.Delete(entry.key)
-			atomic.AddInt64(&c.evictions, 1) // 记录驱逐
-			heap.Pop(&c.expiredHeap)
-		} else {
-			break
-		}
-	}
-
-	// 清理辅助缓存（排序、错误等）
-	c.cleanAuxiliaryCaches()
-}
-
-// GetCurrentEntries 获取当前缓存的条目数（仅计算 rawCache）
-func (c *Cache) GetCurrentEntries() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.rawCache.Len()
-}
-
-// GetEvictions 获取驱逐计数
-func (c *Cache) GetEvictions() int64 {
-	return atomic.LoadInt64(&c.evictions)
-}
-
-// GetMemoryUsagePercent 获取当前内存使用百分比
-func (c *Cache) GetMemoryUsagePercent() float64 {
-	if c.maxEntries == 0 {
-		return 0
-	}
-	return float64(c.GetCurrentEntries()) / float64(c.maxEntries)
-}
-
-// getMemoryUsagePercentLocked 获取当前内存使用百分比（已持有锁）
-func (c *Cache) getMemoryUsagePercentLocked() float64 {
-	if c.maxEntries == 0 {
-		return 0
-	}
-	return float64(c.rawCache.Len()) / float64(c.maxEntries)
-}
-
-// GetExpiredEntries 统计已过期的条目数（快速估算）
-// 使用过期堆快速估算，而不是遍历所有条目
-// 时间复杂度从 O(n) 降低到 O(k)，其中 k 是堆中已过期的条目数
-func (c *Cache) GetExpiredEntries() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	now := timeNow().Unix()
-	count := 0
-
-	// 遍历堆中的条目，统计已过期的数量
-	// 由于堆是按过期时间排序的，一旦遇到未过期的条目就可以停止
-	for _, entry := range c.expiredHeap {
-		if entry.expiry <= now {
-			count++
-		} else {
-			// 堆中后续条目都未过期，可以停止
-			break
-		}
-	}
-
-	return count
-}
-
-// GetProtectedEntries 统计受保护的条目数
-func (c *Cache) GetProtectedEntries() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.prefetcher == nil || !c.config.ProtectPrefetchDomains {
-		return 0
-	}
-
-	count := 0
-	entries := c.getRawCacheKeysSnapshot()
-	for _, key := range entries {
-		domain := c.extractDomain(key)
-		if c.isProtectedDomain(domain) {
-			count++
-		}
-	}
-	return count
-}
-
-// RecordHit 记录缓存命中
-func (c *Cache) RecordHit() {
-	atomic.AddInt64(&c.hits, 1)
-}
-
-// RecordMiss 记录缓存未命中
-func (c *Cache) RecordMiss() {
-	atomic.AddInt64(&c.misses, 1)
-}
-
-// GetStats 获取缓存统计
-func (c *Cache) GetStats() (hits, misses int64) {
-	hits = atomic.LoadInt64(&c.hits)
-	misses = atomic.LoadInt64(&c.misses)
-	return
 }
 
 // Clear 清空缓存
@@ -390,40 +161,7 @@ func (c *Cache) Close() error {
 	return nil
 }
 
-// cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
-// 由于排序缓存和错误缓存现在由 LRUCache 管理，我们只需清理过期条目
-func (c *Cache) cleanAuxiliaryCaches() {
-	// 清理过期的排序缓存
-	c.cleanExpiredSortedCache()
-	// 清理过期的错误缓存
-	c.cleanExpiredErrorCache()
-	// 清理完成的排序任务
-	c.cleanCompletedSortingStates()
-
-	// 调用 adblock_cache.go 中的清理方法
-	c.cleanAdBlockCaches()
-}
-
 // timeNow 返回当前时间（便于测试 mock）
 func timeNow() time.Time {
 	return time.Now()
-}
-
-// addToExpiredHeap 将过期数据添加到堆中（异步化）
-// 使用 channel 发送，避免 Set 路径上的全局锁
-// 这是情况 1 的核心改进：消除高频操作上的全局锁
-func (c *Cache) addToExpiredHeap(key string, expiryTime int64, queryVersion int64) {
-	entry := expireEntry{
-		key:          key,
-		expiry:       expiryTime,
-		queryVersion: queryVersion,
-	}
-
-	// 非阻塞发送，如果 channel 满则丢弃
-	// 这是可接受的，因为大多数条目会被记录
-	select {
-	case c.addHeapChan <- entry:
-	default:
-		// channel 满，丢弃此次记录
-	}
 }
