@@ -94,6 +94,9 @@ func (s *Server) writeConfigFile(yamlData []byte) error {
 
 // addSourceToConfig 添加源到配置文件
 func (s *Server) addSourceToConfig(url string) error {
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
 		return err
@@ -120,6 +123,9 @@ func (s *Server) addSourceToConfig(url string) error {
 
 // removeSourceFromConfig 从配置文件中移除源
 func (s *Server) removeSourceFromConfig(url string) error {
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
 		return err
@@ -145,6 +151,9 @@ func (s *Server) removeSourceFromConfig(url string) error {
 
 // removeCustomRulesFromConfig 从配置文件中移除自定义规则
 func (s *Server) removeCustomRulesFromConfig() error {
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
 		return err

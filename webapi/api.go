@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"sync"
 	"time"
 
 	"smartdnssort/cache"
@@ -46,16 +47,28 @@ type Server struct {
 	listener    http.Server
 	configPath  string // Store the path to the config file
 	restartFunc func() // 重启服务的回调函数
+
+	// 并发控制
+	cfgMutex            sync.RWMutex // 保护配置文件读写
+	restartMutex        sync.Mutex   // 保护重启操作
+	isRestarting        bool         // 重启进行中标志
+	adblockMutex        sync.Mutex   // 保护 AdBlock 更新操作
+	isAdblockBusy       bool         // AdBlock 更新进行中标志
+	customRulesMutex    sync.RWMutex // 保护 custom_rules.txt 读写
+	customResponseMutex sync.RWMutex // 保护 custom_response_rules.txt 读写
+	unboundConfigMutex  sync.RWMutex // 保护 Unbound 配置文件读写
 }
 
 // NewServer 创建新的 Web API 服务器
 func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server, configPath string, restartFunc func()) *Server {
 	return &Server{
-		cfg:         cfg,
-		dnsCache:    dnsCache,
-		dnsServer:   dnsServer,
-		configPath:  configPath,
-		restartFunc: restartFunc,
+		cfg:           cfg,
+		dnsCache:      dnsCache,
+		dnsServer:     dnsServer,
+		configPath:    configPath,
+		restartFunc:   restartFunc,
+		isRestarting:  false,
+		isAdblockBusy: false,
 	}
 }
 

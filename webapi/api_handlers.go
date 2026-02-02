@@ -236,14 +236,36 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// 加锁检查和设置重启状态
+	s.restartMutex.Lock()
+	if s.isRestarting {
+		s.restartMutex.Unlock()
+		s.writeJSONError(w, "Service restart is already in progress", http.StatusConflict)
+		return
+	}
+	s.isRestarting = true
+	s.restartMutex.Unlock()
+
 	logger.Info("Service restart requested via API.")
 	s.writeJSONSuccess(w, "Service restart initiated", nil)
+
 	if s.restartFunc != nil {
 		go func() {
+			defer func() {
+				// 重启完成后重置标志
+				s.restartMutex.Lock()
+				s.isRestarting = false
+				s.restartMutex.Unlock()
+			}()
 			logger.Info("Executing restart function...")
 			s.restartFunc()
 		}()
 	} else {
+		// 没有重启函数时立即重置标志
+		s.restartMutex.Lock()
+		s.isRestarting = false
+		s.restartMutex.Unlock()
 		logger.Warn("No restart function configured. Please restart manually.")
 	}
 }

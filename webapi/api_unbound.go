@@ -56,6 +56,10 @@ func (s *Server) handleUnboundConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleUnboundConfigGet 读取 Unbound 配置文件
 func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
+	// 读取文件前加读锁
+	s.unboundConfigMutex.RLock()
+	defer s.unboundConfigMutex.RUnlock()
+
 	// 获取配置文件路径
 	configPath := s.getUnboundConfigPath()
 
@@ -80,6 +84,10 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 
 // handleUnboundConfigPost 保存 Unbound 配置文件并重启
 func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request, mgr interface{}) {
+	// 写入文件前加写锁
+	s.unboundConfigMutex.Lock()
+	defer s.unboundConfigMutex.Unlock()
+
 	// 解析请求体
 	var payload UnboundConfigPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

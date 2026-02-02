@@ -17,6 +17,10 @@ func (s *Server) handleCustomBlocked(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		// 读取文件前加读锁
+		s.customRulesMutex.RLock()
+		defer s.customRulesMutex.RUnlock()
+
 		// Read file content
 		content, err := os.ReadFile(customRulesFile)
 		if err != nil {
@@ -30,6 +34,10 @@ func (s *Server) handleCustomBlocked(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONSuccess(w, "Custom blocked domains retrieved", map[string]string{"content": string(content)})
 
 	case http.MethodPost:
+		// 写入文件前加写锁
+		s.customRulesMutex.Lock()
+		defer s.customRulesMutex.Unlock()
+
 		var payload struct {
 			Content string `json:"content"`
 		}
@@ -74,6 +82,10 @@ func (s *Server) handleCustomResponse(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		// 读取文件前加读锁
+		s.customResponseMutex.RLock()
+		defer s.customResponseMutex.RUnlock()
+
 		content, err := os.ReadFile(customResponseFile)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -86,6 +98,10 @@ func (s *Server) handleCustomResponse(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONSuccess(w, "Custom response rules retrieved", map[string]string{"content": string(content)})
 
 	case http.MethodPost:
+		// 写入文件前加写锁
+		s.customResponseMutex.Lock()
+		defer s.customResponseMutex.Unlock()
+
 		var payload struct {
 			Content string `json:"content"`
 		}

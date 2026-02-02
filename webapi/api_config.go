@@ -36,12 +36,17 @@ func (s *Server) handleGetConfig(w http.ResponseWriter) {
 
 // handlePostConfig 更新配置
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
+	// 获取写锁，保护配置文件更新
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
 	// 读取请求体
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer r.Body.Close() // 显式关闭请求体
 	logger.Debugf("Received config update request: %s", string(bodyBytes))
 
 	// 解码新配置为新对象（不使用现有配置）

@@ -142,7 +142,23 @@ func (s *Server) handleAdBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查是否有更新正在进行中
+	s.adblockMutex.Lock()
+	if s.isAdblockBusy {
+		s.adblockMutex.Unlock()
+		s.writeJSONError(w, "AdBlock update is already in progress, please wait", http.StatusConflict)
+		return
+	}
+	s.isAdblockBusy = true
+	s.adblockMutex.Unlock()
+
 	go func() {
+		defer func() {
+			// 更新完成后重置标志
+			s.adblockMutex.Lock()
+			s.isAdblockBusy = false
+			s.adblockMutex.Unlock()
+		}()
 		// Run in a goroutine to not block the API response
 		result, err := adblockMgr.UpdateRules(true) // force update
 		if err != nil {
@@ -169,6 +185,10 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// 加锁保护配置文件操作
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
 
 	// Update in-memory config
 	s.dnsServer.SetAdBlockEnabled(payload.Enabled)
@@ -249,6 +269,10 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// 加锁保护配置文件操作
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {
@@ -323,6 +347,10 @@ func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Reques
 		s.writeJSONError(w, "Values cannot be negative", http.StatusBadRequest)
 		return
 	}
+
+	// 加锁保护配置文件操作
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
 
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
