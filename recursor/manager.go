@@ -288,15 +288,10 @@ func (m *Manager) Stop() error {
 		}
 	}
 
-	// 3. 清理配置文件
-	// 注意：只清理配置文件，不清理 unbound 二进制文件
-	// 在 Linux 上，unbound 是系统包，不应该被删除
-	// 在 Windows 上，unbound 是嵌入式的，但也不应该在这里删除
-	if m.configPath != "" {
-		if err := os.Remove(m.configPath); err != nil && !os.IsNotExist(err) {
-			logger.Warnf("[Recursor] Failed to remove config file: %v", err)
-		}
-	}
+	// 3. 不删除配置文件
+	// 注意：配置文件应该被保留，以便用户可以编辑和重启
+	// 配置文件只在用户明确删除或卸载时才应该被删除
+	// 这样可以支持"保存配置 -> 重启"的工作流程
 
 	// 4. 清理平台特定的进程管理资源
 	m.cleanupProcessManagement()
