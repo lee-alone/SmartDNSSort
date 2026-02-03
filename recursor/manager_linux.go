@@ -33,13 +33,10 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 		}
 	}
 
-	// 3. 提取 root.zone 文件到 /etc/unbound/
-	if err := extractRootZoneLinux(); err != nil {
-		logger.Warnf("[Recursor] Failed to extract root.zone: %v", err)
-		// 非致命错误，继续启动
-	} else {
-		logger.Infof("[Recursor] root.zone ready")
-	}
+	// 3. 注意：root.zone 提取已由 RootZoneManager 在 manager.go 中处理
+	// RootZoneManager 会自动选择正确的平台特定路径
+	// Linux: /etc/unbound/root.zone
+	// Windows: unbound/root.zone
 
 	// 4. 生成配置文件
 	configPath, err := m.generateConfigLinux()

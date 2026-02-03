@@ -40,13 +40,25 @@ type RootZoneManager struct {
 
 // NewRootZoneManager 创建RootZoneManager
 func NewRootZoneManager() *RootZoneManager {
-	// 使用 unbound 目录作为 root.zone 存储位置（与 root.key 相同）
-	configDir, err := GetUnboundConfigDir()
-	if err != nil {
-		// 如果获取失败，使用备用路径
-		configDir = "unbound"
-		_ = os.MkdirAll(configDir, 0755)
+	// 根据平台选择存储位置
+	var configDir string
+
+	if runtime.GOOS == "linux" {
+		// Linux 上使用系统目录
+		configDir = "/etc/unbound"
+	} else {
+		// Windows 和其他平台使用程序目录
+		var err error
+		configDir, err = GetUnboundConfigDir()
+		if err != nil {
+			// 如果获取失败，使用备用路径
+			configDir = "unbound"
+			_ = os.MkdirAll(configDir, 0755)
+		}
 	}
+
+	// 确保目录存在
+	_ = os.MkdirAll(configDir, 0755)
 
 	return &RootZoneManager{
 		dataDir:      configDir,
@@ -83,7 +95,15 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 		}
 
 		if !exists {
-			logger.Infof("[RootZone] root.zone not found, downloading from %s", RootZoneURL)
+			// 文件不存在，优先尝试从嵌入数据解压
+			logger.Infof("[RootZone] root.zone not found, attempting to extract from embedded data")
+			if err := rm.extractEmbeddedRootZone(); err == nil {
+				logger.Infof("[RootZone] root.zone extracted successfully from embedded data")
+				return rm.rootZonePath, true, nil
+			}
+
+			// 如果解压失败，尝试从网络下载
+			logger.Infof("[RootZone] Failed to extract from embedded data, downloading from %s", RootZoneURL)
 			if err := rm.downloadRootZone(); err != nil {
 				lastErr = fmt.Errorf("failed to download root.zone: %w", err)
 				// 如果是临时错误，继续重试
@@ -148,6 +168,44 @@ func (rm *RootZoneManager) fileExists() (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// extractEmbeddedRootZone 从嵌入的数据中解压 root.zone 文件
+// 这是初始化时的首选方式，避免网络依赖
+func (rm *RootZoneManager) extractEmbeddedRootZone() error {
+	// 确保目录存在
+	if err := os.MkdirAll(rm.dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", rm.dataDir, err)
+	}
+
+	// 读取嵌入的 root.zone 文件
+	data, err := unboundBinaries.ReadFile("data/root.zone")
+	if err != nil {
+		return fmt.Errorf("root.zone not found in embedded data: %w", err)
+	}
+
+	// 验证嵌入数据的大小
+	if len(data) < MinFileSize {
+		return fmt.Errorf("embedded root.zone too small: %d bytes (expected > %d bytes)", len(data), MinFileSize)
+	}
+
+	// 写入到目标位置
+	if err := os.WriteFile(rm.rootZonePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write root.zone to %s: %w", rm.rootZonePath, err)
+	}
+
+	// 验证写入的文件
+	info, err := os.Stat(rm.rootZonePath)
+	if err != nil {
+		return fmt.Errorf("failed to verify root.zone after extraction: %w", err)
+	}
+
+	if info.Size() != int64(len(data)) {
+		return fmt.Errorf("root.zone size mismatch after extraction: expected %d, got %d", len(data), info.Size())
+	}
+
+	logger.Infof("[RootZone] root.zone extracted from embedded data: %s (%d bytes)", rm.rootZonePath, info.Size())
+	return nil
 }
 
 // shouldUpdate 检查是否需要更新root.zone
