@@ -4,23 +4,26 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"smartdnssort/logger"
 	"strconv"
 	"strings"
 )
 
 // ConfigGenerator 生成 unbound 配置
 type ConfigGenerator struct {
-	version string
-	sysInfo SystemInfo
-	port    int
+	version     string
+	sysInfo     SystemInfo
+	port        int
+	rootZoneMgr *RootZoneManager // 新增：root.zone管理器
 }
 
 // NewConfigGenerator 创建新的 ConfigGenerator
 func NewConfigGenerator(version string, sysInfo SystemInfo, port int) *ConfigGenerator {
 	return &ConfigGenerator{
-		version: version,
-		sysInfo: sysInfo,
-		port:    port,
+		version:     version,
+		sysInfo:     sysInfo,
+		port:        port,
+		rootZoneMgr: NewRootZoneManager(), // 初始化root.zone管理器
 	}
 }
 
@@ -255,6 +258,16 @@ server:
     hide-identity: yes
     hide-version: yes
 `, rootKeyPath)
+
+	// 添加root.zone配置（如果可用）
+	if cg.rootZoneMgr != nil {
+		rootZoneConfig, err := cg.rootZoneMgr.GetRootZoneConfig()
+		if err == nil {
+			config += rootZoneConfig
+		} else {
+			logger.Warnf("[Config] Failed to generate root.zone config: %v", err)
+		}
+	}
 
 	return config, nil
 }

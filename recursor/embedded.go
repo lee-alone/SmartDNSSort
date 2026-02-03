@@ -34,6 +34,11 @@ func SetUnboundDir(dir string) {
 // ExtractUnboundBinary 将嵌入的 unbound 二进制文件解压到主程序目录下
 // 返回解压后的二进制文件路径
 // 仅在 Windows 上支持，Linux 使用系统安装的 unbound
+//
+// 智能提取策略：
+// - 如果二进制文件已存在且大小匹配，则跳过提取（节省资源）
+// - 如果文件不存在或大小不匹配，则提取新文件
+// - 这样允许用户替换为更新的 unbound 版本
 func ExtractUnboundBinary() (string, error) {
 	platform := runtime.GOOS
 	arch := runtime.GOARCH
@@ -65,14 +70,31 @@ func ExtractUnboundBinary() (string, error) {
 		return "", fmt.Errorf("failed to create unbound directory: %w", err)
 	}
 
-	// 写入二进制文件
 	outPath := filepath.Join(unboundDir, binName)
+	expectedSize := int64(len(data))
+
+	// 检查文件是否已存在
+	fileInfo, err := os.Stat(outPath)
+	if err == nil {
+		// 文件存在，检查大小是否匹配
+		if fileInfo.Size() == expectedSize {
+			// 文件已存在且大小匹配，跳过提取
+			// 这样允许用户替换为更新的 unbound 版本
+			return outPath, nil
+		}
+		// 文件存在但大小不匹配，删除旧文件后重新提取
+		if err := os.Remove(outPath); err != nil {
+			return "", fmt.Errorf("failed to remove old unbound binary: %w", err)
+		}
+	}
+
+	// 写入二进制文件
 	if err := os.WriteFile(outPath, data, 0755); err != nil {
 		return "", fmt.Errorf("failed to write unbound binary: %w", err)
 	}
 
 	// 验证文件是否成功写入
-	fileInfo, err := os.Stat(outPath)
+	fileInfo, err = os.Stat(outPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to verify unbound binary after extraction: %w", err)
 	}
@@ -81,8 +103,8 @@ func ExtractUnboundBinary() (string, error) {
 		return "", fmt.Errorf("extracted unbound binary is empty (size: 0)")
 	}
 
-	if fileInfo.Size() != int64(len(data)) {
-		return "", fmt.Errorf("extracted unbound binary size mismatch: expected %d, got %d", len(data), fileInfo.Size())
+	if fileInfo.Size() != expectedSize {
+		return "", fmt.Errorf("extracted unbound binary size mismatch: expected %d, got %d", expectedSize, fileInfo.Size())
 	}
 
 	return outPath, nil
@@ -129,6 +151,50 @@ func extractRootKey() error {
 	rootKeyPath := filepath.Join(configDir, "root.key")
 	if err := os.WriteFile(rootKeyPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write root.key: %w", err)
+	}
+
+	return nil
+}
+
+// extractRootZone 将嵌入的 root.zone 文件提取到 unbound 目录
+func extractRootZone() error {
+	configDir, err := GetUnboundConfigDir()
+	if err != nil {
+		return err
+	}
+
+	// 读取嵌入的 root.zone 文件
+	data, err := unboundBinaries.ReadFile("data/root.zone")
+	if err != nil {
+		return fmt.Errorf("root.zone not found in embedded data: %w", err)
+	}
+
+	// 写入到 unbound 目录
+	rootZonePath := filepath.Join(configDir, "root.zone")
+	if err := os.WriteFile(rootZonePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write root.zone: %w", err)
+	}
+
+	return nil
+}
+
+// extractRootZoneLinux 将嵌入的 root.zone 文件提取到 /etc/unbound/ (Linux 特定)
+func extractRootZoneLinux() error {
+	// 确保目录存在
+	if err := os.MkdirAll("/etc/unbound", 0755); err != nil {
+		return fmt.Errorf("failed to create /etc/unbound: %w", err)
+	}
+
+	// 读取嵌入的 root.zone 文件
+	data, err := unboundBinaries.ReadFile("data/root.zone")
+	if err != nil {
+		return fmt.Errorf("root.zone not found in embedded data: %w", err)
+	}
+
+	// 写入到 /etc/unbound/
+	rootZonePath := "/etc/unbound/root.zone"
+	if err := os.WriteFile(rootZonePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write root.zone to %s: %w", rootZonePath, err)
 	}
 
 	return nil

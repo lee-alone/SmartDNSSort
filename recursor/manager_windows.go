@@ -32,27 +32,32 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 		return fmt.Errorf("failed to extract unbound binary: %w", err)
 	}
 	m.unboundPath = unboundPath
-	logger.Infof("[Recursor] Extracted unbound binary to: %s", unboundPath)
 
 	// 验证二进制文件
 	fileInfo, err := os.Stat(unboundPath)
 	if err != nil {
 		return fmt.Errorf("unbound binary not found after extraction: %w", err)
 	}
-	logger.Infof("[Recursor] Unbound binary size: %d bytes", fileInfo.Size())
+	logger.Infof("[Recursor] Unbound binary ready: %s (size: %d bytes)", unboundPath, fileInfo.Size())
 
 	// 2. 提取 root.key 文件
 	if err := extractRootKey(); err != nil {
 		return fmt.Errorf("failed to extract root.key: %w", err)
 	}
 
-	// 3. 生成配置文件
+	// 3. 提取 root.zone 文件
+	if err := extractRootZone(); err != nil {
+		logger.Warnf("[Recursor] Failed to extract root.zone: %v", err)
+		// 非致命错误，继续启动
+	}
+
+	// 4. 生成配置文件
 	configPath, err := m.generateConfigWindows()
 	if err != nil {
 		return fmt.Errorf("failed to generate unbound config: %w", err)
 	}
 	m.configPath = configPath
-	logger.Infof("[Recursor] Generated config file: %s", configPath)
+	logger.Infof("[Recursor] Config file ready: %s", configPath)
 
 	// 验证配置文件
 	if !fileExists(configPath) {
@@ -63,6 +68,12 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 }
 
 // generateConfigWindows Windows 特定的配置生成
+//
+// 智能生成策略：
+// - 如果配置文件已存在，则跳过生成（允许用户编辑和保存）
+// - 如果文件不存在，则生成默认配置
+// - 首次启动时会生成配置，之后用户可以自由编辑
+// - 如果需要重置配置，用户可以删除 unbound/unbound.conf 文件
 func (m *Manager) generateConfigWindows() (string, error) {
 	configDir, err := GetUnboundConfigDir()
 	if err != nil {
@@ -73,6 +84,12 @@ func (m *Manager) generateConfigWindows() (string, error) {
 	// 在 Windows 上，使用绝对路径
 	absPath, _ := filepath.Abs(configPath)
 	configPath = absPath
+
+	// 检查配置文件是否已存在
+	if fileExists(configPath) {
+		logger.Infof("[Recursor] Using existing config file: %s", configPath)
+		return configPath, nil
+	}
 
 	// 获取版本信息
 	version := ""
@@ -95,6 +112,7 @@ func (m *Manager) generateConfigWindows() (string, error) {
 		return "", fmt.Errorf("failed to write config file: %w", err)
 	}
 
+	logger.Infof("[Recursor] Generated new config file: %s", configPath)
 	return configPath, nil
 }
 

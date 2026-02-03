@@ -91,3 +91,10 @@ func (m *Manager) SetInstallState(state InstallState) {
 	defer m.mu.Unlock()
 	m.installState = state
 }
+
+// GetConfigPath 获取 Unbound 配置文件路径
+func (m *Manager) GetConfigPath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.configPath
+}

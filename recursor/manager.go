@@ -65,6 +65,10 @@ type Manager struct {
 	monitorCancel context.CancelFunc
 	healthCtx     context.Context
 	healthCancel  context.CancelFunc
+
+	// root.zone 管理
+	rootZoneMgr    *RootZoneManager
+	rootZoneStopCh chan struct{}
 }
 
 // NewManager 创建新的 Manager
@@ -206,6 +210,25 @@ func (m *Manager) Start() error {
 		go m.updateRootKeyInBackground()
 	}
 
+	// 8. 初始化并管理 root.zone
+	// 注意：不再启动定期更新任务
+	// Unbound 会通过 auth-zone 配置自动从根服务器同步 root.zone
+	// 这样更高效，无需我们手动更新
+	m.rootZoneMgr = NewRootZoneManager()
+	logger.Infof("[Recursor] Ensuring root.zone file...")
+	rootZonePath, isNew, err := m.rootZoneMgr.EnsureRootZone()
+	if err != nil {
+		logger.Warnf("[Recursor] Failed to ensure root.zone file: %v", err)
+		// 非致命错误，继续启动
+	} else {
+		if isNew {
+			logger.Infof("[Recursor] New root.zone file created: %s", rootZonePath)
+		} else {
+			logger.Infof("[Recursor] Using existing root.zone file: %s", rootZonePath)
+		}
+		logger.Infof("[Recursor] Unbound will automatically sync root.zone from root servers")
+	}
+
 	return nil
 }
 
@@ -242,6 +265,14 @@ func (m *Manager) Stop() error {
 
 	// 1. 停止健康检查（关闭旧的 stopCh）
 	close(oldStopCh)
+
+	// 停止 root.zone 定期更新任务（如果存在）
+	// 注意：现在 unbound 会自动从根服务器同步 root.zone，
+	// 所以这个任务通常不会被启动，但保留这段代码以保持兼容性
+	if m.rootZoneStopCh != nil {
+		close(m.rootZoneStopCh)
+		m.rootZoneStopCh = nil
+	}
 
 	// 2. 优雅停止进程
 	if m.cmd != nil && m.cmd.Process != nil {
@@ -289,6 +320,11 @@ func (m *Manager) Stop() error {
 // - 线程数：基于 CPU 核数（最多 8 个）
 // - 缓存大小：基于线程数动态计算
 // - 路径处理：Windows 使用正斜杠，Linux 使用标准路径
+//
+// 智能生成策略：
+// - 如果配置文件已存在，则跳过生成（允许用户编辑和保存）
+// - 如果文件不存在，则生成默认配置
+// - 首次启动时会生成配置，之后用户可以自由编辑
 func (m *Manager) generateConfig() (string, error) {
 	// 如果已有 ConfigGenerator，使用它
 	if m.configGen != nil {
@@ -309,11 +345,18 @@ func (m *Manager) generateConfig() (string, error) {
 			configPath = absPath
 		}
 
+		// 检查配置文件是否已存在
+		if fileExists(configPath) {
+			logger.Infof("[Recursor] Using existing config file: %s", configPath)
+			return configPath, nil
+		}
+
 		// 写入配置文件
 		if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
 			return "", fmt.Errorf("failed to write config file: %w", err)
 		}
 
+		logger.Infof("[Recursor] Generated new config file: %s", configPath)
 		return configPath, nil
 	}
 
@@ -328,6 +371,12 @@ func (m *Manager) generateConfig() (string, error) {
 	if runtime.GOOS == "windows" {
 		absPath, _ := filepath.Abs(configPath)
 		configPath = absPath
+	}
+
+	// 检查配置文件是否已存在
+	if fileExists(configPath) {
+		logger.Infof("[Recursor] Using existing config file: %s", configPath)
+		return configPath, nil
 	}
 
 	// 动态计算线程数（基于 CPU 核数）
@@ -418,6 +467,7 @@ server:
 		return "", fmt.Errorf("failed to write config file: %w", err)
 	}
 
+	logger.Infof("[Recursor] Generated new config file: %s", configPath)
 	return configPath, nil
 }
 

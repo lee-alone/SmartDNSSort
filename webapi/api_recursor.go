@@ -197,10 +197,12 @@ func (s *Server) handleRecursorConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取配置文件路径
-	// 在 Linux 上是 /etc/unbound/unbound.conf.d/smartdnssort.conf
-	// 在 Windows 上是嵌入式路径
-	configPath := "/etc/unbound/unbound.conf.d/smartdnssort.conf"
+	// 获取配置文件路径（从 Manager 获取，而不是硬编码）
+	configPath := mgr.GetConfigPath()
+	if configPath == "" {
+		s.writeJSONError(w, "Config path not available", http.StatusInternalServerError)
+		return
+	}
 
 	// 尝试读取配置文件
 	content, err := os.ReadFile(configPath)
