@@ -171,7 +171,7 @@ server:
     # 监听配置
     interface: 127.0.0.1@%d
     do-ip4: yes
-    do-ip6: no
+    do-ip6: yes
     do-udp: yes
     do-tcp: yes
     
