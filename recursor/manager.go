@@ -205,12 +205,7 @@ func (m *Manager) Start() error {
 	// 6. 启动健康检查/保活 loop
 	go m.healthCheckLoop()
 
-	// 7. 启动 root.key 定期更新任务（仅 Linux）
-	if runtime.GOOS == "linux" && m.sysManager != nil {
-		go m.updateRootKeyInBackground()
-	}
-
-	// 8. 初始化并管理 root.zone
+	// 7. 初始化并管理 root.zone
 	// 注意：不再启动定期更新任务
 	// Unbound 会通过 auth-zone 配置自动从根服务器同步 root.zone
 	// 这样更高效，无需我们手动更新
@@ -532,6 +527,3 @@ func (m *Manager) getWaitForReadyTimeout() time.Duration {
 	}
 	return m.waitForReadyTimeoutLinux()
 }
-
-// updateRootKeyInBackground 后台定期更新 root.key（仅 Linux）
-// 注意：此方法已移至 manager_lifecycle.go

@@ -105,29 +105,13 @@ func (m *Manager) performHealthCheck() {
 	}
 }
 
-// updateRootKeyInBackground 后台定期更新 root.key（仅 Linux）
-// 每 30 天尝试更新一次，首次更新在启动后 1 小时
-func (m *Manager) updateRootKeyInBackground() {
-	ticker := time.NewTicker(30 * 24 * time.Hour) // 每 30 天更新一次
-	defer ticker.Stop()
-
-	// 首次更新：启动后等待 1 小时，给系统一些时间稳定网络
-	time.Sleep(1 * time.Hour)
-
-	logger.Infof("[Recursor] Root key update scheduler started (every 30 days)")
-
-	for {
-		select {
-		case <-ticker.C:
-			logger.Infof("[Recursor] Scheduled root.key update...")
-			if m.sysManager != nil {
-				if err := m.sysManager.tryUpdateRootKey(); err != nil {
-					logger.Warnf("[Recursor] Root key update failed: %v", err)
-				}
-			}
-		case <-m.healthCtx.Done():
-			logger.Debugf("[Recursor] Root key update scheduler cancelled")
-			return
-		}
-	}
-}
+// updateRootKeyInBackground 已弃用 - 不再需要定期更新 root.key
+//
+// 原因：
+// 1. DNSSEC 根密钥极少更新（通常几年才变化一次）
+// 2. Unbound 的 auto-trust-anchor-file 会在运行期间自动监控文件变化
+// 3. 如果文件更新，unbound 会自动重新加载
+// 4. 无需应用层干预，完全由 unbound 管理
+//
+// 此方法已被移除，保留注释以说明设计决策
+// 启动时通过 ensureRootKey() 确保文件存在即可

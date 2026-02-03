@@ -30,7 +30,21 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 			logger.Warnf("[Recursor] DNSSEC validation may be disabled")
 		} else {
 			logger.Infof("[Recursor] Root key ready")
+
+			// 检查 root.key 的读写权限，如果不足则自动修改
+			if err := checkFilePermissions("/etc/unbound/root.key"); err != nil {
+				logger.Warnf("[Recursor] Root key permission issue: %v", err)
+			}
 		}
+	}
+
+	// 3. 确保 /etc/unbound 目录存在，然后检查权限
+	if err := os.MkdirAll("/etc/unbound", 0755); err != nil {
+		logger.Warnf("[Recursor] Failed to create config directory: %v", err)
+	}
+
+	if err := checkDirectoryPermissions("/etc/unbound"); err != nil {
+		logger.Warnf("[Recursor] Directory permission issue: %v", err)
 	}
 
 	// 3. 注意：root.zone 提取已由 RootZoneManager 在 manager.go 中处理
@@ -49,6 +63,11 @@ func (m *Manager) startPlatformSpecificNoInit() error {
 	// 验证配置文件
 	if !fileExists(configPath) {
 		return fmt.Errorf("config file not found after generation: %s", configPath)
+	}
+
+	// 检查配置文件的读权限，如果不足则自动修改
+	if err := checkFilePermissions(configPath); err != nil {
+		logger.Warnf("[Recursor] Config file permission issue: %v", err)
 	}
 
 	return nil
@@ -132,4 +151,156 @@ func (m *Manager) cleanupProcessManagement() {
 // postStartProcessManagement Linux 启动后的处理（无需特殊处理）
 func (m *Manager) postStartProcessManagement() {
 	// Linux 进程组已在 configureProcessManagement 中配置
+}
+
+// checkFilePermissions 检查文件的读写权限，如果权限不足则自动修改
+// 返回是否修改了权限
+func checkFilePermissions(filePath string) error {
+	// 检查文件是否存在
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", filePath)
+		}
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	// 检查是否是文件（不是目录）
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory, not a file: %s", filePath)
+	}
+
+	// 检查读权限
+	readErr := checkReadPermission(filePath)
+
+	// 检查写权限
+	writeErr := checkWritePermission(filePath)
+
+	// 如果权限都正常，直接返回
+	if readErr == nil && writeErr == nil {
+		logger.Debugf("[Permission] File permissions OK: %s (mode: %o)", filePath, info.Mode())
+		return nil
+	}
+
+	// 权限不足，尝试修改
+	logger.Warnf("[Permission] Permission issue detected for %s, attempting to fix...", filePath)
+
+	// 设置为 0644（所有者可读写，其他用户只读）
+	if err := os.Chmod(filePath, 0644); err != nil {
+		logger.Errorf("[Permission] Failed to fix permissions: %v", err)
+		return fmt.Errorf("failed to fix file permissions: %w", err)
+	}
+
+	logger.Infof("[Permission] File permissions fixed: %s (mode: 0644)", filePath)
+
+	// 修改后再次检查
+	if err := checkReadPermission(filePath); err != nil {
+		return fmt.Errorf("read permission still failed after fix: %w", err)
+	}
+
+	if err := checkWritePermission(filePath); err != nil {
+		return fmt.Errorf("write permission still failed after fix: %w", err)
+	}
+
+	return nil
+}
+
+// checkReadPermission 检查文件的读权限
+func checkReadPermission(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot read file: %w", err)
+	}
+	defer file.Close()
+	return nil
+}
+
+// checkWritePermission 检查文件的写权限
+func checkWritePermission(filePath string) error {
+	// 尝试打开文件进行写入（不实际写入）
+	file, err := os.OpenFile(filePath, os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("cannot write to file: %w", err)
+	}
+	defer file.Close()
+	return nil
+}
+
+// checkDirectoryPermissions 检查目录的读写执行权限，如果权限不足则自动修改
+func checkDirectoryPermissions(dirPath string) error {
+	// 检查目录是否存在
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("directory not found: %s", dirPath)
+		}
+		return fmt.Errorf("failed to stat directory: %w", err)
+	}
+
+	// 检查是否是目录
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", dirPath)
+	}
+
+	// 检查读权限
+	readErr := checkDirectoryReadPermission(dirPath)
+
+	// 检查写权限
+	writeErr := checkDirectoryWritePermission(dirPath)
+
+	// 如果权限都正常，直接返回
+	if readErr == nil && writeErr == nil {
+		logger.Debugf("[Permission] Directory permissions OK: %s (mode: %o)", dirPath, info.Mode())
+		return nil
+	}
+
+	// 权限不足，尝试修改
+	logger.Warnf("[Permission] Permission issue detected for directory %s, attempting to fix...", dirPath)
+
+	// 设置为 0755（所有者可读写执行，其他用户可读执行）
+	if err := os.Chmod(dirPath, 0755); err != nil {
+		logger.Errorf("[Permission] Failed to fix directory permissions: %v", err)
+		return fmt.Errorf("failed to fix directory permissions: %w", err)
+	}
+
+	logger.Infof("[Permission] Directory permissions fixed: %s (mode: 0755)", dirPath)
+
+	// 修改后再次检查
+	if err := checkDirectoryReadPermission(dirPath); err != nil {
+		return fmt.Errorf("read permission still failed after fix: %w", err)
+	}
+
+	if err := checkDirectoryWritePermission(dirPath); err != nil {
+		return fmt.Errorf("write permission still failed after fix: %w", err)
+	}
+
+	return nil
+}
+
+// checkDirectoryReadPermission 检查目录的读权限
+func checkDirectoryReadPermission(dirPath string) error {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Errorf("cannot read directory: %w", err)
+	}
+	_ = entries // 使用 entries 避免编译器警告
+	return nil
+}
+
+// checkDirectoryWritePermission 检查目录的写权限
+func checkDirectoryWritePermission(dirPath string) error {
+	// 尝试在目录中创建临时文件
+	tempFile := filepath.Join(dirPath, ".smartdnssort_perm_check_tmp")
+
+	if err := os.WriteFile(tempFile, []byte(""), 0644); err != nil {
+		return fmt.Errorf("cannot write to directory: %w", err)
+	}
+
+	// 删除临时文件
+	if err := os.Remove(tempFile); err != nil {
+		logger.Warnf("[Permission] Failed to remove temporary permission check file: %v", err)
+		// 继续返回成功，因为写权限检查已经通过
+	}
+
+	return nil
 }
