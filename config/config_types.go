@@ -116,6 +116,15 @@ type CacheConfig struct {
 // PrefetchConfig 预取配置
 type PrefetchConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// 采样策略配置
+	MaxRefreshDomains int     `yaml:"max_refresh_domains,omitempty" json:"max_refresh_domains"` // 最大刷新域名数（原：硬编码 500-1500）
+	MinScoreThreshold float64 `yaml:"min_score_threshold,omitempty" json:"min_score_threshold"` // 最低分数阈值
+	EligibilityTTL    uint32  `yaml:"eligibility_ttl,omitempty" json:"eligibility_ttl"`         // 刷新最低 TTL 要求（原：300）
+
+	// 稳定性策略配置
+	StableCycleThreshold   int     `yaml:"stable_cycle_threshold,omitempty" json:"stable_cycle_threshold"`     // 稳定周期阈值（原：硬编码 10）
+	StabilityPenaltyFactor float64 `yaml:"stability_penalty_factor,omitempty" json:"stability_penalty_factor"` // 稳定性惩罚因子（原：0.95）
 }
 
 // WebUIConfig Web UI 管理界面配置

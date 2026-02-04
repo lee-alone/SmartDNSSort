@@ -116,3 +116,17 @@ func parseRcodeFromError(err error) int {
 	// Default to server failure for other errors (timeouts, network errors, etc.)
 	return dns.RcodeServerFailure
 }
+
+// extractIPsFromRecords 提取 A/AAAA 记录中的 IP 地址
+func extractIPsFromRecords(records []dns.RR) []string {
+	ips := make([]string, 0)
+	for _, r := range records {
+		switch rr := r.(type) {
+		case *dns.A:
+			ips = append(ips, rr.A.String())
+		case *dns.AAAA:
+			ips = append(ips, rr.AAAA.String())
+		}
+	}
+	return ips
+}

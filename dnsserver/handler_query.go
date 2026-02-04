@@ -176,6 +176,8 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	}
 	s.cache.SetRawRecordsWithDNSSEC(domain, qtype, finalRecords, fullCNAMEs, finalTTL, result.AuthenticatedData)
 	if len(finalIPs) > 0 {
+		// 通知 Prefetcher 更新 IP 哈希
+		s.prefetcher.UpdateSimHash(domain, finalIPs)
 		go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
 	}
 
@@ -440,6 +442,14 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 		domain, dns.TypeToString[qtype], len(result.Records), result.CNAMEs, result.TTL)
 
 	s.cache.SetRawRecordsWithDNSSEC(domain, qtype, result.Records, result.CNAMEs, result.TTL, result.AuthenticatedData)
+
+	// 通知 Prefetcher 更新 IP 哈希（仅对 A/AAAA 记录）
+	if qtype == dns.TypeA || qtype == dns.TypeAAAA {
+		ips := extractIPsFromRecords(result.Records)
+		if len(ips) > 0 {
+			s.prefetcher.UpdateSimHash(domain, ips)
+		}
+	}
 
 	// 构建通用响应
 	msg := s.msgPool.Get()

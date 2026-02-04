@@ -82,6 +82,8 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	// 原因：CNAME链中的每个域名可能有不同的IP，不应该都关联到相同的IP列表
 	// 这会导致直接查询CNAME时返回错误的IP，造成证书错误
 	s.cache.SetRaw(domain, qtype, finalIPs, fullCNAMEs, finalTTL)
+	// 通知 Prefetcher 更新 IP 哈希
+	s.prefetcher.UpdateSimHash(domain, finalIPs)
 	go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
 
 	// ========== 关键修复：删除为CNAME创建缓存的循环 ==========

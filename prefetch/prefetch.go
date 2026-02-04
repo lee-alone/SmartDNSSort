@@ -43,6 +43,9 @@ type ScoreEntry struct {
 	LastUpdateCycle int64
 	LastSimHash     uint64
 	LastAccess      time.Time // For LRU eviction if strictly needed, though we use MinScore for eviction usually
+	LastIPList      []string  // 保存上次的 IP 列表
+	StableCycles    int       // IP 保持不变的周期数
+	FirstAccess     time.Time // 首次访问时间
 }
 
 // IPStat tracks the historical delay of an IP
@@ -75,6 +78,15 @@ type Prefetcher struct {
 	// Failure Counts for exponential backoff: Domain#IP -> count
 	failureCountsMu sync.Mutex
 	failureCounts   map[string]int
+
+	// 统计字段
+	statsMu       sync.RWMutex
+	prefetchStats struct {
+		TotalRefreshes     uint64
+		SkippedStable      uint64 // 因稳定跳过
+		SkippedLowScore    uint64 // 因低分跳过
+		SkippedSimilarHash uint64 // 因哈希相似跳过
+	}
 }
 
 // NewPrefetcher creates a new Prefetcher.
@@ -183,4 +195,53 @@ func (p *Prefetcher) IsTopDomain(domain string) bool {
 	_, exists := p.scoreTable[domain]
 	p.scoreMu.RUnlock()
 	return exists
+}
+
+// GetStats 返回预取统计信息
+func (p *Prefetcher) GetStats() map[string]interface{} {
+	p.statsMu.RLock()
+	defer p.statsMu.RUnlock()
+
+	total := p.prefetchStats.TotalRefreshes
+	if total == 0 {
+		total = 1 // 避免除以零
+	}
+
+	saveRate := float64(p.prefetchStats.SkippedStable+p.prefetchStats.SkippedSimilarHash) / float64(total) * 100
+
+	return map[string]interface{}{
+		"total_refreshes":      p.prefetchStats.TotalRefreshes,
+		"skipped_stable":       p.prefetchStats.SkippedStable,
+		"skipped_low_score":    p.prefetchStats.SkippedLowScore,
+		"skipped_similar_hash": p.prefetchStats.SkippedSimilarHash,
+		"save_rate":            saveRate,
+	}
+}
+
+// recordRefresh 记录一次刷新
+func (p *Prefetcher) recordRefresh() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	p.prefetchStats.TotalRefreshes++
+}
+
+// recordSkippedStable 记录因稳定跳过
+func (p *Prefetcher) recordSkippedStable() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	p.prefetchStats.SkippedStable++
+}
+
+// recordSkippedLowScore 记录因低分跳过
+func (p *Prefetcher) recordSkippedLowScore() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	p.prefetchStats.SkippedLowScore++
+}
+
+// recordSkippedSimilarHash 记录因哈希相似跳过
+func (p *Prefetcher) recordSkippedSimilarHash() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	p.prefetchStats.SkippedSimilarHash++
 }

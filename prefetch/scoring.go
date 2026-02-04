@@ -18,13 +18,14 @@ func (p *Prefetcher) runSampling() {
 	p.scoreMu.RLock()
 	tableSize := len(p.scoreTable)
 
-	// S_sample = max(500, min(1500, tableSize >> 5))
-	sampleCount := tableSize >> 5 // Divide by 32
-	if sampleCount < 500 {
-		sampleCount = 500
-	}
-	if sampleCount > 1500 {
-		sampleCount = 1500
+	// 使用配置中的采样数
+	sampleCount := p.cfg.MaxRefreshDomains
+	if tableSize < 500 {
+		// 表太小，按比例但设置上限
+		sampleCount = tableSize >> 2
+		if sampleCount < 50 {
+			sampleCount = 50
+		}
 	}
 
 	// Extract snapshot of all domains with their current state
@@ -32,6 +33,7 @@ func (p *Prefetcher) runSampling() {
 		domain          string
 		score           float64
 		lastUpdateCycle int64
+		stableCycles    int
 	}
 	items := make([]snapshot, 0, tableSize)
 
@@ -40,6 +42,7 @@ func (p *Prefetcher) runSampling() {
 			domain:          domain,
 			score:           entry.RawScore,
 			lastUpdateCycle: entry.LastUpdateCycle,
+			stableCycles:    entry.StableCycles,
 		})
 	}
 	p.scoreMu.RUnlock()
@@ -54,6 +57,13 @@ func (p *Prefetcher) runSampling() {
 		if delta > 0 {
 			factor := math.Pow(DecayBase, float64(delta))
 			items[i].score *= factor
+		}
+
+		// 新增：稳定性惩罚：IP 越稳定，预取优先级越低
+		if items[i].stableCycles > 0 {
+			// 稳定惩罚因子：每稳定一个周期，乘以配置中的因子
+			stabilityPenalty := math.Pow(p.cfg.StabilityPenaltyFactor, float64(items[i].stableCycles))
+			items[i].score *= stabilityPenalty
 		}
 	}
 
@@ -72,10 +82,20 @@ func (p *Prefetcher) runSampling() {
 		return items[i].score > items[j].score
 	})
 
+	// 使用配置中的最小分数阈值
+	minScoreThreshold := p.cfg.MinScoreThreshold
+
 	// Pick top N - verify domain still exists before refreshing
 	count := 0
 	for _, item := range items {
 		if count >= sampleCount {
+			break
+		}
+
+		// 新增：跳过低分域名
+		if item.score < minScoreThreshold {
+			logger.Debugf("[Prefetcher] 跳过低分域名: %s (score=%.2f)", item.domain, item.score)
+			p.recordSkippedLowScore()
 			break
 		}
 
@@ -92,10 +112,11 @@ func (p *Prefetcher) runSampling() {
 		if p.checkEligibility(item.domain) {
 			p.refresher.RefreshDomain(item.domain, dns.TypeA)
 			p.refresher.RefreshDomain(item.domain, dns.TypeAAAA)
+			p.recordRefresh()
 			count++
 		}
 	}
-	logger.Debugf("[Prefetcher] Sampled and refreshed %d domains (Table Size: %d)", count, tableSize)
+	logger.Debugf("[Prefetcher] 采样并刷新 %d 个域名 (Table Size: %d, MinScore: %.2f)", count, tableSize, minScoreThreshold)
 }
 
 // checkEligibility implements the mathematical eligibility check.
@@ -106,7 +127,7 @@ func (p *Prefetcher) checkEligibility(domain string) bool {
 	}
 
 	currentTTL := raw.UpstreamTTL
-	if currentTTL < EligibilityTTL {
+	if currentTTL < p.cfg.EligibilityTTL {
 		return false
 	}
 
@@ -118,6 +139,12 @@ func (p *Prefetcher) checkEligibility(domain string) bool {
 		return false
 	}
 
+	// 新增：跳过 IP 非常稳定的域名
+	if entry.StableCycles >= int(p.cfg.StableCycleThreshold) {
+		p.recordSkippedStable()
+		return false
+	}
+
 	currentHash := calculateSimHash(raw.IPs)
 	// If LastSimHash is 0 (first time), assume eligible
 	if entry.LastSimHash == 0 {
@@ -125,7 +152,11 @@ func (p *Prefetcher) checkEligibility(domain string) bool {
 	}
 
 	distance := hammingDistance(entry.LastSimHash, currentHash)
-	return distance <= SimHashThreshold
+	if distance > SimHashThreshold {
+		p.recordSkippedSimilarHash()
+		return false
+	}
+	return true
 }
 
 // updateScore updates the score with lazy decay and strict capacity check.
@@ -146,6 +177,8 @@ func (p *Prefetcher) updateScore(domain string, weight float64) {
 			RawScore:        0,
 			LastUpdateCycle: currentCycle,
 			LastAccess:      time.Now(),
+			StableCycles:    0,
+			FirstAccess:     time.Now(), // 记录首次访问时间
 		}
 		p.scoreTable[domain] = entry
 	}

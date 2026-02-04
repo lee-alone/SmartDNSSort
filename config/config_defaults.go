@@ -32,6 +32,9 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 	// Cache 配置默认值
 	setCacheDefaults(cfg)
 
+	// Prefetch 配置默认值
+	setPrefetchDefaults(cfg)
+
 	// AdBlock 配置默认值
 	setAdBlockDefaults(cfg)
 
@@ -243,5 +246,24 @@ func setStatsDefaults(cfg *Config) {
 	}
 	if cfg.Stats.HotDomainsMaxPerBucket == 0 {
 		cfg.Stats.HotDomainsMaxPerBucket = 5000
+	}
+}
+
+// setPrefetchDefaults 设置预取配置的默认值
+func setPrefetchDefaults(cfg *Config) {
+	if cfg.Prefetch.MaxRefreshDomains == 0 {
+		cfg.Prefetch.MaxRefreshDomains = 150
+	}
+	if cfg.Prefetch.MinScoreThreshold == 0 {
+		cfg.Prefetch.MinScoreThreshold = 10.0
+	}
+	if cfg.Prefetch.EligibilityTTL == 0 {
+		cfg.Prefetch.EligibilityTTL = 300
+	}
+	if cfg.Prefetch.StableCycleThreshold == 0 {
+		cfg.Prefetch.StableCycleThreshold = 10
+	}
+	if cfg.Prefetch.StabilityPenaltyFactor == 0 {
+		cfg.Prefetch.StabilityPenaltyFactor = 0.95
 	}
 }
