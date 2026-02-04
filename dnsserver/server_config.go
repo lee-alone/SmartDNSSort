@@ -158,6 +158,14 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		s.prefetcher.Start()
 	}
 
+	// Handle AdBlock configuration changes
+	if !reflect.DeepEqual(s.cfg.AdBlock, newCfg.AdBlock) {
+		logger.Info("AdBlock configuration changed, updating manager...")
+		if s.adblockManager != nil {
+			s.adblockManager.SetEnabled(newCfg.AdBlock.Enable)
+		}
+	}
+
 	// Update the config reference
 	s.cfg = newCfg
 

@@ -196,6 +196,12 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 	// Update in-memory config
 	s.dnsServer.SetAdBlockEnabled(payload.Enabled)
 
+	// Also update AdBlockManager's internal config
+	adblockMgr := s.dnsServer.GetAdBlockManager()
+	if adblockMgr != nil {
+		adblockMgr.SetEnabled(payload.Enabled)
+	}
+
 	// Load current config from file
 	cfg, err := config.LoadConfig(s.configPath)
 	if err != nil {

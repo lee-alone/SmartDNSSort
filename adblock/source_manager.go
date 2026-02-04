@@ -213,9 +213,20 @@ func (sm *SourceManager) UpdateSourceStatus(url string, ruleCount int, err error
 		if err != nil {
 			source.LastError = err.Error()
 			source.FailCount++
-			source.Status = "failed"
-			if source.FailCount >= 3 {
-				source.Status = "bad"
+			// Determine if this is an initial load failure or an update failure
+			// Initial load: FailCount == 1 (first attempt) AND RuleCount == 0 (no previous success)
+			isInitialLoadFailure := source.FailCount == 1 && ruleCount == 0
+
+			if isInitialLoadFailure {
+				// First attempt to load rules failed, mark as initializing
+				source.Status = "initializing"
+			} else {
+				// Either: previous attempts failed, or we had rules before
+				// This is an update failure, mark as failed
+				source.Status = "failed"
+				if source.FailCount >= 3 {
+					source.Status = "bad"
+				}
 			}
 		} else {
 			source.LastError = ""

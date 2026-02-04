@@ -196,6 +196,14 @@ func (m *AdBlockManager) CheckHost(domain string) (bool, string) {
 	return m.engine.CheckHost(domain)
 }
 
+// SetEnabled dynamically enables or disables AdBlock filtering
+func (m *AdBlockManager) SetEnabled(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cfg.Enable = enabled
+}
+
 func (m *AdBlockManager) RecordBlock(domain, rule string) {
 	m.stats.RecordBlock(domain, rule)
 }
