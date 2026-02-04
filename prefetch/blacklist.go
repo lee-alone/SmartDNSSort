@@ -35,8 +35,11 @@ func (p *Prefetcher) ReportPingResultWithDomain(domain string, results []ping.Re
 	}
 	p.ipStatsMu.Unlock()
 
-	// Update Blacklist
+	// Update Blacklist and Failure Counts
+	// Lock order: blacklistMu -> failureCountsMu (consistent throughout)
 	p.blacklistMu.Lock()
+	p.failureCountsMu.Lock()
+	defer p.failureCountsMu.Unlock()
 	defer p.blacklistMu.Unlock()
 
 	for _, res := range results {

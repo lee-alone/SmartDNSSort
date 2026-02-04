@@ -34,11 +34,13 @@ func (p *Prefetcher) GetFallbackRank(domain string, ips []string) []string {
 	if shouldEmergencyUnban {
 		logger.Warnf("[Prefetcher] Emergency Unban triggered for %s (Avail: %d, Banned: %d)", domain, availableCount, bannedCount)
 		p.blacklistMu.Lock()
+		p.failureCountsMu.Lock()
 		for _, ip := range ips {
 			key := domain + "#" + ip
 			delete(p.blacklist, key)
 			delete(p.failureCounts, key)
 		}
+		p.failureCountsMu.Unlock()
 		p.blacklistMu.Unlock()
 	}
 
@@ -52,8 +54,8 @@ func (p *Prefetcher) GetFallbackRank(domain string, ips []string) []string {
 	ranked := make([]rankedIP, 0, len(ips))
 	nowUnix := time.Now().Unix()
 
-	p.ipStatsMu.RLock()
 	p.blacklistMu.RLock()
+	p.ipStatsMu.RLock()
 
 	for _, ip := range ips {
 		key := domain + "#" + ip

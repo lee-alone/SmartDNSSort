@@ -73,7 +73,8 @@ type Prefetcher struct {
 	blacklist   map[string]int64
 
 	// Failure Counts for exponential backoff: Domain#IP -> count
-	failureCounts map[string]int
+	failureCountsMu sync.Mutex
+	failureCounts   map[string]int
 }
 
 // NewPrefetcher creates a new Prefetcher.
@@ -123,9 +124,10 @@ func (p *Prefetcher) Stop() {
 	p.blacklist = make(map[string]int64)
 	p.blacklistMu.Unlock()
 
-	// failureCounts is used only in runRefresh which is stopped now,
-	// but clearing it for consistency. No mutex since it's only used in prefetchLoop.
+	// failureCounts needs mutex protection since it can be accessed from ReportPingResultWithDomain
+	p.failureCountsMu.Lock()
 	p.failureCounts = make(map[string]int)
+	p.failureCountsMu.Unlock()
 
 	logger.Info("[Prefetcher] Stopped and data cleared.")
 }
