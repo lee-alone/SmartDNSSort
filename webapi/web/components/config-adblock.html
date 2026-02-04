@@ -1,9 +1,11 @@
-<section
-    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
-    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
-        <h2 class="text-xl font-bold" data-i18n="tabs.adblock">AdBlock</h2>
+<section id="section-adblock" class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors" onclick="toggleConfigSection(this)">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold" data-i18n="tabs.adblock">AdBlock</h2>
+            <span class="material-symbols-outlined section-toggle-icon">expand_more</span>
+        </div>
     </div>
-    <div class="p-6 space-y-6">
+    <div class="section-content p-6 space-y-6">
         <div>
             <h3 class="text-lg font-medium" data-i18n="adblock.ruleSources">Rule Sources
             </h3>

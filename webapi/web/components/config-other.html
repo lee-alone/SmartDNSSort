@@ -1,10 +1,11 @@
-<section
-    class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
-    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark">
-        <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced
-            Settings</h2>
+<section id="section-other" class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors" onclick="toggleConfigSection(this)">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold" data-i18n="config.other.legend">System & Advanced Settings</h2>
+            <span class="material-symbols-outlined section-toggle-icon">expand_more</span>
+        </div>
     </div>
-    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+    <div class="section-content p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
         <div class="form-group"><label for="webui.listen_port"
                 class="block text-sm font-medium mb-2"
                 data-i18n="config.webui.listenPort">Web Listen Port</label><input

@@ -64,11 +64,15 @@ const resourcesEn = {
         "errorLoadingData": "Error loading data."
     },
     "config": {
+        "sections": "Sections",
         "nav": {
             "dns": "DNS Service",
             "upstream": "Upstream",
-            "ping": "Ping",
+            "recursor": "Recursor",
+            "ping": "IP Optimization",
             "cache": "Cache",
+            "adblock": "AdBlock",
+            "other": "Other Settings",
             "prefetch": "Prefetch",
             "webui": "Web UI",
             "system": "System"
@@ -132,7 +136,7 @@ const resourcesEn = {
             }
         },
         "ping": {
-            "legend": "Ping",
+            "legend": "IP Optimization",
             "enabled": "Enable IP Optimization",
             "enabledHelp": "Whether to test and sort IPs from DNS resolution results.",
             "count": "Count",

@@ -64,11 +64,15 @@ const resourcesZhCn = {
         "errorLoadingData": "加载数据出错。"
     },
     "config": {
+        "sections": "配置分类",
         "nav": {
             "dns": "DNS 服务",
             "upstream": "上游",
-            "ping": "Ping",
+            "recursor": "递归解析器",
+            "ping": "IP 优化",
             "cache": "缓存",
+            "adblock": "广告拦截",
+            "other": "其他设置",
             "prefetch": "预取",
             "webui": "Web 界面",
             "system": "系统"
@@ -132,7 +136,7 @@ const resourcesZhCn = {
             }
         },
         "ping": {
-            "legend": "Ping",
+            "legend": "IP 优化",
             "enabled": "启用 IP 优选",
             "enabledHelp": "是否对 DNS 解析结果中的 IP 进行 Ping 测试和排序。",
             "count": "次数",
