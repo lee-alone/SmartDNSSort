@@ -50,16 +50,8 @@ function updateDashboard() {
                 protectedEntries.textContent = mem.protected_entries.toLocaleString();
                 evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
             }
-            if (data.upstream_stats) {
-                const upstreamTable = document.getElementById('upstream_stats').getElementsByTagName('tbody')[0];
-                upstreamTable.innerHTML = '';
-                const servers = Object.keys(data.upstream_stats).sort();
-                servers.forEach(server => {
-                    const stats = data.upstream_stats[server];
-                    const row = upstreamTable.insertRow();
-                    row.innerHTML = `<td class="px-6 py-3">${server}</td><td class="px-6 py-3 value">${stats.success || 0}</td><td class="px-6 py-3 value">${stats.failure || 0}</td>`;
-                });
-            }
+            // 注意：upstream_stats 表格现在由 fetchUpstreamStats() 单独处理
+            // 不在这里处理，避免数据竞态条件
             const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
             hotDomainsTable.innerHTML = '';
             if (data.top_domains && data.top_domains.length > 0) {
@@ -250,62 +242,153 @@ function fetchRecentlyBlocked() {
 
 
 // 获取上游服务器详细状态
+// 使用标志防止并发请求和竞态条件
+let upstreamStatsLoading = false;
+let upstreamStatsAbortController = null;
+
 function fetchUpstreamStats() {
-    fetch('/api/upstream-stats')
+    // 防止并发请求
+    if (upstreamStatsLoading) {
+        console.warn('[DEBUG] Upstream stats request already in progress, skipping');
+        return;
+    }
+    
+    // 取消之前的请求（如果有）
+    if (upstreamStatsAbortController) {
+        upstreamStatsAbortController.abort();
+    }
+    
+    upstreamStatsAbortController = new AbortController();
+    upstreamStatsLoading = true;
+    
+    console.log('[DEBUG] Starting upstream stats fetch');
+    
+    fetch('/api/upstream-stats', { signal: upstreamStatsAbortController.signal })
         .then(response => {
             if (!response.ok) throw new Error('Failed to fetch upstream stats');
             return response.json();
         })
         .then(data => {
+            console.log('[DEBUG] Upstream stats response received');
             if (data && data.data && data.data.servers) {
+                console.log('[DEBUG] Rendering', data.data.servers.length, 'servers');
+                // 验证数据完整性
+                data.data.servers.forEach((server, index) => {
+                    console.log(`[DEBUG] Server ${index}:`, {
+                        address: server.address,
+                        protocol: server.protocol,
+                        success: server.success,
+                        failure: server.failure,
+                        success_rate: server.success_rate,
+                        status: server.status,
+                        latency_ms: server.latency_ms
+                    });
+                });
                 renderEnhancedUpstreamTable(data.data.servers);
             } else {
+                console.warn('[DEBUG] Invalid data structure:', data);
                 showUpstreamLoadError();
             }
         })
         .catch(error => {
+            // 忽略被中止的请求
+            if (error.name === 'AbortError') {
+                console.log('[DEBUG] Upstream stats request was cancelled');
+                return;
+            }
             console.error('Error fetching upstream stats:', error);
             showUpstreamLoadError();
+        })
+        .finally(() => {
+            upstreamStatsLoading = false;
+            console.log('[DEBUG] Upstream stats fetch completed');
         });
 }
 
 // 渲染增强的上游表格
 function renderEnhancedUpstreamTable(upstreamData) {
     const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
-    if (!tbody) return;
+    if (!tbody) {
+        console.error('[DEBUG] Cannot find upstream_stats tbody');
+        return;
+    }
     
-    tbody.innerHTML = '';
+    console.log('[DEBUG] Starting to render', upstreamData.length, 'servers');
     
-    upstreamData.forEach(server => {
-        const row = tbody.insertRow();
+    // 验证数据
+    const validServers = upstreamData.filter((server, index) => {
+        const isValid = 
+            server.address && 
+            server.protocol && 
+            server.success !== undefined && 
+            server.failure !== undefined &&
+            server.success_rate !== undefined &&
+            server.status &&
+            server.latency_ms !== undefined;
         
-        // 成功率进度条颜色
-        const rateColor = getRateColor(server.success_rate);
-        
-        // 健康状态图标
-        const statusIcon = getStatusIcon(server.status);
-        
-        // 延迟状态
-        const latencyClass = getLatencyClass(server.latency_ms);
-        
-        row.innerHTML = `
-            <td class="px-6 py-3 font-medium">${server.address}</td>
-            <td class="px-6 py-3">${getProtocolBadge(server.protocol)}</td>
-            <td class="px-6 py-3">
-                <div class="flex items-center gap-2">
-                    <div class="w-20 bg-gray-200 rounded-full h-2">
-                        <div class="h-2 rounded-full ${rateColor}" style="width: ${server.success_rate}%"></div>
-                    </div>
-                    <span class="text-sm font-medium">${server.success_rate.toFixed(1)}%</span>
-                </div>
-            </td>
-            <td class="px-6 py-3">${statusIcon} ${server.status}</td>
-            <td class="px-6 py-3 ${latencyClass}">${server.latency_ms.toFixed(1)} ms</td>
-            <td class="px-6 py-3 text-gray-500">${server.total}</td>
-            <td class="px-6 py-3 text-green-600">${server.success}</td>
-            <td class="px-6 py-3 text-red-600">${server.failure}</td>
-        `;
+        if (!isValid) {
+            console.warn(`[DEBUG] Server ${index} has invalid data:`, server);
+        }
+        return isValid;
     });
+    
+    if (validServers.length === 0) {
+        console.warn('[DEBUG] No valid servers to render');
+        showUpstreamLoadError();
+        return;
+    }
+    
+    // 使用 DocumentFragment 进行原子操作，避免竞态条件
+    const fragment = document.createDocumentFragment();
+    
+    validServers.forEach((server, index) => {
+        try {
+            // 成功率进度条颜色
+            const rateColor = getRateColor(server.success_rate);
+            
+            // 健康状态图标
+            const statusIcon = getStatusIcon(server.status);
+            
+            // 延迟状态
+            const latencyClass = getLatencyClass(server.latency_ms);
+            
+            // 创建行元素
+            const row = document.createElement('tr');
+            row.className = 'divide-y divide-[#e9e8ce] dark:divide-[#3a3922]';
+            row.innerHTML = `
+                <td class="px-6 py-3 font-medium">${server.address}</td>
+                <td class="px-6 py-3">${getProtocolBadge(server.protocol)}</td>
+                <td class="px-6 py-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-20 bg-gray-200 rounded-full h-2">
+                            <div class="h-2 rounded-full ${rateColor}" style="width: ${server.success_rate}%"></div>
+                        </div>
+                        <span class="text-sm font-medium">${server.success_rate.toFixed(1)}%</span>
+                    </div>
+                </td>
+                <td class="px-6 py-3">${statusIcon} ${server.status}</td>
+                <td class="px-6 py-3 ${latencyClass}">${server.latency_ms.toFixed(1)} ms</td>
+                <td class="px-6 py-3 text-gray-500">${server.total}</td>
+                <td class="px-6 py-3 text-green-600">${server.success}</td>
+                <td class="px-6 py-3 text-red-600">${server.failure}</td>
+            `;
+            fragment.appendChild(row);
+            console.log(`[DEBUG] Successfully prepared server ${index}: ${server.address}`);
+        } catch (e) {
+            console.error(`[DEBUG] Error preparing server ${index}:`, e, server);
+        }
+    });
+    
+    // 原子操作：一次性清空并填充表格
+    // 这样可以避免其他请求在清空和填充之间进行操作
+    try {
+        tbody.innerHTML = '';
+        tbody.appendChild(fragment);
+        console.log('[DEBUG] Successfully rendered all servers');
+    } catch (e) {
+        console.error('[DEBUG] Error updating table DOM:', e);
+        showUpstreamLoadError();
+    }
 }
 
 // 显示加载失败提示

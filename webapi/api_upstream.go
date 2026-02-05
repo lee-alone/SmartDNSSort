@@ -79,6 +79,7 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 
 		health := healthAwareSrv.GetHealth()
 		if health == nil {
+			logger.Warnf("Server %s health is nil", srv.Address())
 			continue
 		}
 
@@ -159,6 +160,9 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 			CircuitBreakerRemainingSeconds: circuitBreakerRemaining,
 			IsTemporarilySkipped:           healthAwareSrv.ShouldSkipTemporarily(),
 		}
+
+		logger.Debugf("Server stats: address=%s, protocol=%s, success=%d, failure=%d, total=%d, rate=%.2f%%",
+			serverStats.Address, serverStats.Protocol, serverStats.Success, serverStats.Failure, serverStats.Total, serverStats.SuccessRate)
 
 		statsServers = append(statsServers, serverStats)
 	}
