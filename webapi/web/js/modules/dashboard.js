@@ -366,7 +366,7 @@ function renderEnhancedUpstreamTable(upstreamData) {
                         <span class="text-sm font-medium">${server.success_rate.toFixed(1)}%</span>
                     </div>
                 </td>
-                <td class="px-6 py-3">${statusIcon} ${server.status}</td>
+                <td class="px-6 py-3">${statusIcon} ${getStatusText(server.status)}</td>
                 <td class="px-6 py-3 ${latencyClass}">${server.latency_ms.toFixed(1)} ms</td>
                 <td class="px-6 py-3 text-gray-500">${server.total}</td>
                 <td class="px-6 py-3 text-green-600">${server.success}</td>
@@ -422,7 +422,7 @@ function getRateColor(rate) {
     return 'bg-red-500';
 }
 
-// 获取健康状态图标
+// 获取健康状态图标和翻译
 function getStatusIcon(status) {
     switch(status) {
         case 'healthy': return '🟢';
@@ -430,6 +430,28 @@ function getStatusIcon(status) {
         case 'unhealthy': return '🔴';
         default: return '⚪';
     }
+}
+
+// 获取状态的本地化文本
+function getStatusText(status) {
+    const statusMap = {
+        'healthy': 'upstream.status.healthy',
+        'degraded': 'upstream.status.degraded',
+        'unhealthy': 'upstream.status.unhealthy'
+    };
+    
+    const i18nKey = statusMap[status] || 'upstream.status.unknown';
+    
+    // 如果 i18n 可用，使用翻译；否则返回原始状态
+    if (window.i18n && typeof window.i18n.t === 'function') {
+        try {
+            return window.i18n.t(i18nKey);
+        } catch (e) {
+            console.warn('i18n translation failed for key:', i18nKey);
+            return status;
+        }
+    }
+    return status;
 }
 
 // 获取延迟颜色分类

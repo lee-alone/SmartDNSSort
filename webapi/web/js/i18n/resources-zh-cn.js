@@ -342,5 +342,10 @@ resourcesZhCn.messages.unboundConfigSaveError = "保存 Unbound 配置时出错�
 // 上游服务器统计翻译
 resourcesZhCn.upstream = {
     "dataLoadFailed": "加载上游服务器数据失败",
-    "retryingNextCycle": "将在下一个更新周期重试"
+    "retryingNextCycle": "将在下一个更新周期重试",
+    "status": {
+        "healthy": "健康",
+        "degraded": "降级",
+        "unhealthy": "不健康"
+    }
 };

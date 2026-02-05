@@ -147,68 +147,7 @@
                 data-i18n="dashboard.updateRules">Update All Rules</span></button>
     </div>
 
-    <!-- 5. Hot Domains Table (Spans 2 cols) -->
-    <div
-        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
-        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-            <h2 class="font-bold text-lg" data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table id="hot_domains_table" class="w-full text-sm text-left">
-                <thead
-                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
-                    <tr>
-                        <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
-                        <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]"></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- 6. Blocked Domains Table (Spans 2 cols) -->
-    <div
-        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
-        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-            <h2 class="font-bold text-lg" data-i18n="dashboard.blockedDomains">Blocked Domains (Top 10)</h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table id="blocked_domains_table" class="w-full text-sm text-left">
-                <thead
-                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
-                    <tr>
-                        <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
-                        <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]"></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- 7. Recent Queries and Recently Blocked (Side by Side) -->
-    <div class="col-span-1 md:col-span-2 xl:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Recent Queries -->
-        <div
-            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
-            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-                <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
-            </div>
-            <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
-        </div>
-
-        <!-- Recently Blocked -->
-        <div
-            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
-            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-                <h2 class="font-bold text-lg" data-i18n="dashboard.recentlyBlocked">Recently Blocked</h2>
-            </div>
-            <div id="recently_blocked_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
-        </div>
-    </div>
-
-    <!-- 8. Upstream Servers Table (Full Width) -->
+    <!-- 5. Upstream Servers Table (Full Width - Second Row) -->
     <div
         class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
         <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
@@ -232,6 +171,67 @@
                 </thead>
                 <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]"></tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- 6. Hot Domains Table (Spans 2 cols) -->
+    <div
+        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+            <h2 class="font-bold text-lg" data-i18n="dashboard.hotDomains">Hot Domains (Top 10)</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table id="hot_domains_table" class="w-full text-sm text-left">
+                <thead
+                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                    <tr>
+                        <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
+                        <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 7. Blocked Domains Table (Spans 2 cols) -->
+    <div
+        class="col-span-1 md:col-span-2 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+        <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+            <h2 class="font-bold text-lg" data-i18n="dashboard.blockedDomains">Blocked Domains (Top 10)</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table id="blocked_domains_table" class="w-full text-sm text-left">
+                <thead
+                    class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                    <tr>
+                        <th class="px-6 py-3" data-i18n="dashboard.domain">Domain</th>
+                        <th class="px-6 py-3" data-i18n="dashboard.count">Count</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 8. Recent Queries and Recently Blocked (Side by Side) -->
+    <div class="col-span-1 md:col-span-2 xl:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Recent Queries -->
+        <div
+            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                <h2 class="font-bold text-lg" data-i18n="dashboard.recentQueries">Recent Queries</h2>
+            </div>
+            <div id="recent_queries_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
+        </div>
+
+        <!-- Recently Blocked -->
+        <div
+            class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col h-[400px]">
+            <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+                <h2 class="font-bold text-lg" data-i18n="dashboard.recentlyBlocked">Recently Blocked</h2>
+            </div>
+            <div id="recently_blocked_list" class="flex-1 overflow-y-auto p-4 font-mono text-sm"></div>
         </div>
     </div>
 </div>

@@ -341,5 +341,10 @@ resourcesEn.messages.unboundConfigSaveError = "Error saving Unbound configuratio
 // Upstream server stats translations
 resourcesEn.upstream = {
     "dataLoadFailed": "Failed to load upstream server data",
-    "retryingNextCycle": "Retrying in next update cycle"
+    "retryingNextCycle": "Retrying in next update cycle",
+    "status": {
+        "healthy": "Healthy",
+        "degraded": "Degraded",
+        "unhealthy": "Unhealthy"
+    }
 };
