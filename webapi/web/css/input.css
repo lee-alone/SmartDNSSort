@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar for webkit */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #e9e8ce;
+    border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #4a482f;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #d4d3b6;
+}
+
+/* Status Indicator Styles */
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.status-indicator .status-dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background-color: #d1d5db;
+    /* default gray */
+}
+
+.status-indicator.connecting .status-dot {
+    background-color: #eab308;
+    animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.status-indicator.connected .status-dot {
+    background-color: #22c55e;
+}
+
+.status-indicator.error .status-dot {
+    background-color: #ef4444;
+}
+
+.status-indicator.connecting .status-text {
+    color: #ca8a04;
+}
+
+html.dark .status-indicator.connecting .status-text {
+    color: #facc15;
+}
+
+.status-indicator.connected .status-text {
+    color: #16a34a;
+}
+
+html.dark .status-indicator.connected .status-text {
+    color: #4ade80;
+}
+
+.status-indicator.error .status-text {
+    color: #dc2626;
+}
+
+html.dark .status-indicator.error .status-text {
+    color: #f87171;
+}
+
+@keyframes status-pulse {
+    50% {
+        opacity: .5;
+    }
+}
+
+/* Style for disabled inputs to indicate they are not editable */
+.disabled-input {
+    background-color: #e9ecef !important;
+    /* Light grey background */
+    color: #6c757d !important;
+    /* Muted text color */
+    cursor: not-allowed !important;
+    /* Indicate non-interactiveness */
+    opacity: 0.7;
+    /* Slightly faded look */
+    border-color: #dee2e6 !important;
+    /* Lighter border */
+}
+
+
+/* Config Sidebar Styles */
+.config-nav-btn {
+    transition: all 0.2s ease;
+}
+
+.config-nav-btn.active {
+    background-color: #f9f506;
+    color: #000000;
+}
+
+/* Config Section Styles */
+.config-section {
+    transition: all 0.2s ease;
+}
+
+.config-section .section-toggle-icon {
+    transition: transform 0.3s ease;
+}
+
+.section-content {
+    transition: all 0.3s ease;
+}
+
+/* Smooth scroll behavior */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Responsive adjustments for config layout */
+@media (max-width: 1024px) {
+    .config-nav-btn span:last-child {
+        display: none;
+    }
+    
+    .config-nav-btn {
+        justify-content: center;
+        padding: 0.625rem;
+    }
+}

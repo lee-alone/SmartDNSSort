@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="app.title">SmartDNSSort Dashboard</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin href="https://fonts.gstatic.com" rel="preconnect" />
+    <link href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <!-- Material Symbols - Direct from Google Fonts (Most Stable) -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet" />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#f9f506",
+                        "background-light": "#f8f8f5",
+                        "background-dark": "#23220f",
+                        "card-light": "#ffffff",
+                        "card-dark": "#2d2c16",
+                        "text-main-light": "#1c1c0d",
+                        "text-main-dark": "#fcfcf8",
+                        "text-sub-light": "#6d6d4e",
+                        "text-sub-dark": "#bfbfad",
+                        "border-light": "#e9e8ce",
+                        "border-dark": "#3e3d24",
+                    },
+                    fontFamily: {
+                        "display": ["Spline Sans", "sans-serif"],
+                        "body": ["Noto Sans", "sans-serif"],
+                    },
+                    borderRadius: { "DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body
+    class="bg-background-light dark:bg-background-dark text-text-main-light dark:text-text-main-dark font-display antialiased transition-colors duration-200">
+
+    <div class="flex h-screen w-full overflow-hidden">
+        <!-- SideNavBar -->
+        <div id="sidebar-container"></div>
+
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+            <!-- Header -->
+            <div id="header-container"></div>
+
+            <!-- Main Content Views -->
+            <main class="flex-1 overflow-y-auto p-6 scroll-smooth">
+                <!-- Dashboard View -->
+                <div id="view-dashboard" class="view-content"></div>
+
+                <!-- Configuration View -->
+                <div id="view-config" class="view-content" style="display: none;"></div>
+
+                <!-- Custom Rules View -->
+                <div id="view-rules" class="view-content" style="display: none;"></div>
+
+                <!-- Footer -->
+                <div id="footer-container"></div>
+            </main>
+        </div>
+    </div>
+
+    <!-- i18n 模块（必须首先加载） -->
+    <script src="js/i18n/resources-en.js"></script>
+    <script src="js/i18n/resources-zh-cn.js"></script>
+    <script src="js/i18n/core.js"></script>
+    <script src="js/i18n/init.js"></script>
+
+    <!-- Component Loader（必须在其他模块之前加载） -->
+    <script src="js/modules/component-loader.js"></script>
+
+    <!-- app 模块 -->
+    <script src="js/modules/utils.js"></script>
+    <script src="js/modules/navigation.js"></script>
+    <!-- Recursor 模块必须在 config.js 之前加载 -->
+    <script src="js/modules/recursor.js"></script>
+    <script src="js/modules/recursor-installer.js"></script>
+    <script src="js/modules/config.js"></script>
+    <script src="js/modules/config-sidebar.js"></script>
+    <script src="js/modules/dashboard.js"></script>
+    <script src="js/modules/adblock.js"></script>
+    <script src="js/modules/custom-settings.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

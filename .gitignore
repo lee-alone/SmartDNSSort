@@ -51,3 +51,9 @@ smartdnssort-*
 
 # Cache
 .cache/
+
+# Web UI - Generated files
+webapi/web/css/style.css
+webapi/web/node_modules/
+webapi/web/fonts/*.woff2
+webapi/web/package-lock.json

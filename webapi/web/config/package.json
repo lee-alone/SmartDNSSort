@@ -1,0 +1,1 @@
+{"name":"smartdnssort-web","version":"1.0.0","description":"SmartDNSSort Web Interface","scripts":{"build":"npx tailwindcss -i ../css/input.css -o ../css/style.css --minify","watch":"npx tailwindcss -i ../css/input.css -o ../css/style.css --watch"},"devDependencies":{"tailwindcss":"^3.4.0","postcss":"^8.4.0","autoprefixer":"^10.4.0"}}
