@@ -118,7 +118,6 @@
     text-rendering: optimizeLegibility;
     /* Simulate bold effect for TTF format */
     -webkit-text-stroke: 1.5px currentColor;
-    text-stroke: 1.5px currentColor;
 }
 
 /* Support for different weights */
