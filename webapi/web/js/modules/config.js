@@ -8,7 +8,6 @@ function getFormValue(form, fieldName, defaultValue = '') {
     try {
         const element = form.elements[fieldName];
         if (!element) {
-            console.warn(`Form element not found: ${fieldName}`);
             return defaultValue;
         }
         if (element.type === 'checkbox') {
@@ -16,7 +15,6 @@ function getFormValue(form, fieldName, defaultValue = '') {
         }
         return element.value !== undefined ? element.value : defaultValue;
     } catch (e) {
-        console.warn(`Error getting form value for ${fieldName}:`, e);
         return defaultValue;
     }
 }
@@ -29,16 +27,12 @@ function populateForm(config) {
             const el = document.getElementById(id);
             if (el) {
                 el.value = value;
-            } else {
-                console.warn(`Form element with ID not found: ${id}`);
             }
         };
         const setChecked = (id, checked) => {
             const el = document.getElementById(id);
             if (el) {
                 el.checked = checked;
-            } else {
-                console.warn(`Form element with ID not found: ${id}`);
             }
         };
 
@@ -133,9 +127,6 @@ function populateForm(config) {
             setValue('adblock_block_mode', config.adblock.block_mode || 'nxdomain');
         }
     } catch (e) {
-        console.error("Error inside populateForm:", e);
-        console.error("Error stack:", e.stack);
-        console.error("Error message:", e.message);
         alert("An error occurred while displaying the configuration. Check developer console (F12).");
     }
 }
@@ -155,7 +146,6 @@ function loadConfig() {
             }, 100);
         })
         .catch(error => {
-            console.error('Could not load or process configuration:', error);
             alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
         });
 }
@@ -273,25 +263,20 @@ function saveConfig() {
             data.stats = originalConfig.stats;
         }
 
-        console.log('[DEBUG] Collected form data:', JSON.stringify(data, null, 2));
-
         fetch(CONFIG_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         })
             .then(response => {
-                console.log('[DEBUG] Server response status:', response.status);
                 if (!response.ok) {
                     return response.text().then(text => {
-                        console.error('[ERROR] Server error response:', text);
                         throw new Error(text || `HTTP ${response.status}`);
                     });
                 }
                 return response.json();
             })
             .then(result => {
-                console.log('[DEBUG] Config saved successfully:', result);
                 alert(i18n.t('messages.configSaved'));
                 loadConfig();
                 // 重新加载自定义设置，以便显示/隐藏 unbound 配置窗口
@@ -301,7 +286,6 @@ function saveConfig() {
                 resolve(result);
             })
             .catch(error => {
-                console.error('[ERROR] Failed to save config:', error);
                 alert(i18n.t('messages.configSaveError', { error: error.message }));
                 reject(error);
             });

@@ -11,11 +11,9 @@
 
 // Wait for components to be loaded before initializing app
 document.addEventListener('componentsLoaded', () => {
-    console.log('Components loaded, initializing app...');
-    
     // Initialize app when i18n is ready
     window.addEventListener('languageChanged', () => {
-        console.log('App initialized with language:', i18n.getCurrentLanguage?.() || 'default');
+        // App initialized with language
     });
 
     // Load config on startup
