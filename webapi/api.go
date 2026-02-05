@@ -93,6 +93,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/recent-queries", s.handleRecentQueries)
 	mux.HandleFunc("/api/recent-blocked", s.handleRecentlyBlocked)
 	mux.HandleFunc("/api/hot-domains", s.handleHotDomains)
+	mux.HandleFunc("/api/blocked-domains", s.handleBlockedDomains)
 	mux.HandleFunc("/api/restart", s.handleRestart)
 	mux.HandleFunc("/health", s.handleHealth)
 

@@ -288,6 +288,9 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		return // 请求被拦截
 	}
 
+	// 记录有效查询（未被广告拦截）
+	currentStats.IncEffectiveQueries()
+
 	// ========== 第 2 阶段: 自定义回复规则检查 ==========
 	if s.handleCustomResponse(w, r, domain, qtype) {
 		return // 请求已被自定义规则处理

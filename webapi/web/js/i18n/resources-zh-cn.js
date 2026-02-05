@@ -54,11 +54,13 @@ const resourcesZhCn = {
         "success": "成功",
         "failure": "失败",
         "hotDomains": "热门域名 (Top 10)",
+        "blockedDomains": "拦截域名 (Top 10)",
         "domain": "域名",
         "count": "次数",
         "recentQueries": "最近查询",
         "recentlyBlocked": "最近拦截",
         "noDomainData": "暂无域名数据。",
+        "noBlockedDomainData": "暂无拦截域名数据。",
         "noRecentQueries": "暂无最近查询。",
         "noRecentlyBlocked": "暂无最近拦截的域名。",
         "errorLoadingData": "加载数据出错。"

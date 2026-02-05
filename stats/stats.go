@@ -16,6 +16,7 @@ import (
 type Stats struct {
 	mu                sync.RWMutex
 	queries           int64
+	effectiveQueries  int64 // 有效查询数（排除被广告拦截的查询）
 	cacheHits         int64
 	cacheMisses       int64
 	cacheStaleRefresh int64 // 缓存更新：缓存已过期但返回给用户，同时向上游查询
@@ -31,6 +32,9 @@ type Stats struct {
 
 	// 新增：Hot Domains 追踪器
 	hotDomains *HotDomainsTracker
+
+	// 新增：Blocked Domains 追踪器
+	blockedDomains *BlockedDomainsTracker
 
 	// 缓存驱逐统计
 	lastEvictionCount int64     // 上次记录的驱逐计数
@@ -56,6 +60,7 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 		upstreamSuccess: make(map[string]*int64),
 		upstreamFailure: make(map[string]*int64),
 		hotDomains:      NewHotDomainsTracker(cfg),
+		blockedDomains:  NewBlockedDomainsTracker(cfg),
 		startTime:       time.Now(),
 		lastCheckTime:   time.Now(),
 	}
@@ -64,6 +69,11 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 // IncQueries 增加查询计数
 func (s *Stats) IncQueries() {
 	atomic.AddInt64(&s.queries, 1)
+}
+
+// IncEffectiveQueries 增加有效查询计数（排除被广告拦截的查询）
+func (s *Stats) IncEffectiveQueries() {
+	atomic.AddInt64(&s.effectiveQueries, 1)
 }
 
 // IncCacheHits 增加缓存命中计数
@@ -176,12 +186,14 @@ func (s *Stats) GetStats() map[string]interface{} {
 
 	// 2. 在锁之外执行耗时操作
 	topDomains := s.GetTopDomains(10) // 这个函数有自己的锁
+	topBlockedDomains := s.GetTopBlockedDomains(10)
 
 	queries := atomic.LoadInt64(&s.queries)
+	effectiveQueries := atomic.LoadInt64(&s.effectiveQueries)
 	var hitRate float64
-	if queries > 0 {
+	if effectiveQueries > 0 {
 		hits := atomic.LoadInt64(&s.cacheHits)
-		hitRate = float64(hits) / float64(queries) * 100
+		hitRate = float64(hits) / float64(effectiveQueries) * 100
 	}
 
 	var avgRTT int64
@@ -237,6 +249,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 
 	return map[string]interface{}{
 		"total_queries":       queries,
+		"effective_queries":   effectiveQueries,
 		"cache_hits":          atomic.LoadInt64(&s.cacheHits),
 		"cache_misses":        atomic.LoadInt64(&s.cacheMisses),
 		"cache_stale_refresh": atomic.LoadInt64(&s.cacheStaleRefresh),
@@ -249,6 +262,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"upstream_stats":      upstreamStats,
 		"system_stats":        sysStats,
 		"top_domains":         topDomains,
+		"top_blocked_domains": topBlockedDomains,
 		"uptime_seconds":      time.Since(s.startTime).Seconds(),
 		"evictions_per_min":   0.0, // 占位符，由 API 处理器计算
 	}
@@ -257,6 +271,11 @@ func (s *Stats) GetStats() map[string]interface{} {
 // RecordDomainQuery 记录域名查询次数
 func (s *Stats) RecordDomainQuery(domain string) {
 	s.hotDomains.RecordQuery(domain)
+}
+
+// RecordBlockedDomain 记录被拦截的域名
+func (s *Stats) RecordBlockedDomain(domain string) {
+	s.blockedDomains.RecordBlock(domain)
 }
 
 // RecordCacheEviction 记录缓存驱逐事件
@@ -303,9 +322,15 @@ func (s *Stats) GetTopDomains(limit int) []DomainCount {
 	return s.hotDomains.GetTopDomains(limit)
 }
 
+// GetTopBlockedDomains 获取被拦截最多的域名
+func (s *Stats) GetTopBlockedDomains(limit int) []BlockedDomainCount {
+	return s.blockedDomains.GetTopBlockedDomains(limit)
+}
+
 // Reset 重置统计
 func (s *Stats) Reset() {
 	atomic.StoreInt64(&s.queries, 0)
+	atomic.StoreInt64(&s.effectiveQueries, 0)
 	atomic.StoreInt64(&s.cacheHits, 0)
 	atomic.StoreInt64(&s.cacheMisses, 0)
 	atomic.StoreInt64(&s.cacheStaleRefresh, 0)
@@ -321,9 +346,11 @@ func (s *Stats) Reset() {
 	s.mu.Unlock()
 
 	s.hotDomains.Reset()
+	s.blockedDomains.Reset()
 }
 
 // Stop 停止统计服务
 func (s *Stats) Stop() {
 	s.hotDomains.Stop()
+	s.blockedDomains.Stop()
 }

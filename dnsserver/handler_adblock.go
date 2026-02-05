@@ -22,6 +22,7 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 	if entry, hit := s.cache.GetBlocked(domain); hit {
 		logger.Debugf("[AdBlock] Cache Hit (Blocked): %s (rule: %s)", domain, entry.Rule)
 		adblockMgr.RecordBlock(domain, entry.Rule)
+		s.stats.RecordBlockedDomain(domain)
 		s.cache.GetRecentlyBlocked().Add(domain)
 
 		// 根据配置返回拦截响应
@@ -50,6 +51,7 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 
 		// 记录统计
 		adblockMgr.RecordBlock(domain, rule)
+		s.stats.RecordBlockedDomain(domain)
 
 		// 写入拦截缓存
 		s.cache.SetBlocked(domain, &cache.BlockedCacheEntry{
@@ -96,6 +98,7 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 		if blocked, rule := adblockMgr.CheckHost(cnameDomain); blocked {
 			logger.Debugf("[AdBlock] CNAME Blocked: %s found in chain for %s (rule: %s)", cnameDomain, domain, rule)
 			adblockMgr.RecordBlock(domain, rule) // 记录主域名被拦截
+			s.stats.RecordBlockedDomain(domain)
 
 			// 写入拦截缓存 (针对主域名)
 			s.cache.SetBlocked(domain, &cache.BlockedCacheEntry{

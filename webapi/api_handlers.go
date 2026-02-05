@@ -232,6 +232,20 @@ func (s *Server) handleHotDomains(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONSuccess(w, "Hot domains retrieved successfully", topDomainsList)
 }
 
+// handleBlockedDomains 处理被拦截域名请求
+func (s *Server) handleBlockedDomains(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	stats := s.dnsServer.GetStats()
+	topBlockedDomainsList, ok := stats["top_blocked_domains"]
+	if !ok || topBlockedDomainsList == nil {
+		topBlockedDomainsList = []interface{}{}
+	}
+	s.writeJSONSuccess(w, "Blocked domains retrieved successfully", topBlockedDomainsList)
+}
+
 // handleRestart 处理重启请求
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

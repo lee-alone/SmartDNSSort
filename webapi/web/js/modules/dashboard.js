@@ -70,6 +70,18 @@ function updateDashboard() {
             } else {
                 hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
             }
+
+            // Render blocked domains
+            const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
+            blockedDomainsTable.innerHTML = '';
+            if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
+                data.top_blocked_domains.forEach(item => {
+                    const row = blockedDomainsTable.insertRow();
+                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
+                });
+            } else {
+                blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
+            }
             // Update status indicator
             const statusEl = document.getElementById('status');
             const statusText = statusEl.querySelector('.status-text');
