@@ -26,10 +26,6 @@ type Stats struct {
 	totalRTT          int64
 	failedNodes       map[string]int64
 
-	// 新增：按上游服务器统计
-	upstreamSuccess map[string]*int64
-	upstreamFailure map[string]*int64
-
 	// 新增：Hot Domains 追踪器
 	hotDomains *HotDomainsTracker
 
@@ -56,13 +52,11 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 	}()
 
 	return &Stats{
-		failedNodes:     make(map[string]int64),
-		upstreamSuccess: make(map[string]*int64),
-		upstreamFailure: make(map[string]*int64),
-		hotDomains:      NewHotDomainsTracker(cfg),
-		blockedDomains:  NewBlockedDomainsTracker(cfg),
-		startTime:       time.Now(),
-		lastCheckTime:   time.Now(),
+		failedNodes:    make(map[string]int64),
+		hotDomains:     NewHotDomainsTracker(cfg),
+		blockedDomains: NewBlockedDomainsTracker(cfg),
+		startTime:      time.Now(),
+		lastCheckTime:  time.Now(),
 	}
 }
 
@@ -96,39 +90,6 @@ func (s *Stats) IncUpstreamFailures() {
 	atomic.AddInt64(&s.upstreamFailures, 1)
 }
 
-// getOrCreateCounter 安全地获取或创建计数器
-func (s *Stats) getOrCreateCounter(server string, counterMap map[string]*int64) *int64 {
-	s.mu.RLock()
-	counter, ok := counterMap[server]
-	s.mu.RUnlock()
-
-	if ok {
-		return counter
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// 再次检查，防止在获取写锁期间其他 goroutine 已经创建
-	if counter, ok := counterMap[server]; ok {
-		return counter
-	}
-	newCounter := int64(0)
-	counterMap[server] = &newCounter
-	return &newCounter
-}
-
-// IncUpstreamSuccess 增加指定上游服务器的成功计数
-func (s *Stats) IncUpstreamSuccess(server string) {
-	counter := s.getOrCreateCounter(server, s.upstreamSuccess)
-	atomic.AddInt64(counter, 1)
-}
-
-// IncUpstreamFailure 增加指定上游服务器的失败计数
-func (s *Stats) IncUpstreamFailure(server string) {
-	counter := s.getOrCreateCounter(server, s.upstreamFailure)
-	atomic.AddInt64(counter, 1)
-}
-
 // IncPingSuccesses 增加 ping 成功计数
 func (s *Stats) IncPingSuccesses() {
 	atomic.AddInt64(&s.pingSuccesses, 1)
@@ -158,29 +119,6 @@ func (s *Stats) GetStats() map[string]interface{} {
 	failedNodesCopy := make(map[string]int64, len(s.failedNodes))
 	for k, v := range s.failedNodes {
 		failedNodesCopy[k] = v
-	}
-
-	// 复制上游统计数据
-	upstreamStats := make(map[string]map[string]int64)
-	allUpstreams := make(map[string]bool)
-	for server := range s.upstreamSuccess {
-		allUpstreams[server] = true
-	}
-	for server := range s.upstreamFailure {
-		allUpstreams[server] = true
-	}
-
-	for server := range allUpstreams {
-		upstreamStats[server] = map[string]int64{
-			"success": 0,
-			"failure": 0,
-		}
-		if counter, ok := s.upstreamSuccess[server]; ok {
-			upstreamStats[server]["success"] = atomic.LoadInt64(counter)
-		}
-		if counter, ok := s.upstreamFailure[server]; ok {
-			upstreamStats[server]["failure"] = atomic.LoadInt64(counter)
-		}
 	}
 	s.mu.RUnlock() // 尽快释放锁
 
@@ -259,7 +197,6 @@ func (s *Stats) GetStats() map[string]interface{} {
 		"ping_failures":       atomic.LoadInt64(&s.pingFailures),
 		"average_rtt_ms":      avgRTT,
 		"failed_nodes":        failedNodesCopy,
-		"upstream_stats":      upstreamStats,
 		"system_stats":        sysStats,
 		"top_domains":         topDomains,
 		"top_blocked_domains": topBlockedDomains,
@@ -341,8 +278,6 @@ func (s *Stats) Reset() {
 
 	s.mu.Lock()
 	s.failedNodes = make(map[string]int64)
-	s.upstreamSuccess = make(map[string]*int64)
-	s.upstreamFailure = make(map[string]*int64)
 	s.mu.Unlock()
 
 	s.hotDomains.Reset()

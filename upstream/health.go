@@ -72,6 +72,12 @@ type ServerHealth struct {
 
 	// EWMA 的 alpha 因子，例如 0.2
 	latencyAlpha float64
+
+	// 累计成功次数
+	totalSuccesses int64
+
+	// 累计失败次数
+	totalFailures int64
 }
 
 // NewServerHealth 创建服务器健康状态管理器
@@ -96,6 +102,7 @@ func (h *ServerHealth) MarkSuccess() {
 
 	h.consecutiveSuccesses++
 	h.consecutiveFailures = 0
+	h.totalSuccesses++ // 增加累计成功计数
 
 	// 如果连续成功达到阈值，恢复健康状态
 	if h.consecutiveSuccesses >= h.config.SuccessThreshold {
@@ -115,6 +122,7 @@ func (h *ServerHealth) MarkFailure() {
 	h.consecutiveFailures++
 	h.consecutiveSuccesses = 0
 	h.lastFailureTime = time.Now()
+	h.totalFailures++ // 增加累计失败计数
 
 	// 根据失败次数更新状态
 	if h.consecutiveFailures >= h.config.CircuitBreakerThreshold {
@@ -202,6 +210,8 @@ func (h *ServerHealth) GetStats() map[string]interface{} {
 		"status":                statusStr,
 		"consecutive_failures":  h.consecutiveFailures,
 		"consecutive_successes": h.consecutiveSuccesses,
+		"success":               h.totalSuccesses, // 累计成功次数
+		"failure":               h.totalFailures,  // 累计失败次数
 	}
 
 	if !h.lastFailureTime.IsZero() {
@@ -234,6 +244,8 @@ func (h *ServerHealth) Reset() {
 	h.consecutiveSuccesses = 0
 	h.lastFailureTime = time.Time{}
 	h.circuitBreakerStartTime = time.Time{}
+	h.totalSuccesses = 0 // 重置累计成功
+	h.totalFailures = 0  // 重置累计失败
 }
 
 // RecordLatency 记录一次成功的查询延迟，并更新 EWMA 值

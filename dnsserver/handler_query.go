@@ -51,9 +51,6 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	if err != nil {
 		logger.Warnf("[handleQuery] 上游查询失败: %v", err)
 		originalRcode := parseRcodeFromError(err)
-		if originalRcode != dns.RcodeNameError {
-			currentStats.IncUpstreamFailures()
-		}
 
 		msg := s.msgPool.Get()
 		msg.SetReply(r)
@@ -410,9 +407,6 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 	if err != nil {
 		logger.Warnf("[handleGenericCacheMiss] 上游查询失败: %v", err)
 		originalRcode := parseRcodeFromError(err)
-		if originalRcode != dns.RcodeNameError {
-			currentStats.IncUpstreamFailures()
-		}
 
 		msg := s.msgPool.Get()
 		msg.SetReply(r)

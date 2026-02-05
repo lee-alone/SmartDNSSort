@@ -50,12 +50,18 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 		var result *QueryResult
 		if err != nil {
 			result = &QueryResult{Error: err, Server: srv.Address()}
+			if haSrv, ok := srv.(*HealthAwareUpstream); ok {
+				haSrv.RecordError()
+			}
 		} else {
 			if reply.Rcode != dns.RcodeSuccess {
 				result = &QueryResult{
 					Error:  fmt.Errorf("dns error rcode=%d", reply.Rcode),
 					Server: srv.Address(),
 					Rcode:  reply.Rcode,
+				}
+				if haSrv, ok := srv.(*HealthAwareUpstream); ok {
+					haSrv.RecordError()
 				}
 			} else {
 				records, cnames, ttl := extractRecords(reply)
@@ -77,6 +83,9 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 					Rcode:             reply.Rcode,
 					AuthenticatedData: reply.AuthenticatedData,
 					DnsMsg:            reply.Copy(),
+				}
+				if haSrv, ok := srv.(*HealthAwareUpstream); ok {
+					haSrv.RecordSuccess()
 				}
 			}
 		}
@@ -194,9 +203,6 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 
 	// 记录性能数据
 	u.RecordQueryLatency(time.Since(queryStartTime))
-	if u.stats != nil {
-		u.stats.IncUpstreamSuccess(fastResponse.Server)
-	}
 
 	// 启动结果汇总逻辑
 	go u.collectRemainingResponses(domain, qtype, queryVersion, fastResponse, resultChan, &wg)
@@ -235,12 +241,9 @@ loop:
 			}
 			if res.Error == nil && res != fastResponse {
 				allSuccessResults = append(allSuccessResults, res)
-				if u.stats != nil {
-					u.stats.IncUpstreamSuccess(res.Server)
-				}
-			} else if res.Error != nil && u.stats != nil {
+			} else if res.Error != nil {
 				if res.Rcode != dns.RcodeNameError {
-					u.stats.IncUpstreamFailure(res.Server)
+					// Record failure for non-NXDOMAIN errors
 				}
 			}
 		case <-timeout:

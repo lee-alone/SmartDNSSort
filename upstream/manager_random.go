@@ -80,9 +80,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		if err != nil {
 			failureCount++
 			lastErr = err
-			if u.stats != nil {
-				u.stats.IncUpstreamFailure(server.Address())
-			}
+			server.RecordError()
 			logger.Warnf("[queryRandom] ❌ 第 %d 次尝试失败: %s, 错误: %v",
 				attemptNum+1, server.Address(), err)
 			continue
@@ -92,11 +90,11 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		if reply.Rcode == dns.RcodeNameError {
 			// 从 SOA 记录中提取 TTL，或使用默认值
 			ttl := extractNegativeTTL(reply)
-			if u.stats != nil {
-				u.stats.IncUpstreamSuccess(server.Address())
-			}
 			logger.Debugf("[queryRandom] ℹ️  第 %d 次尝试: %s 返回 NXDOMAIN (域名不存在), TTL=%d秒",
 				attemptNum+1, server.Address(), ttl)
+			server.RecordSuccess()
+			queryLatency := time.Since(queryStartTime)
+			u.RecordQueryLatency(queryLatency)
 			return &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
 		}
 
@@ -104,9 +102,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		if reply.Rcode != dns.RcodeSuccess {
 			failureCount++
 			lastErr = fmt.Errorf("dns query failed: rcode=%d", reply.Rcode)
-			if u.stats != nil {
-				u.stats.IncUpstreamFailure(server.Address())
-			}
+			server.RecordError()
 			logger.Warnf("[queryRandom] ❌ 第 %d 次尝试失败: %s, Rcode=%d (%s)",
 				attemptNum+1, server.Address(), reply.Rcode, dns.RcodeToString[reply.Rcode])
 			continue
@@ -130,6 +126,7 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 		if len(records) == 0 {
 			failureCount++
 			lastErr = fmt.Errorf("empty response: no records found")
+			server.RecordError()
 			logger.Warnf("[queryRandom] ⚠️  第 %d 次尝试: %s 返回空结果",
 				attemptNum+1, server.Address())
 			// 保存这个空结果,但继续尝试其他服务器
@@ -139,17 +136,12 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 
 		// 成功!
 		successCount++
-		if u.stats != nil {
-			u.stats.IncUpstreamSuccess(server.Address())
-		}
-
-		// 记录查询延迟，用于动态参数优化
-		queryLatency := time.Since(queryStartTime)
-		u.RecordQueryLatency(queryLatency)
-		logger.Debugf("[queryRandom] 记录查询延迟: %v (用于动态参数优化)", queryLatency)
-
 		logger.Debugf("[queryRandom] ✅ 第 %d 次尝试成功: %s, 返回 %d 条记录, CNAMEs=%v (TTL=%d秒)",
 			attemptNum+1, server.Address(), len(records), cnames, ttl)
+
+		server.RecordSuccess()
+		queryLatency := time.Since(queryStartTime)
+		u.RecordQueryLatency(queryLatency)
 
 		return &QueryResultWithTTL{Records: records, IPs: ips, CNAMEs: cnames, TTL: ttl, AuthenticatedData: reply.AuthenticatedData, DnsMsg: reply.Copy()}, nil
 	}

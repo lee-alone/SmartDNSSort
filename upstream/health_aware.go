@@ -2,7 +2,6 @@ package upstream
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/miekg/dns"
@@ -25,34 +24,23 @@ func NewHealthAwareUpstream(upstream Upstream, healthConfig *HealthCheckConfig) 
 	}
 }
 
-// Exchange 执行 DNS 查询，并记录健康状态
+// Exchange 执行 DNS 查询，并记录延迟
 func (h *HealthAwareUpstream) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	startTime := time.Now()
 	reply, err := h.upstream.Exchange(ctx, msg)
 	latency := time.Since(startTime)
 
-	// 根据查询结果更新健康状态
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			h.health.MarkTimeout(latency)
-		} else {
-			h.health.MarkFailure()
+	// 记录延迟用于动态参数优化
+	// 注意：成功/失败的标记由 manager 中的 RecordSuccess/RecordError 调用处理
+	// 以避免重复计数
+	if err == nil && reply != nil {
+		if reply.Rcode == dns.RcodeSuccess || reply.Rcode == dns.RcodeNameError {
+			// 查询成功，记录延迟
+			h.health.RecordLatency(latency)
 		}
-		return nil, err
 	}
 
-	// 检查 DNS 响应码
-	if reply.Rcode != dns.RcodeSuccess && reply.Rcode != dns.RcodeNameError {
-		// SERVFAIL, REFUSED 等错误码视为失败
-		h.health.MarkFailure()
-	} else {
-		// RcodeSuccess 和 RcodeNameError (NXDOMAIN) 都视为成功
-		// 查询成功，记录延迟
-		h.health.RecordLatency(latency)
-		h.health.MarkSuccess()
-	}
-
-	return reply, nil
+	return reply, err
 }
 
 // Address 返回服务器地址

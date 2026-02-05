@@ -58,13 +58,6 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取全局统计数据
-	globalStats := s.dnsServer.GetStats()
-	upstreamStatsMap := make(map[string]map[string]int64)
-	if upstreamStats, ok := globalStats["upstream_stats"].(map[string]map[string]int64); ok {
-		upstreamStatsMap = upstreamStats
-	}
-
 	var statsServers []UpstreamServerStats
 
 	for _, srv := range servers {
@@ -86,17 +79,14 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 		// 获取健康状态统计数据
 		healthStats := health.GetStats()
 
-		// 从全局统计中获取成功/失败计数
-		// 注意：srv.Address() 返回的格式包含协议前缀（如 "udp://8.8.8.8:53"）
-		serverAddress := srv.Address()
+		// 从健康状态中获取成功/失败计数
 		success := int64(0)
 		failure := int64(0)
-		if serverStats, ok := upstreamStatsMap[serverAddress]; ok {
-			success = serverStats["success"]
-			failure = serverStats["failure"]
-		} else {
-			// 调试日志：确认地址格式匹配
-			logger.Debugf("No stats found for server: %s (available keys: %v)", serverAddress, getMapKeys(upstreamStatsMap))
+		if successVal, ok := healthStats["success"].(int64); ok {
+			success = successVal
+		}
+		if failureVal, ok := healthStats["failure"].(int64); ok {
+			failure = failureVal
 		}
 		total := success + failure
 
@@ -176,13 +166,4 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	json.NewEncoder(w).Encode(response)
-}
-
-// getMapKeys 获取 map 的所有 key（用于调试）
-func getMapKeys(m map[string]map[string]int64) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }

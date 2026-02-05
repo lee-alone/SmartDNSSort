@@ -84,17 +84,11 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 				// 网络超时（疑似丢包或服务器响应慢）
 				logger.Debugf("[querySequential] 服务器 %s 超时，尝试下一个", server.Address())
 				server.RecordTimeout()
-				if u.stats != nil {
-					u.stats.IncUpstreamFailure(server.Address())
-				}
 				continue
 			} else {
 				// 网络层错误，记录并继续
 				logger.Debugf("[querySequential] 服务器 %s 错误: %v，尝试下一个", server.Address(), err)
 				server.RecordError()
-				if u.stats != nil {
-					u.stats.IncUpstreamFailure(server.Address())
-				}
 				continue
 			}
 		}
@@ -102,9 +96,6 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 		// 处理 NXDOMAIN - 这是确定性错误，直接返回
 		if reply.Rcode == dns.RcodeNameError {
 			ttl := extractNegativeTTL(reply)
-			if u.stats != nil {
-				u.stats.IncUpstreamSuccess(server.Address())
-			}
 			logger.Debugf("[querySequential] 服务器 %s 返回 NXDOMAIN，立即返回", server.Address())
 			server.RecordSuccess()
 			return &QueryResultWithTTL{Records: nil, IPs: nil, CNAMEs: nil, TTL: ttl, DnsMsg: reply.Copy()}, nil
@@ -116,9 +107,6 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			logger.Debugf("[querySequential] 服务器 %s 返回错误码 %d，尝试下一个",
 				server.Address(), reply.Rcode)
 			server.RecordError()
-			if u.stats != nil {
-				u.stats.IncUpstreamFailure(server.Address())
-			}
 			continue
 		}
 
@@ -141,16 +129,10 @@ func (u *Manager) querySequential(ctx context.Context, domain string, qtype uint
 			logger.Debugf("[querySequential] 服务器 %s 返回空结果，尝试下一个",
 				server.Address())
 			server.RecordError()
-			if u.stats != nil {
-				u.stats.IncUpstreamFailure(server.Address())
-			}
 			continue
 		}
 
 		// 成功!
-		if u.stats != nil {
-			u.stats.IncUpstreamSuccess(server.Address())
-		}
 		logger.Debugf("[querySequential] ✅ 服务器 %s 成功，返回 %d 条记录",
 			server.Address(), len(records))
 		server.RecordSuccess()
