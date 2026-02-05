@@ -96,6 +96,9 @@ function updateDashboard() {
             statusEl.className = 'status-indicator error';
         });
 
+    // Fetch upstream server stats
+    fetchUpstreamStats();
+
     // Fetch recent queries
     fetch('/api/recent-queries')
         .then(response => response.ok ? response.json() : Promise.reject('Failed to load recent queries'))
@@ -242,4 +245,124 @@ function fetchRecentlyBlocked() {
             const recentlyBlockedList = document.getElementById('recently_blocked_list');
             recentlyBlockedList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
         });
+}
+
+
+
+// 获取上游服务器详细状态
+function fetchUpstreamStats() {
+    fetch('/api/upstream-stats')
+        .then(response => {
+            if (!response.ok) throw new Error('Failed to fetch upstream stats');
+            return response.json();
+        })
+        .then(data => {
+            if (data && data.data && data.data.servers) {
+                renderEnhancedUpstreamTable(data.data.servers);
+            } else {
+                showUpstreamLoadError();
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching upstream stats:', error);
+            showUpstreamLoadError();
+        });
+}
+
+// 渲染增强的上游表格
+function renderEnhancedUpstreamTable(upstreamData) {
+    const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    
+    upstreamData.forEach(server => {
+        const row = tbody.insertRow();
+        
+        // 成功率进度条颜色
+        const rateColor = getRateColor(server.success_rate);
+        
+        // 健康状态图标
+        const statusIcon = getStatusIcon(server.status);
+        
+        // 延迟状态
+        const latencyClass = getLatencyClass(server.latency_ms);
+        
+        row.innerHTML = `
+            <td class="px-6 py-3 font-medium">${server.address}</td>
+            <td class="px-6 py-3">${getProtocolBadge(server.protocol)}</td>
+            <td class="px-6 py-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-20 bg-gray-200 rounded-full h-2">
+                        <div class="h-2 rounded-full ${rateColor}" style="width: ${server.success_rate}%"></div>
+                    </div>
+                    <span class="text-sm font-medium">${server.success_rate.toFixed(1)}%</span>
+                </div>
+            </td>
+            <td class="px-6 py-3">${statusIcon} ${server.status}</td>
+            <td class="px-6 py-3 ${latencyClass}">${server.latency_ms.toFixed(1)} ms</td>
+            <td class="px-6 py-3 text-gray-500">${server.total}</td>
+            <td class="px-6 py-3 text-green-600">${server.success}</td>
+            <td class="px-6 py-3 text-red-600">${server.failure}</td>
+        `;
+    });
+}
+
+// 显示加载失败提示
+function showUpstreamLoadError() {
+    const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
+    if (tbody) {
+        // 确保 i18n 已初始化，否则使用默认英文消息
+        let errorMsg = 'Failed to load upstream server data - Retrying in next update cycle';
+        if (window.i18n && typeof window.i18n.t === 'function') {
+            try {
+                errorMsg = `${i18n.t('upstream.dataLoadFailed')} - ${i18n.t('upstream.retryingNextCycle')}`;
+            } catch (e) {
+                console.warn('i18n translation failed, using default message:', e);
+            }
+        }
+        
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="px-6 py-4 text-center text-red-600">
+                    ${errorMsg}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// 获取成功率进度条颜色
+function getRateColor(rate) {
+    if (rate >= 90) return 'bg-green-500';
+    if (rate >= 70) return 'bg-yellow-500';
+    return 'bg-red-500';
+}
+
+// 获取健康状态图标
+function getStatusIcon(status) {
+    switch(status) {
+        case 'healthy': return '🟢';
+        case 'degraded': return '🟡';
+        case 'unhealthy': return '🔴';
+        default: return '⚪';
+    }
+}
+
+// 获取延迟颜色分类
+function getLatencyClass(latency) {
+    if (latency < 50) return 'text-green-600';
+    if (latency < 200) return 'text-yellow-600';
+    return 'text-red-600';
+}
+
+// 获取协议 Badge
+function getProtocolBadge(protocol) {
+    const badges = {
+        'udp': '<span class="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">UDP</span>',
+        'tcp': '<span class="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">TCP</span>',
+        'doh': '<span class="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">DoH</span>',
+        'dot': '<span class="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded">DoT</span>'
+    };
+    return badges[protocol.toLowerCase()] || `<span class="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded">${protocol}</span>`;
 }

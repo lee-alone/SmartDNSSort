@@ -138,3 +138,10 @@ func (s *Server) GetRecursorManager() *recursor.Manager {
 	defer s.mu.RUnlock()
 	return s.recursorMgr
 }
+
+// GetUpstreamManager returns the upstream manager instance
+func (s *Server) GetUpstreamManager() *upstream.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.upstream
+}

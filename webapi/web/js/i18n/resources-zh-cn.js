@@ -51,6 +51,11 @@ const resourcesZhCn = {
         "evictionsPerMin": "驱逐率/分钟",
         "upstreamServers": "上游服务器",
         "server": "服务器",
+        "protocol": "协议",
+        "successRate": "成功率",
+        "status": "状态",
+        "latency": "延迟",
+        "total": "总计",
         "success": "成功",
         "failure": "失败",
         "hotDomains": "热门域名 (Top 10)",
@@ -332,3 +337,10 @@ const resourcesZhCn = {
 // Add missing message keys for Unbound
 resourcesZhCn.messages.unboundConfigSaved = "Unbound 配置已成功保存，进程已重启。";
 resourcesZhCn.messages.unboundConfigSaveError = "保存 Unbound 配置时出错：{error}";
+
+
+// 上游服务器统计翻译
+resourcesZhCn.upstream = {
+    "dataLoadFailed": "加载上游服务器数据失败",
+    "retryingNextCycle": "将在下一个更新周期重试"
+};

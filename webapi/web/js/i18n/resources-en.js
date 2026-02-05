@@ -51,6 +51,11 @@ const resourcesEn = {
         "evictionsPerMin": "Evictions/min",
         "upstreamServers": "Upstream Servers",
         "server": "Server",
+        "protocol": "Protocol",
+        "successRate": "Success Rate",
+        "status": "Status",
+        "latency": "Latency",
+        "total": "Total",
         "success": "Success",
         "failure": "Failure",
         "hotDomains": "Hot Domains (Top 10)",
@@ -332,3 +337,9 @@ const resourcesEn = {
 // Add missing message keys for Unbound
 resourcesEn.messages.unboundConfigSaved = "Unbound configuration saved and process restarted successfully.";
 resourcesEn.messages.unboundConfigSaveError = "Error saving Unbound configuration: {error}";
+
+// Upstream server stats translations
+resourcesEn.upstream = {
+    "dataLoadFailed": "Failed to load upstream server data",
+    "retryingNextCycle": "Retrying in next update cycle"
+};

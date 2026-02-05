@@ -116,6 +116,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/recursor/system-info", s.handleRecursorSystemInfo)
 	mux.HandleFunc("/api/unbound/config", s.handleUnboundConfig)
 
+	// Upstream API 路由
+	mux.HandleFunc("/api/upstream-stats", s.handleUpstreamStats)
+
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
