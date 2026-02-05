@@ -81,7 +81,6 @@ function updateDashboard() {
             statusEl.className = 'status-indicator connected';
         })
         .catch(error => {
-            console.error('Error fetching stats:', error);
             const statusEl = document.getElementById('status');
             const statusText = statusEl.querySelector('.status-text');
             if (statusText) statusText.textContent = i18n.t('status.error');
@@ -108,7 +107,6 @@ function updateDashboard() {
             }
         })
         .catch(error => {
-            console.error('Error fetching recent queries:', error);
             const recentQueriesList = document.getElementById('recent_queries_list');
             recentQueriesList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
         });
@@ -161,10 +159,8 @@ function initializeDashboardButtons() {
         }
         
         const performRestart = () => {
-            console.log('[DEBUG] Calling restart API');
             fetch('/api/restart', { method: 'POST' })
                 .then(response => {
-                    console.log('[DEBUG] Restart API response status:', response.status);
                     if (response.ok) {
                         alert(i18n.t('messages.restarting'));
                         setTimeout(() => {
@@ -173,7 +169,6 @@ function initializeDashboardButtons() {
                     } else {
                         response.json().then(data => {
                             alert(i18n.t('messages.restartFailed'));
-                            console.error('Restart failed:', data);
                         }).catch(() => {
                             alert(i18n.t('messages.restartFailed'));
                         });
@@ -181,21 +176,18 @@ function initializeDashboardButtons() {
                 })
                 .catch(error => {
                     alert(i18n.t('messages.restartError', { error: error }));
-                    console.error('Restart error:', error);
                 });
         };
         
         const form = document.getElementById('configForm');
         if (form && form.style.display !== 'none') {
             if (confirm('Do you want to save the current configuration changes before restarting?')) {
-                console.log('[DEBUG] Saving config before restart');
                 saveConfig()
                     .then(() => {
-                        console.log('[DEBUG] Config saved successfully, performing restart');
                         setTimeout(performRestart, 500);
                     })
                     .catch(error => {
-                        console.error('[DEBUG] Config save failed, aborting restart:', error);
+                        // Config save failed, abort restart
                     });
             } else {
                 performRestart();
@@ -233,7 +225,6 @@ function fetchRecentlyBlocked() {
             }
         })
         .catch(error => {
-            console.error('Error fetching recently blocked:', error);
             const recentlyBlockedList = document.getElementById('recently_blocked_list');
             recentlyBlockedList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
         });
@@ -249,7 +240,6 @@ let upstreamStatsAbortController = null;
 function fetchUpstreamStats() {
     // 防止并发请求
     if (upstreamStatsLoading) {
-        console.warn('[DEBUG] Upstream stats request already in progress, skipping');
         return;
     }
     
@@ -261,47 +251,27 @@ function fetchUpstreamStats() {
     upstreamStatsAbortController = new AbortController();
     upstreamStatsLoading = true;
     
-    console.log('[DEBUG] Starting upstream stats fetch');
-    
     fetch('/api/upstream-stats', { signal: upstreamStatsAbortController.signal })
         .then(response => {
             if (!response.ok) throw new Error('Failed to fetch upstream stats');
             return response.json();
         })
         .then(data => {
-            console.log('[DEBUG] Upstream stats response received');
             if (data && data.data && data.data.servers) {
-                console.log('[DEBUG] Rendering', data.data.servers.length, 'servers');
-                // 验证数据完整性
-                data.data.servers.forEach((server, index) => {
-                    console.log(`[DEBUG] Server ${index}:`, {
-                        address: server.address,
-                        protocol: server.protocol,
-                        success: server.success,
-                        failure: server.failure,
-                        success_rate: server.success_rate,
-                        status: server.status,
-                        latency_ms: server.latency_ms
-                    });
-                });
                 renderEnhancedUpstreamTable(data.data.servers);
             } else {
-                console.warn('[DEBUG] Invalid data structure:', data);
                 showUpstreamLoadError();
             }
         })
         .catch(error => {
             // 忽略被中止的请求
             if (error.name === 'AbortError') {
-                console.log('[DEBUG] Upstream stats request was cancelled');
                 return;
             }
-            console.error('Error fetching upstream stats:', error);
             showUpstreamLoadError();
         })
         .finally(() => {
             upstreamStatsLoading = false;
-            console.log('[DEBUG] Upstream stats fetch completed');
         });
 }
 
@@ -309,11 +279,8 @@ function fetchUpstreamStats() {
 function renderEnhancedUpstreamTable(upstreamData) {
     const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
     if (!tbody) {
-        console.error('[DEBUG] Cannot find upstream_stats tbody');
         return;
     }
-    
-    console.log('[DEBUG] Starting to render', upstreamData.length, 'servers');
     
     // 验证数据
     const validServers = upstreamData.filter((server, index) => {
@@ -326,14 +293,10 @@ function renderEnhancedUpstreamTable(upstreamData) {
             server.status &&
             server.latency_ms !== undefined;
         
-        if (!isValid) {
-            console.warn(`[DEBUG] Server ${index} has invalid data:`, server);
-        }
         return isValid;
     });
     
     if (validServers.length === 0) {
-        console.warn('[DEBUG] No valid servers to render');
         showUpstreamLoadError();
         return;
     }
@@ -373,9 +336,8 @@ function renderEnhancedUpstreamTable(upstreamData) {
                 <td class="px-6 py-3 text-red-600">${server.failure}</td>
             `;
             fragment.appendChild(row);
-            console.log(`[DEBUG] Successfully prepared server ${index}: ${server.address}`);
         } catch (e) {
-            console.error(`[DEBUG] Error preparing server ${index}:`, e, server);
+            // Error preparing server row, skip it
         }
     });
     
@@ -384,9 +346,7 @@ function renderEnhancedUpstreamTable(upstreamData) {
     try {
         tbody.innerHTML = '';
         tbody.appendChild(fragment);
-        console.log('[DEBUG] Successfully rendered all servers');
     } catch (e) {
-        console.error('[DEBUG] Error updating table DOM:', e);
         showUpstreamLoadError();
     }
 }
@@ -401,7 +361,7 @@ function showUpstreamLoadError() {
             try {
                 errorMsg = `${i18n.t('upstream.dataLoadFailed')} - ${i18n.t('upstream.retryingNextCycle')}`;
             } catch (e) {
-                console.warn('i18n translation failed, using default message:', e);
+                // i18n translation failed, use default message
             }
         }
         
@@ -447,7 +407,6 @@ function getStatusText(status) {
         try {
             return window.i18n.t(i18nKey);
         } catch (e) {
-            console.warn('i18n translation failed for key:', i18nKey);
             return status;
         }
     }

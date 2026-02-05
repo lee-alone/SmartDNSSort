@@ -58,7 +58,6 @@ class RecursorInstaller {
 
             this.retryCount = 0;
         } catch (error) {
-            console.error('Error checking install status:', error);
             this.retryCount++;
 
             if (this.retryCount >= this.maxRetries) {
@@ -82,7 +81,7 @@ class RecursorInstaller {
             const data = await response.json();
             this.updateSystemInfoUI(data);
         } catch (error) {
-            console.error('Error loading system info:', error);
+            // Silently fail - system info is optional
         }
     }
 

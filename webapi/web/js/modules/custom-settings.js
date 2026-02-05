@@ -35,11 +35,11 @@ function loadCustomSettings() {
                     el.value = data.data.content;
                     updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
                 }
-            } else {
-                console.error('Failed to load blocked domains:', data.message);
             }
         })
-        .catch(err => console.error('Error loading blocked domains:', err));
+        .catch(err => {
+            // Error loading blocked domains
+        });
 
     fetch('/api/custom/response')
         .then(response => response.json())
@@ -50,11 +50,11 @@ function loadCustomSettings() {
                     el.value = data.data.content;
                     updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
                 }
-            } else {
-                console.error('Failed to load custom responses:', data.message);
             }
         })
-        .catch(err => console.error('Error loading custom responses:', err));
+        .catch(err => {
+            // Error loading custom responses
+        });
 
     // 加载 Unbound 配置
     loadUnboundConfig();
@@ -82,7 +82,6 @@ function loadUnboundConfig() {
             }
         })
         .catch(err => {
-            console.error('Error loading unbound config:', err);
             const section = document.getElementById('unbound-config-section');
             if (section) section.classList.add('hidden');
         });
