@@ -13,7 +13,7 @@ node --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Node.js is not installed or not in PATH
     echo Please install Node.js from https://nodejs.org/
-    pause
+    if not defined NO_PAUSE pause
     exit /b 1
 )
 
@@ -33,7 +33,7 @@ call npm install
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies
     popd
-    pause
+    if not defined NO_PAUSE pause
     exit /b 1
 )
 
@@ -43,7 +43,7 @@ call npm run build
 if errorlevel 1 (
     echo [ERROR] Failed to build Tailwind CSS
     popd
-    pause
+    if not defined NO_PAUSE pause
     exit /b 1
 )
 
@@ -92,4 +92,4 @@ echo   cd config
 echo   npm run watch
 echo   cd ..
 echo.
-pause
+if not defined NO_PAUSE pause

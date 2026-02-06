@@ -101,15 +101,39 @@ mkdir -p "$BIN_DIR"
 
 # === 前端资源编译 ===
 log_info "检查并编译前端资源..."
-if [ -f "webapi/web/scripts/setup-all.sh" ]; then
-    chmod +x webapi/web/scripts/setup-all.sh
-    pushd webapi/web/scripts > /dev/null
-    ./setup-all.sh
-    popd > /dev/null
-    log_success "前端资源处理完成"
-else
-    log_warn "未找到前端编译脚本 webapi/web/scripts/setup-all.sh"
+
+FRONTEND_SCRIPT="webapi/web/scripts/setup-all.sh"
+
+if [ ! -f "$FRONTEND_SCRIPT" ]; then
+    log_error "未找到前端编译脚本: $FRONTEND_SCRIPT"
+    log_info "请确保已正确安装前端构建工具"
+    exit 1
 fi
+
+# 保存当前目录
+CURRENT_DIR=$(pwd)
+cd "webapi/web/scripts" 2>/dev/null || {
+    log_error "无法切换到前端脚本目录"
+    exit 1
+}
+
+# 设置执行权限并运行
+chmod +x "./setup-all.sh" 2>/dev/null
+if ./setup-all.sh; then
+    BUILD_ERROR=0
+else
+    BUILD_ERROR=$?
+    log_error "前端资源编译失败，错误代码: $BUILD_ERROR"
+fi
+
+# 返回原目录
+cd "$CURRENT_DIR" 2>/dev/null || true
+
+if [ $BUILD_ERROR -ne 0 ]; then
+    exit $BUILD_ERROR
+fi
+
+log_success "前端资源处理完成"
 echo ""
 
 # Execute build

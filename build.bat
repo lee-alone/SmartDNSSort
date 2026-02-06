@@ -24,13 +24,34 @@ if "%TARGET%"=="" set TARGET=windows
 
 REM === 前端资源编译 ===
 echo [信息] 检查并编译前端资源...
-pushd "webapi\web\scripts"
-REM 使用非交互模式运行 setup-all.bat (去除 pause)
-findstr /v "pause" setup-all.bat > setup-temp.bat
-call setup-temp.bat
-del setup-temp.bat
-popd
-echo.
+set FRONTEND_SCRIPT=webapi\web\scripts\setup-all.bat
+
+if not exist "%FRONTEND_SCRIPT%" (
+    echo [错误] 未找到前端编译脚本: %FRONTEND_SCRIPT%
+    echo [信息] 请确保已正确安装前端构建工具
+    exit /b 1
+)
+
+REM 保存当前目录
+set CURRENT_DIR=%CD%
+pushd "webapi\web\scripts" 2>nul
+if errorlevel 1 (
+    echo [错误] 无法切换到前端脚本目录
+    exit /b 1
+)
+
+REM 使用非交互模式运行 setup-all.bat (设置 NO_PAUSE=1 抑制 pause)
+set NO_PAUSE=1
+call setup-all.bat
+set BUILD_ERROR=%errorlevel%
+
+if %BUILD_ERROR% neq 0 (
+    echo [错误] 前端资源编译失败，错误代码: %BUILD_ERROR%
+    popd
+    exit /b %BUILD_ERROR%
+)
+
+popd 2>nul
 echo [信息] 前端资源处理完成。
 echo.
 

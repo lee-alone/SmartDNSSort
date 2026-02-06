@@ -44,4 +44,4 @@ echo Font download complete!
 echo Downloaded files:
 dir "%FONTS_DIR%\*.woff2" 2>nul || echo No woff2 files found
 
-pause
+if not defined NO_PAUSE pause
