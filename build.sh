@@ -99,6 +99,19 @@ echo ""
 # Create bin directory
 mkdir -p "$BIN_DIR"
 
+# === 前端资源编译 ===
+log_info "检查并编译前端资源..."
+if [ -f "webapi/web/scripts/setup-all.sh" ]; then
+    chmod +x webapi/web/scripts/setup-all.sh
+    pushd webapi/web/scripts > /dev/null
+    ./setup-all.sh
+    popd > /dev/null
+    log_success "前端资源处理完成"
+else
+    log_warn "未找到前端编译脚本 webapi/web/scripts/setup-all.sh"
+fi
+echo ""
+
 # Execute build
 compiled=()
 

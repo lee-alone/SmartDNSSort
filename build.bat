@@ -22,6 +22,18 @@ REM 默认目标
 set TARGET=%1
 if "%TARGET%"=="" set TARGET=windows
 
+REM === 前端资源编译 ===
+echo [信息] 检查并编译前端资源...
+pushd "webapi\web\scripts"
+REM 使用非交互模式运行 setup-all.bat (去除 pause)
+findstr /v "pause" setup-all.bat > setup-temp.bat
+call setup-temp.bat
+del setup-temp.bat
+popd
+echo.
+echo [信息] 前端资源处理完成。
+echo.
+
 REM 创建bin目录
 if not exist "bin" mkdir bin
 
