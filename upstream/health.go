@@ -248,6 +248,15 @@ func (h *ServerHealth) Reset() {
 	h.totalFailures = 0  // 重置累计失败
 }
 
+// ClearStats 清除统计数据（成功/失败计数），但保留健康状态
+func (h *ServerHealth) ClearStats() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.totalSuccesses = 0
+	h.totalFailures = 0
+}
+
 // RecordLatency 记录一次成功的查询延迟，并更新 EWMA 值
 func (h *ServerHealth) RecordLatency(d time.Duration) {
 	h.mu.Lock()

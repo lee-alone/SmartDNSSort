@@ -71,6 +71,11 @@ func (s *Server) ClearStats() {
 	defer s.mu.Unlock()
 	logger.Info("Clearing all statistics via API request.")
 	s.stats.Reset()
+
+	// 清除上游服务器的统计数据
+	if s.upstream != nil {
+		s.upstream.ClearStats()
+	}
 }
 
 // RecordRecentQuery adds a domain to the recent queries list.

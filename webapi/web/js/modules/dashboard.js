@@ -132,7 +132,14 @@ function initializeDashboardButtons() {
 
     document.getElementById('clearStatsButton').addEventListener('click', () => {
         if (!confirm(i18n.t('messages.confirmClearStats'))) return;
+        
+        // 清除常规统计
         fetch('/api/stats/clear', { method: 'POST' })
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to clear stats');
+                // 清除上游服务器统计
+                return fetch('/api/upstream-stats/clear', { method: 'POST' });
+            })
             .then(response => {
                 if (response.ok) {
                     alert(i18n.t('messages.statsCleared'));
@@ -141,7 +148,10 @@ function initializeDashboardButtons() {
                     alert(i18n.t('messages.statsClearFailed'));
                 }
             })
-            .catch(error => alert(i18n.t('messages.statsClearError')));
+            .catch(error => {
+                console.error('Error clearing stats:', error);
+                alert(i18n.t('messages.statsClearError'));
+            });
     });
 
     document.getElementById('refreshButton').addEventListener('click', () => {

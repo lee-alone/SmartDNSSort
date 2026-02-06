@@ -347,3 +347,13 @@ func (u *Manager) CalculateServerWeight(server *HealthAwareUpstream) float64 {
 
 	return weight
 }
+
+// ClearStats 清除所有上游服务器的统计数据
+func (u *Manager) ClearStats() {
+	for _, server := range u.servers {
+		if server != nil && server.GetHealth() != nil {
+			server.GetHealth().ClearStats()
+		}
+	}
+	logger.Info("Cleared statistics for all upstream servers")
+}

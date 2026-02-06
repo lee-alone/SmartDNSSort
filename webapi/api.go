@@ -118,6 +118,7 @@ func (s *Server) Start() error {
 
 	// Upstream API 路由
 	mux.HandleFunc("/api/upstream-stats", s.handleUpstreamStats)
+	mux.HandleFunc("/api/upstream-stats/clear", s.handleClearUpstreamStats)
 
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")

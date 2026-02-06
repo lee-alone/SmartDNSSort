@@ -167,3 +167,21 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(response)
 }
+
+// handleClearUpstreamStats 处理清除上游服务器统计请求
+func (s *Server) handleClearUpstreamStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	upstreamMgr := s.dnsServer.GetUpstreamManager()
+	if upstreamMgr == nil {
+		s.writeJSONError(w, "Upstream manager not available", http.StatusInternalServerError)
+		return
+	}
+
+	upstreamMgr.ClearStats()
+	logger.Info("Upstream servers statistics cleared via API request.")
+	s.writeJSONSuccess(w, "Upstream servers statistics cleared successfully", nil)
+}
