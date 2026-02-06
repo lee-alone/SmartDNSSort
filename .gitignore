@@ -53,7 +53,23 @@ smartdnssort-*
 .cache/
 
 # Web UI - Generated files
-webapi/web/css/style.css
 webapi/web/node_modules/
+webapi/web/**/node_modules/
+webapi/web/css/style.css
+webapi/web/dist/
+webapi/web/build/
+
+# Font files (if they are auto-downloaded)
+webapi/web/fonts/*.ttf
+webapi/web/fonts/*.woff
 webapi/web/fonts/*.woff2
-webapi/web/package-lock.json
+webapi/web/fonts/*.eot
+webapi/web/fonts/*.otf
+
+# package-lock.json (Ignore if you don't want to track strict versions)
+**/package-lock.json
+
+# Logs and environment
+*.log
+webapi/web/.env*
+webapi/web/.cache/
