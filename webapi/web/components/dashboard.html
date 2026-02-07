@@ -1,16 +1,21 @@
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 max-w-[1600px] mx-auto">
+    <!-- Global Stats Period Selector -->
+    <div class="col-span-1 md:col-span-2 xl:col-span-4 mb-2 flex justify-end items-center gap-3">
+        <span class="text-sm text-text-sub-light dark:text-text-sub-dark font-medium" data-i18n="dashboard.statsPeriod">Stats Period</span>
+        <select id="stats_period_select" 
+                class="text-sm bg-[#f4f4e6] dark:bg-[#23220f] border border-[#e9e8ce] dark:border-[#3a3922] rounded px-3 py-2 outline-none focus:ring-2 focus:ring-primary">
+            <option value="1" data-i18n="dashboard.period1Day">1 Day</option>
+            <option value="7" selected data-i18n="dashboard.period7Days">7 Days</option>
+            <option value="30" data-i18n="dashboard.period30Days">30 Days</option>
+        </select>
+    </div>
+
     <!-- 1. General Statistics -->
     <div
         class="bg-card-light dark:bg-card-dark rounded-xl p-6 shadow-sm border border-[#e9e8ce] dark:border-[#3a3922] flex flex-col justify-between min-h-[180px]">
         <div class="flex justify-between items-center mb-2">
             <h2 class="text-text-sub-light dark:text-text-sub-dark text-sm font-medium"
                 data-i18n="dashboard.generalStats">General Stats</h2>
-            <select id="general_stats_period_select" 
-                    class="text-xs bg-[#f4f4e6] dark:bg-[#23220f] border border-[#e9e8ce] dark:border-[#3a3922] rounded px-2 py-1 outline-none focus:ring-2 focus:ring-primary">
-                <option value="1" data-i18n="dashboard.period1Day">1 Day</option>
-                <option value="7" selected data-i18n="dashboard.period7Days">7 Days</option>
-                <option value="30" data-i18n="dashboard.period30Days">30 Days</option>
-            </select>
         </div>
         <div class="grid grid-cols-2 gap-4">
             <div>
@@ -161,12 +166,6 @@
         <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922] flex justify-between items-center">
             <h2 class="font-bold text-lg" data-i18n="dashboard.upstreamServers">Upstream Servers
             </h2>
-            <select id="upstream_stats_period_select" 
-                    class="text-xs bg-[#f4f4e6] dark:bg-[#23220f] border border-[#e9e8ce] dark:border-[#3a3922] rounded px-2 py-1 outline-none focus:ring-2 focus:ring-primary">
-                <option value="1" data-i18n="dashboard.period1Day">1 Day</option>
-                <option value="7" selected data-i18n="dashboard.period7Days">7 Days</option>
-                <option value="30" data-i18n="dashboard.period30Days">30 Days</option>
-            </select>
         </div>
         <div class="overflow-x-auto">
             <table id="upstream_stats" class="w-full text-sm text-left">

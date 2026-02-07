@@ -1,16 +1,31 @@
 // Dashboard / Stats Logic Module
 
 const API_URL = '/api/stats';
+const STATS_PERIOD_STORAGE_KEY = 'dashboard_stats_period';
 
-// 全局变量：时间范围选择
-let generalStatsPeriodDays = 7;
-let upstreamStatsPeriodDays = 7;
+// 全局变量：统一的时间范围
+let statsPeriodDays = 7;
 let generalStatsAbortController = null;
 let generalStatsLoading = false;
 
+// 保存时间范围到 localStorage
+function saveStatsPeriod() {
+    localStorage.setItem(STATS_PERIOD_STORAGE_KEY, statsPeriodDays);
+}
+
+// 从 localStorage 加载时间范围
+function loadStatsPeriod() {
+    const saved = localStorage.getItem(STATS_PERIOD_STORAGE_KEY);
+    if (saved) {
+        statsPeriodDays = parseInt(saved, 10);
+    } else {
+        statsPeriodDays = 7; // 默认7天
+    }
+}
+
 function updateDashboard() {
     // 总是获取完整统计数据（包括系统状态和缓存信息）
-    fetch(API_URL)
+    fetch(`${API_URL}?days=${statsPeriodDays}`)
         .then(response => {
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return response.json();
@@ -256,182 +271,24 @@ function fetchRecentlyBlocked() {
 let upstreamStatsLoading = false;
 let upstreamStatsAbortController = null;
 
-// 更新常规统计（支持时间范围）
-function updateGeneralStats() {
-	if (generalStatsLoading) {
-		return;
-	}
-	
-	if (generalStatsAbortController) {
-		generalStatsAbortController.abort();
-	}
-	
-	generalStatsAbortController = new AbortController();
-	generalStatsLoading = true;
-	
-	const url = `/api/stats?days=${generalStatsPeriodDays}`;
-	
-	fetch(url, { signal: generalStatsAbortController.signal })
-		.then(response => {
-			if (!response.ok) throw new Error('Failed to fetch stats');
-			return response.json();
-		})
-		.then(data => {
-			if (data && data.data) {
-				updateGeneralStatsDisplay(data.data);
-			}
-		})
-		.catch(error => {
-			if (error.name !== 'AbortError') {
-				console.error('Error fetching general stats:', error);
-			}
-		})
-		.finally(() => {
-			generalStatsLoading = false;
-		});
-}
-
-// 更新上游统计（支持时间范围）
-function updateUpstreamStats() {
-	if (upstreamStatsLoading) {
-		return;
-	}
-	
-	if (upstreamStatsAbortController) {
-		upstreamStatsAbortController.abort();
-	}
-	
-	upstreamStatsAbortController = new AbortController();
-	upstreamStatsLoading = true;
-	
-	const url = `/api/upstream-stats?days=${upstreamStatsPeriodDays}`;
-	
-	fetch(url, { signal: upstreamStatsAbortController.signal })
-		.then(response => {
-			if (!response.ok) throw new Error('Failed to fetch upstream stats');
-			return response.json();
-		})
-		.then(data => {
-			if (data && data.data && data.data.servers) {
-				updateUpstreamStatsDisplay(data.data.servers);
-			}
-		})
-		.catch(error => {
-			if (error.name !== 'AbortError') {
-				console.error('Error fetching upstream stats:', error);
-			}
-		})
-		.finally(() => {
-			upstreamStatsLoading = false;
-		});
-}
-
-// 显示常规统计数据
-function updateGeneralStatsDisplay(stats) {
-	// 更新查询数
-	const queriesEl = document.getElementById('total_queries');
-	if (queriesEl) {
-		queriesEl.textContent = formatNumber(stats.total_queries || 0);
-	}
-	
-	// 更新缓存命中
-	const cacheHitsEl = document.getElementById('cache_hits');
-	if (cacheHitsEl) {
-		cacheHitsEl.textContent = formatNumber(stats.cache_hits || 0);
-	}
-	
-	// 更新缓存未命中
-	const cacheMissesEl = document.getElementById('cache_misses');
-	if (cacheMissesEl) {
-		cacheMissesEl.textContent = formatNumber(stats.cache_misses || 0);
-	}
-	
-	// 更新缓存成功率
-	const cacheRateEl = document.getElementById('cache_hit_rate');
-	if (cacheRateEl) {
-		const rate = stats.cache_success_rate || 0;
-		cacheRateEl.textContent = rate.toFixed(2) + '%';
-	}
-	
-	// 更新上游失败
-	const upstreamFailuresEl = document.getElementById('upstream_failures');
-	if (upstreamFailuresEl) {
-		upstreamFailuresEl.textContent = formatNumber(stats.upstream_failures || 0);
-	}
-}
-
-// 显示上游统计数据
-function updateUpstreamStatsDisplay(servers) {
-	const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
-	if (!tbody) {
-		return;
-	}
-	
-	if (!servers || servers.length === 0) {
-		tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center">No upstream servers</td></tr>';
-		return;
-	}
-	
-	const fragment = document.createDocumentFragment();
-	
-	servers.forEach(server => {
-		const row = document.createElement('tr');
-		row.className = 'border-b border-[#e9e8ce] dark:border-[#3a3922] hover:bg-[#f9f9f0] dark:hover:bg-[#2a2818]';
-		
-		const successRate = server.success_rate || 0;
-		const rateColor = successRate >= 95 ? 'bg-green-500' : successRate >= 80 ? 'bg-yellow-500' : 'bg-red-500';
-		
-		// 获取本地化的状态文本
-		const statusText = getStatusText(server.status);
-		
-		row.innerHTML = `
-			<td class="px-6 py-3 font-medium">${server.address}</td>
-			<td class="px-6 py-3">${server.protocol}</td>
-			<td class="px-6 py-3">
-				<div class="flex items-center gap-2">
-					<div class="w-20 bg-gray-200 rounded-full h-2">
-						<div class="h-2 rounded-full ${rateColor}" style="width: ${successRate}%"></div>
-					</div>
-					<span class="text-sm font-medium">${successRate.toFixed(1)}%</span>
-				</div>
-			</td>
-			<td class="px-6 py-3">${statusText}</td>
-			<td class="px-6 py-3">${server.latency_ms.toFixed(1)} ms</td>
-			<td class="px-6 py-3">${server.total}</td>
-			<td class="px-6 py-3 text-green-600">${server.success}</td>
-			<td class="px-6 py-3 text-red-600">${server.failure}</td>
-		`;
-		
-		fragment.appendChild(row);
-	});
-	
-	tbody.innerHTML = '';
-	tbody.appendChild(fragment);
-}
-
-// 格式化数字（添加千位分隔符）
-function formatNumber(num) {
-	return num.toLocaleString();
-}
-
-// 初始化时间范围选择器事件监听
+// 获取上游服务器详细状态
+// 使用标志防止并发请求和竞态条件
 function initializeStatsSelectors() {
-	const generalSelect = document.getElementById('general_stats_period_select');
-	if (generalSelect) {
-		generalSelect.addEventListener('change', (e) => {
-			generalStatsPeriodDays = parseInt(e.target.value);
-			// 当时间范围改变时，重新获取完整的仪表板数据
-			updateDashboard();
-		});
-	}
-	
-	const upstreamSelect = document.getElementById('upstream_stats_period_select');
-	if (upstreamSelect) {
-		upstreamSelect.addEventListener('change', (e) => {
-			upstreamStatsPeriodDays = parseInt(e.target.value);
-			updateUpstreamStats();
-		});
-	}
+    // 加载保存的时间范围
+    loadStatsPeriod();
+    
+    const periodSelect = document.getElementById('stats_period_select');
+    if (periodSelect) {
+        // 设置下拉菜单的当前值
+        periodSelect.value = statsPeriodDays;
+        
+        // 监听变化
+        periodSelect.addEventListener('change', (e) => {
+            statsPeriodDays = parseInt(e.target.value, 10);
+            saveStatsPeriod(); // 保存到 localStorage
+            updateDashboard(); // 使用新时间范围更新数据
+        });
+    }
 }
 
 function fetchUpstreamStats() {
@@ -448,7 +305,8 @@ function fetchUpstreamStats() {
     upstreamStatsAbortController = new AbortController();
     upstreamStatsLoading = true;
     
-    fetch('/api/upstream-stats', { signal: upstreamStatsAbortController.signal })
+    // 使用全局统一的 statsPeriodDays
+    fetch(`/api/upstream-stats?days=${statsPeriodDays}`, { signal: upstreamStatsAbortController.signal })
         .then(response => {
             if (!response.ok) throw new Error('Failed to fetch upstream stats');
             return response.json();
