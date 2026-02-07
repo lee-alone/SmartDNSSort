@@ -30,8 +30,8 @@ type BlockedDomainShard struct {
 
 // BlockedDomainCount 用于排序的结构体
 type BlockedDomainCount struct {
-	Domain string
-	Count  int64
+	Domain string `json:"Domain"`
+	Count  int64  `json:"Count"`
 }
 
 func NewBlockedDomainsTracker(cfg *config.StatsConfig) *BlockedDomainsTracker {
@@ -118,13 +118,16 @@ func (t *BlockedDomainsTracker) RecordBlock(domain string) {
 // GetTopBlockedDomains 获取被拦截最多的域名
 func (t *BlockedDomainsTracker) GetTopBlockedDomains(k int) []BlockedDomainCount {
 	if k <= 0 {
-		return nil
+		return []BlockedDomainCount{}
 	}
 	aggregated := make(map[string]int64)
 
 	t.mu.RLock()
-	// Iterate over all buckets
-	for _, bucket := range t.buckets {
+	// Iterate over all buckets, prioritizing recent ones
+	// Start from current bucket and go backwards
+	for i := 0; i < len(t.buckets); i++ {
+		bucketIdx := (t.current - i + len(t.buckets)) % len(t.buckets)
+		bucket := t.buckets[bucketIdx]
 		// Iterate over all shards
 		for _, shard := range bucket.shards {
 			shard.mu.RLock()

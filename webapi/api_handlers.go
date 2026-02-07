@@ -97,6 +97,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// 如果指定了时间范围，返回时间范围内的统计
 	if daysStr != "" {
 		stats := s.dnsServer.GetStatsWithTimeRange(days)
+
+		// 添加热门域名和拦截域名数据（这些不受时间范围限制）
+		stats["top_domains"] = s.dnsServer.GetStats()["top_domains"]
+		stats["top_blocked_domains"] = s.dnsServer.GetStats()["top_blocked_domains"]
+
 		w.Header().Set("Content-Type", "application/json")
 		response := map[string]interface{}{
 			"success": true,

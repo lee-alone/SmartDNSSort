@@ -72,6 +72,7 @@ function updateAdBlockTab() {
                 sources.forEach(source => {
                     const row = sourcesTable.insertRow();
                     let statusClass = 'status-active';
+                    if (source.status === 'initializing') statusClass = 'status-warning';
                     if (source.status === 'failed') statusClass = 'status-warning';
                     if (source.status === 'bad') statusClass = 'status-error';
 

@@ -110,13 +110,16 @@ func (t *HotDomainsTracker) RecordQuery(domain string) {
 
 func (t *HotDomainsTracker) GetTopDomains(k int) []DomainCount {
 	if k <= 0 {
-		return nil
+		return []DomainCount{}
 	}
 	aggregated := make(map[string]int64)
 
 	t.mu.RLock()
-	// Iterate over all buckets
-	for _, bucket := range t.buckets {
+	// Iterate over all buckets, prioritizing recent ones
+	// Start from current bucket and go backwards
+	for i := 0; i < len(t.buckets); i++ {
+		bucketIdx := (t.current - i + len(t.buckets)) % len(t.buckets)
+		bucket := t.buckets[bucketIdx]
 		// Iterate over all shards
 		for _, shard := range bucket.shards {
 			shard.mu.RLock()

@@ -88,8 +88,13 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 
 	// Phase 1: Prepare - Download and parse rules WITHOUT holding the lock
 	sources := m.sourcesMgr.GetAllSources()
+
+	// Create a semaphore to limit concurrent downloads
+	sem := make(chan struct{}, m.loader.maxConcurrent)
+
 	var wg sync.WaitGroup
 	failedSources := []string{}
+	var mu sync.Mutex
 	var totalRules, newRules, removedRules int
 
 	for _, source := range sources {
@@ -109,8 +114,14 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 				}
 			}
 
+			// Acquire semaphore slot
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
 			_, ruleCount, err := m.loader.UpdateFromSource(context.Background(), s)
 			m.sourcesMgr.UpdateSourceStatus(s.URL, ruleCount, err)
+
+			mu.Lock()
 			if err != nil {
 				failedSources = append(failedSources, s.URL)
 			} else {
@@ -121,6 +132,7 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 					removedRules += s.RuleCount - ruleCount
 				}
 			}
+			mu.Unlock()
 		}(source)
 	}
 	wg.Wait()
@@ -130,7 +142,9 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 	}
 
 	// Phase 2: Load - Parse all rules into a new engine instance WITHOUT holding the lock
-	allRules, err := m.loader.LoadAllRules(sources)
+	// Get fresh source list after updates
+	updatedSources := m.sourcesMgr.GetAllSources()
+	allRules, err := m.loader.LoadAllRules(updatedSources)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -184,7 +198,13 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 	if err != nil {
 		return err
 	}
-	return m.engine.LoadRules(allRules)
+
+	// Only load rules if we have any
+	if len(allRules) > 0 {
+		return m.engine.LoadRules(allRules)
+	}
+
+	return nil
 }
 
 func (m *AdBlockManager) CheckHost(domain string) (bool, string) {
@@ -215,15 +235,24 @@ func (m *AdBlockManager) GetStats() AdBlockStats {
 	totalRules := m.engine.Count()
 	sources := m.sourcesMgr.GetAllSources()
 
-	if totalRules == 0 {
-		for _, s := range sources {
-			totalRules += s.RuleCount
+	// Calculate total rules from all enabled sources
+	// This is more accurate than relying on engine.Count() alone
+	var calculatedTotal int
+	for _, s := range sources {
+		if s.Enabled && s.Status == "active" {
+			calculatedTotal += s.RuleCount
 		}
+	}
+
+	// Use the calculated total if engine count is 0 or if calculated is higher
+	if totalRules == 0 || calculatedTotal > totalRules {
+		totalRules = calculatedTotal
 	}
 
 	var failedSources []string
 	for _, s := range sources {
-		if s.Status == "failed" || s.Status == "bad" {
+		// Only count as failed if it's actually failed or bad, not initializing
+		if (s.Status == "failed" || s.Status == "bad") && s.Enabled {
 			failedSources = append(failedSources, s.URL)
 		}
 	}
@@ -248,16 +277,41 @@ func (m *AdBlockManager) RemoveSource(url string) error {
 func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.sourcesMgr.SetEnabled(url, enabled)
 	if err := m.sourcesMgr.saveMeta(); err != nil {
 		return err
 	}
+
+	// Reload rules after enabling/disabling a source
 	sources := m.sourcesMgr.GetAllSources()
 	allRules, err := m.loader.LoadAllRules(sources)
 	if err != nil {
 		return err
 	}
-	return m.engine.LoadRules(allRules)
+
+	// Create a new engine with updated rules
+	var newEngine FilterEngine
+	switch strings.ToLower(m.cfg.Engine) {
+	case "urlfilter":
+		var err error
+		newEngine, err = NewURLFilterEngine()
+		if err != nil {
+			return fmt.Errorf("error creating new urlfilter engine: %w", err)
+		}
+	case "simple":
+		newEngine = NewSimpleFilter()
+	default:
+		return fmt.Errorf("unknown adblock engine: %s", m.cfg.Engine)
+	}
+
+	if err := newEngine.LoadRules(allRules); err != nil {
+		return err
+	}
+
+	// Replace the engine
+	m.engine = newEngine
+	return nil
 }
 
 type TestResult struct {

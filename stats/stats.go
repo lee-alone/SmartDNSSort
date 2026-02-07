@@ -301,8 +301,8 @@ func (s *Stats) GetEvictionsPerMinute(currentEvictionCount int64) float64 {
 
 // DomainCount 用于排序的结构体
 type DomainCount struct {
-	Domain string
-	Count  int64
+	Domain string `json:"Domain"`
+	Count  int64  `json:"Count"`
 }
 
 // GetTopDomains 获取查询次数最多的域名

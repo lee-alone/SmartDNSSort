@@ -9,101 +9,94 @@ let generalStatsAbortController = null;
 let generalStatsLoading = false;
 
 function updateDashboard() {
-    // 如果指定了时间范围，使用时间范围 API
-    if (generalStatsPeriodDays !== 7 || document.getElementById('general_stats_period_select')?.value) {
-        updateGeneralStats();
-        updateUpstreamStats();
-    } else {
-        // 否则使用完整统计 API
-        // Fetch main stats and hot domains
-        fetch(API_URL)
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                document.getElementById('total_queries').textContent = data.total_queries || 0;
-                document.getElementById('cache_hits').textContent = data.cache_hits || 0;
-                document.getElementById('cache_misses').textContent = data.cache_misses || 0;
-                document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
-                document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
-                document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
-                if (data.system_stats) {
-                    const sys = data.system_stats;
-                    document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
-                    document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
-                    document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
-                    
-                    // 显示可用内存详情
-                    const memTotalMB = sys.mem_total_mb || 0;
-                    const memUsedMB = sys.mem_used_mb || 0;
-                    const memAvailableMB = memTotalMB - memUsedMB;
-                    document.getElementById('mem_usage_detail').textContent = 
-                        memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
-                    
-                    document.getElementById('goroutines').textContent = sys.goroutines || 0;
-                }
-                if (data.uptime_seconds) {
-                    document.getElementById('system_uptime').textContent = formatUptime(data.uptime_seconds);
-                }
-                if (data.cache_memory_stats) {
-                    const mem = data.cache_memory_stats;
-                    const memoryUsageBar = document.getElementById('memory_usage_bar');
-                    const memoryUsageText = document.getElementById('memory_usage_text');
-                    const cacheEntries = document.getElementById('cache_entries');
-                    const expiredEntries = document.getElementById('expired_entries');
-                    const protectedEntries = document.getElementById('protected_entries');
-                    const evictionsPerMin = document.getElementById('evictions_per_min');
+    // 总是获取完整统计数据（包括系统状态和缓存信息）
+    fetch(API_URL)
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            document.getElementById('total_queries').textContent = data.total_queries || 0;
+            document.getElementById('cache_hits').textContent = data.cache_hits || 0;
+            document.getElementById('cache_misses').textContent = data.cache_misses || 0;
+            document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
+            document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
+            document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
+            if (data.system_stats) {
+                const sys = data.system_stats;
+                document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
+                document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
+                document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
+                
+                // 显示可用内存详情
+                const memTotalMB = sys.mem_total_mb || 0;
+                const memUsedMB = sys.mem_used_mb || 0;
+                const memAvailableMB = memTotalMB - memUsedMB;
+                document.getElementById('mem_usage_detail').textContent = 
+                    memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
+                
+                document.getElementById('goroutines').textContent = sys.goroutines || 0;
+            }
+            if (data.uptime_seconds) {
+                document.getElementById('system_uptime').textContent = formatUptime(data.uptime_seconds);
+            }
+            if (data.cache_memory_stats) {
+                const mem = data.cache_memory_stats;
+                const memoryUsageBar = document.getElementById('memory_usage_bar');
+                const memoryUsageText = document.getElementById('memory_usage_text');
+                const cacheEntries = document.getElementById('cache_entries');
+                const expiredEntries = document.getElementById('expired_entries');
+                const protectedEntries = document.getElementById('protected_entries');
+                const evictionsPerMin = document.getElementById('evictions_per_min');
 
-                    memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
-                    memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
-                    cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
-                    expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
-                    protectedEntries.textContent = mem.protected_entries.toLocaleString();
-                    evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
-                }
-                // 注意：upstream_stats 表格现在由 fetchUpstreamStats() 单独处理
-                // 不在这里处理，避免数据竞态条件
-                const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
-                hotDomainsTable.innerHTML = '';
-                if (data.top_domains && data.top_domains.length > 0) {
-                    data.top_domains.forEach(item => {
-                        const row = hotDomainsTable.insertRow();
-                        row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-                    });
-                } else {
-                    hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
-                }
+                memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
+                memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
+                cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
+                expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
+                protectedEntries.textContent = mem.protected_entries.toLocaleString();
+                evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
+            }
+            // 注意：upstream_stats 表格现在由 fetchUpstreamStats() 单独处理
+            // 不在这里处理，避免数据竞态条件
+            const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
+            hotDomainsTable.innerHTML = '';
+            if (data.top_domains && data.top_domains.length > 0) {
+                data.top_domains.forEach(item => {
+                    const row = hotDomainsTable.insertRow();
+                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
+                });
+            } else {
+                hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
+            }
 
-                // Render blocked domains
-                const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
-                blockedDomainsTable.innerHTML = '';
-                if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
-                    data.top_blocked_domains.forEach(item => {
-                        const row = blockedDomainsTable.insertRow();
-                        row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-                    });
-                } else {
-                    blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
-                }
-                // Update status indicator
-                const statusEl = document.getElementById('status');
-                const statusText = statusEl.querySelector('.status-text');
-                if (statusText) statusText.textContent = i18n.t('status.connected');
-                statusEl.className = 'status-indicator connected';
-            })
-            .catch(error => {
-                const statusEl = document.getElementById('status');
-                const statusText = statusEl.querySelector('.status-text');
-                if (statusText) statusText.textContent = i18n.t('status.error');
-                statusEl.className = 'status-indicator error';
-            });
+            // Render blocked domains
+            const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
+            blockedDomainsTable.innerHTML = '';
+            if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
+                data.top_blocked_domains.forEach(item => {
+                    const row = blockedDomainsTable.insertRow();
+                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
+                });
+            } else {
+                blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
+            }
+            // Update status indicator
+            const statusEl = document.getElementById('status');
+            const statusText = statusEl.querySelector('.status-text');
+            if (statusText) statusText.textContent = i18n.t('status.connected');
+            statusEl.className = 'status-indicator connected';
+        })
+        .catch(error => {
+            const statusEl = document.getElementById('status');
+            const statusText = statusEl.querySelector('.status-text');
+            if (statusText) statusText.textContent = i18n.t('status.error');
+            statusEl.className = 'status-indicator error';
+        });
 
-        // Fetch upstream server stats
-        fetchUpstreamStats();
-    }
+    // Fetch upstream server stats
+    fetchUpstreamStats();
 
-    // Fetch recent queries
+    // Fetch recent queries (always fetch regardless of time range)
     fetch('/api/recent-queries')
         .then(response => response.ok ? response.json() : Promise.reject('Failed to load recent queries'))
         .then(data => {
@@ -427,7 +420,8 @@ function initializeStatsSelectors() {
 	if (generalSelect) {
 		generalSelect.addEventListener('change', (e) => {
 			generalStatsPeriodDays = parseInt(e.target.value);
-			updateGeneralStats();
+			// 当时间范围改变时，重新获取完整的仪表板数据
+			updateDashboard();
 		});
 	}
 	

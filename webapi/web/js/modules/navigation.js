@@ -104,6 +104,12 @@ function initializeNavigation() {
 
     // Show dashboard by default
     showView('view-dashboard');
+    
+    // Start dashboard auto-refresh (5 seconds)
+    if (!window.dashboardInterval) {
+        updateDashboard(); // Initial update
+        window.dashboardInterval = setInterval(updateDashboard, 5000);
+    }
 }
 
 document.addEventListener('componentsLoaded', initializeNavigation);
