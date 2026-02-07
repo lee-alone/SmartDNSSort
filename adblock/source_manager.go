@@ -1,6 +1,7 @@
 package adblock
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -69,7 +70,64 @@ func NewSourceManager(cfg *config.AdBlockConfig) (*SourceManager, error) {
 		sm.AddSource(cfg.CustomRulesFile)
 	}
 
+	// Recalculate rule counts from cache files to ensure accuracy
+	// This handles the case where rule_count was calculated with old logic
+	sm.recalculateRuleCounts(cfg.CacheDir)
+
 	return sm, nil
+}
+
+// recalculateRuleCounts recalculates rule counts from cache files
+// This ensures accuracy when rule counting logic changes
+func (sm *SourceManager) recalculateRuleCounts(cacheDir string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for _, source := range sm.sources {
+		if !source.Enabled {
+			continue
+		}
+
+		var cachePath string
+		// For local files, use the URL directly
+		if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
+			cachePath = strings.TrimPrefix(source.URL, "file://")
+		} else {
+			// For remote files, use the cache file
+			cachePath = filepath.Join(cacheDir, source.CacheFile)
+		}
+
+		// Try to count rules from the cache file
+		if ruleCount, err := sm.countRulesInFile(cachePath); err == nil {
+			source.RuleCount = ruleCount
+		}
+	}
+}
+
+// countRulesInFile counts valid rules in a file (excluding comments and empty lines)
+func (sm *SourceManager) countRulesInFile(path string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	count := 0
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines and comments (# and !)
+		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
+			count++
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 // ensureCustomRulesFile creates the custom rules file if it doesn't exist
@@ -99,6 +157,10 @@ func (sm *SourceManager) ensureCustomRulesFile(path string) error {
 # 3. 正则表达式（高级）：
 #    /^ad[s]?\./            - 使用正则表达式匹配
 #
+# 4. 白名单规则（排除不想被拦截的域名）：
+#    @@||safe.ads.example.com^  - 不拦截 safe.ads.example.com（即使它被其他规则拦截）
+#    @@||example.com^           - 不拦截 example.com 及其所有子域名
+#
 # 以 # 开头的行为注释，将被忽略
 # 空行也会被忽略
 #
@@ -107,6 +169,9 @@ func (sm *SourceManager) ensureCustomRulesFile(path string) error {
 # ||googleadservices.com^
 # ||googlesyndication.com^
 # ||advertising.com^
+#
+# 白名单示例（取消注释以启用）：
+# @@||safe.ads.example.com^
 
 `
 	return os.WriteFile(path, []byte(template), 0644)
@@ -196,11 +261,22 @@ func (sm *SourceManager) GetAllSources() []*SourceInfo {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	var sources []*SourceInfo
+	var customRules []*SourceInfo
+	var remoteRules []*SourceInfo
+
 	for _, s := range sm.sources {
-		sources = append(sources, s)
+		// Local files (custom rules) go first
+		if strings.HasPrefix(s.URL, "file://") || !strings.HasPrefix(s.URL, "http") {
+			customRules = append(customRules, s)
+		} else {
+			// Remote files go after
+			remoteRules = append(remoteRules, s)
+		}
 	}
-	return sources
+
+	// Return custom rules first, then remote rules
+	// This ensures custom rules have higher priority
+	return append(customRules, remoteRules...)
 }
 
 func (sm *SourceManager) UpdateSourceStatus(url string, ruleCount int, err error) {

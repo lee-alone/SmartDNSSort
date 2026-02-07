@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"smartdnssort/config"
+	"smartdnssort/logger"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -121,18 +121,6 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 		return "", 0, fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	// Get Content-Length for validation
-	contentLength := resp.ContentLength
-	if contentLength <= 0 {
-		return "", 0, fmt.Errorf("invalid or missing Content-Length header")
-	}
-
-	// Check if file exceeds 50MB limit
-	const maxFileSize = 50 * 1024 * 1024
-	if contentLength > maxFileSize {
-		return "", 0, fmt.Errorf("file exceeds 50MB limit (size: %d bytes)", contentLength)
-	}
-
 	cachePath := filepath.Join(rl.cacheDir, source.CacheFile)
 
 	// Download to temporary file first
@@ -144,20 +132,28 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 	defer file.Close()
 
 	// Write response body to file and track bytes written
-	bytesWritten, err := io.Copy(file, resp.Body)
+	// Note: We don't require Content-Length header as many servers use chunked encoding
+	bytesReceived, err := io.Copy(file, resp.Body)
 	if err != nil {
 		os.Remove(tempPath)
 		return "", 0, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Verify that we received the complete file
-	if bytesWritten != contentLength {
-		os.Remove(tempPath)
-		return "", 0, fmt.Errorf("incomplete download: expected %d bytes, got %d bytes", contentLength, bytesWritten)
-	}
-
 	// Close file before counting lines
 	file.Close()
+
+	// Check if received zero bytes (this is still an error)
+	if bytesReceived == 0 {
+		os.Remove(tempPath)
+		return "", 0, fmt.Errorf("downloaded file is empty (0 bytes)")
+	}
+
+	// Check if file exceeds 50MB limit
+	const maxFileSize = 50 * 1024 * 1024
+	if bytesReceived > maxFileSize {
+		os.Remove(tempPath)
+		return "", 0, fmt.Errorf("file exceeds 50MB limit (size: %d bytes)", bytesReceived)
+	}
 
 	// Count lines in the downloaded file
 	ruleCount, err := countLinesFromFile(tempPath)
@@ -169,7 +165,7 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 	// Validate that we have rules
 	if ruleCount == 0 {
 		os.Remove(tempPath)
-		return "", 0, fmt.Errorf("downloaded file contains no valid rules")
+		return "", 0, fmt.Errorf("downloaded file contains no valid rules (received %d bytes)", bytesReceived)
 	}
 
 	// Move temp file to final location
@@ -182,36 +178,15 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 	source.ETag = resp.Header.Get("ETag")
 	source.LastModified = resp.Header.Get("Last-Modified")
 
+	// Log success info
+	logger.Infof("[AdBlock] Successfully downloaded %d bytes and %d rules from %s", bytesReceived, ruleCount, source.URL)
+
 	return cachePath, ruleCount, nil
 }
 
 func (rl *RuleLoader) loadLocalFile(path string) (string, int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-
-	ruleCount, err := countLines(file)
+	ruleCount, err := countLinesFromFile(path)
 	return path, ruleCount, err
-}
-
-func countLines(r io.Reader) (int, error) {
-	buf := make([]byte, 32*1024)
-	count := 0
-	lineSep := []byte{'\n'}
-
-	for {
-		c, err := r.Read(buf)
-		count += strings.Count(string(buf[:c]), string(lineSep))
-
-		switch {
-		case err == io.EOF:
-			return count, nil
-		case err != nil:
-			return count, err
-		}
-	}
 }
 
 // countLinesFromFile counts non-empty lines in a file
@@ -228,8 +203,8 @@ func countLinesFromFile(path string) (int, error) {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments
-		if line != "" && !strings.HasPrefix(line, "#") {
+		// Skip empty lines and comments (# and !)
+		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
 			count++
 		}
 	}
@@ -242,51 +217,40 @@ func countLinesFromFile(path string) (int, error) {
 }
 
 // LoadAllRules reads all rules from a list of cache files.
+// Custom rules (local files) are loaded first to ensure higher priority.
 func (rl *RuleLoader) LoadAllRules(sources []*SourceInfo) ([]string, error) {
 	var allRules []string
-	var mu sync.Mutex
-	var wg sync.WaitGroup
 	var loadErrors []string
-	var errMu sync.Mutex
 
+	// Load rules sequentially to maintain priority order
+	// Custom rules (local files) are already sorted first by GetAllSources()
 	for _, source := range sources {
-		wg.Add(1)
-		go func(s *SourceInfo) {
-			defer wg.Done()
-			if !s.Enabled {
-				return
-			}
-			// Check if cache file exists
-			cachePath := filepath.Join(rl.cacheDir, s.CacheFile)
-			if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-				// if a local file, the path is the URL
-				if strings.HasPrefix(s.URL, "file://") || !strings.HasPrefix(s.URL, "http") {
-					cachePath = strings.TrimPrefix(s.URL, "file://")
-				} else {
-					// Cache file doesn't exist and it's not a local file
-					// This is a critical error - the source should have been downloaded first
-					errMu.Lock()
-					loadErrors = append(loadErrors, fmt.Sprintf("cache file missing for source %s: %s", s.URL, cachePath))
-					errMu.Unlock()
-					return
-				}
-			}
+		if !source.Enabled {
+			continue
+		}
 
-			rules, err := readLines(cachePath)
-			if err != nil {
-				// Log error but continue with other sources
-				errMu.Lock()
-				loadErrors = append(loadErrors, fmt.Sprintf("failed to read rules from %s: %v", s.URL, err))
-				errMu.Unlock()
-				return
+		// Check if cache file exists
+		cachePath := filepath.Join(rl.cacheDir, source.CacheFile)
+		if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+			// if a local file, the path is the URL
+			if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
+				cachePath = strings.TrimPrefix(source.URL, "file://")
+			} else {
+				// Cache file doesn't exist and it's not a local file
+				// This is a critical error - the source should have been downloaded first
+				loadErrors = append(loadErrors, fmt.Sprintf("cache file missing for source %s: %s", source.URL, cachePath))
+				continue
 			}
-			mu.Lock()
-			allRules = append(allRules, rules...)
-			mu.Unlock()
-		}(source)
+		}
+
+		rules, err := readLines(cachePath)
+		if err != nil {
+			// Log error but continue with other sources
+			loadErrors = append(loadErrors, fmt.Sprintf("failed to read rules from %s: %v", source.URL, err))
+			continue
+		}
+		allRules = append(allRules, rules...)
 	}
-
-	wg.Wait()
 
 	// Log any errors that occurred during loading
 	if len(loadErrors) > 0 {
@@ -308,7 +272,11 @@ func readLines(path string) ([]string, error) {
 	var lines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines and comments (# and !)
+		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
+			lines = append(lines, line)
+		}
 	}
 	return lines, scanner.Err()
 }

@@ -3,7 +3,9 @@ package adblock
 import (
 	"context"
 	"fmt"
+	"os"
 	"smartdnssort/config"
+	"smartdnssort/logger"
 	"strings"
 	"sync"
 	"time"
@@ -56,11 +58,22 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 
 	// Initial rule load
 	go func() {
+		logger.Info("[AdBlock] Loading existing rules from cache...")
 		if err := m.LoadRulesFromCache(); err != nil {
-			// log error
-		}
-		if _, err := m.UpdateRules(false); err != nil {
-			// log error
+			logger.Warnf("[AdBlock] Failed to load rules from cache: %v", err)
+			// If no cached rules exist, force download on first start
+			logger.Info("[AdBlock] No cached rules found, performing initial download...")
+			result, err := m.UpdateRules(true)
+			if err != nil {
+				logger.Errorf("[AdBlock] Initial rules update failed: %v", err)
+			} else {
+				logger.Infof("[AdBlock] Initial update completed: %d total rules, %d sources updated", result.TotalRules, result.Sources)
+				if len(result.FailedSources) > 0 {
+					logger.Warnf("[AdBlock] Failed to update %d sources: %v", len(result.FailedSources), result.FailedSources)
+				}
+			}
+		} else {
+			logger.Info("[AdBlock] Successfully loaded rules from cache")
 		}
 	}()
 
@@ -71,8 +84,9 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 			for {
 				select {
 				case <-ticker.C:
+					logger.Info("[AdBlock] Periodic rules update triggered")
 					if _, err := m.UpdateRules(false); err != nil {
-						// log error
+						logger.Errorf("[AdBlock] Periodic update failed: %v", err)
 					}
 				case <-ctx.Done():
 					ticker.Stop()
@@ -106,12 +120,16 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 				return
 			}
 
-			// In force mode, we don't care about the age of the cache.
+			// Force mode: always download regardless of cache age
+			// Non-force mode: only download if cache is stale
 			if !force {
 				// if cache is not too old, skip
 				if time.Since(s.LastUpdate) < time.Duration(m.cfg.UpdateIntervalHours)*time.Hour {
+					logger.Debugf("[AdBlock] Skipping source %s (cache is fresh)", s.URL)
 					return
 				}
+			} else {
+				logger.Debugf("[AdBlock] Force mode: scheduling download for %s", s.URL)
 			}
 
 			// Acquire semaphore slot
@@ -194,17 +212,57 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 	defer m.mu.Unlock()
 
 	sources := m.sourcesMgr.GetAllSources()
+
+	// If no sources configured, return error to trigger download
+	if len(sources) == 0 {
+		logger.Warn("[AdBlock] No sources configured, cannot load from cache")
+		return fmt.Errorf("no sources configured")
+	}
+
+	// Check if there are any cached files
+	var hasCachedFiles bool
+	for _, source := range sources {
+		if !source.Enabled {
+			continue
+		}
+
+		// For local files, check if file exists
+		if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
+			filePath := strings.TrimPrefix(source.URL, "file://")
+			if _, err := os.Stat(filePath); err == nil {
+				hasCachedFiles = true
+				break
+			}
+		} else {
+			// For remote files, check if cache file exists
+			cachePath := fmt.Sprintf("%s/%s", m.loader.cacheDir, source.CacheFile)
+			if _, err := os.Stat(cachePath); err == nil {
+				hasCachedFiles = true
+				break
+			}
+		}
+	}
+
+	if !hasCachedFiles {
+		logger.Info("[AdBlock] No cached files found, will download rules on first update")
+		return fmt.Errorf("no cached files found")
+	}
+
 	allRules, err := m.loader.LoadAllRules(sources)
 	if err != nil {
 		return err
 	}
 
-	// Only load rules if we have any
-	if len(allRules) > 0 {
-		return m.engine.LoadRules(allRules)
+	// Only load rules if we have a reasonable number
+	// If cache has very few rules (< 100), it's likely incomplete or corrupted
+	// Trigger a fresh download to get complete rules
+	if len(allRules) < 100 {
+		logger.Warnf("[AdBlock] Cache has too few rules (%d), likely incomplete. Will trigger fresh download.", len(allRules))
+		return fmt.Errorf("cache has insufficient rules: %d", len(allRules))
 	}
 
-	return nil
+	logger.Infof("[AdBlock] Loaded %d rules from cache", len(allRules))
+	return m.engine.LoadRules(allRules)
 }
 
 func (m *AdBlockManager) CheckHost(domain string) (bool, string) {
