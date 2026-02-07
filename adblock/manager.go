@@ -262,7 +262,23 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 	}
 
 	logger.Infof("[AdBlock] Loaded %d rules from cache", len(allRules))
-	return m.engine.LoadRules(allRules)
+
+	// Load rules into the engine
+	if err := m.engine.LoadRules(allRules); err != nil {
+		return err
+	}
+
+	// Update m.lastUpdate with the latest LastUpdate time from sources
+	// This ensures the correct last update time is shown even when loading from cache
+	var latestUpdate time.Time
+	for _, source := range sources {
+		if source.Enabled && source.LastUpdate.After(latestUpdate) {
+			latestUpdate = source.LastUpdate
+		}
+	}
+	m.lastUpdate = latestUpdate
+
+	return nil
 }
 
 func (m *AdBlockManager) CheckHost(domain string) (bool, string) {
