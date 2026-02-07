@@ -156,7 +156,7 @@ func (s *Stats) GetStatsWithTimeRange(days int) map[string]interface{} {
 		"effective_queries":   bucketStats["effective_queries"],
 		"cache_hits":          bucketStats["cache_hits"],
 		"cache_misses":        bucketStats["cache_misses"],
-		"cache_success_rate":  cacheSuccessRate,
+		"cache_hit_rate":      cacheSuccessRate,
 		"cache_stale_refresh": bucketStats["cache_stale_refresh"],
 		"upstream_failures":   bucketStats["upstream_failures"],
 		"time_range_days":     days,
