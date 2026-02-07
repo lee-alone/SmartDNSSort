@@ -14,33 +14,48 @@ echo Downloading Spline Sans fonts...
 
 REM Spline Sans weights
 for %%W in (300 400 500 600 700) do (
-    echo Downloading Spline Sans %%W...
-    powershell -Command "^
-        $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Spline+Sans:wght@%%W^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
-        $url = [regex]::Match($css.Content, 'https://[^)]+\.woff2').Value; ^
-        if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\spline-sans-%%W.woff2' }^
-    "
+    if exist "%FONTS_DIR%\spline-sans-%%W.woff2" (
+        echo   Spline Sans %%W already exists.
+    ) else (
+        echo Downloading Spline Sans %%W...
+        powershell -Command "^
+            $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Spline+Sans:wght@%%W^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
+            $url = [regex]::Match($css.Content, 'https://[^)]+\.woff2').Value; ^
+            if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\spline-sans-%%W.woff2' }^
+        "
+    )
 )
 
+echo.
 echo Downloading Noto Sans fonts...
 
 for %%W in (300 400 500 600 700) do (
-    echo Downloading Noto Sans %%W...
+    if exist "%FONTS_DIR%\noto-sans-%%W.woff2" (
+        echo   Noto Sans %%W already exists.
+    ) else (
+        echo Downloading Noto Sans %%W...
+        powershell -Command "^
+            $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@%%W^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
+            $url = [regex]::Match($css.Content, 'https://[^)]+\.woff2').Value; ^
+            if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\noto-sans-%%W.woff2' }^
+        "
+    )
+)
+
+echo.
+echo Downloading Material Symbols Outlined...
+if exist "%FONTS_DIR%\material-symbols-outlined.woff2" (
+    echo   Material Symbols Outlined already exists.
+) else (
     powershell -Command "^
-        $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@%%W^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
+        $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
         $url = [regex]::Match($css.Content, 'https://[^)]+\.woff2').Value; ^
-        if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\noto-sans-%%W.woff2' }^
+        if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\material-symbols-outlined.woff2' }^
     "
 )
 
-echo Downloading Material Symbols Outlined...
-powershell -Command "^
-    $css = Invoke-WebRequest -Uri 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200^&display=swap' -Headers @{'User-Agent'='Mozilla/5.0'} -UseBasicParsing; ^
-    $url = [regex]::Match($css.Content, 'https://[^)]+\.woff2').Value; ^
-    if ($url) { Invoke-WebRequest -Uri $url -OutFile '%FONTS_DIR%\material-symbols-outlined.woff2' }^
-"
-
-echo Font download complete!
+echo.
+echo Font processing complete!
 echo Downloaded files:
 dir "%FONTS_DIR%\*.woff2" 2>nul || echo No woff2 files found
 

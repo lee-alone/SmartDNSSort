@@ -73,3 +73,4 @@ webapi/web/fonts/*.otf
 *.log
 webapi/web/.env*
 webapi/web/.cache/
+adblock_cache/filter_1.txt

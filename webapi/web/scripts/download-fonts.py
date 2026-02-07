@@ -35,11 +35,16 @@ def get_font_urls(font_name, weights):
 
 def download_font(url, filename):
     """Download a font file."""
+    file_path = FONTS_DIR / filename
+    if file_path.exists():
+        print(f"Skipping {filename} (already exists)")
+        return True
+        
     try:
         print(f"Downloading {filename}...", end=" ", flush=True)
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=30) as response:
-            with open(FONTS_DIR / filename, 'wb') as f:
+            with open(file_path, 'wb') as f:
                 f.write(response.read())
         print("✓")
         return True
@@ -55,57 +60,92 @@ def main():
     
     weights = [300, 400, 500, 600, 700]
     downloaded = 0
+    skipped = 0
     failed = 0
     
+    # Check if all files exist first to avoid even fetching CSS
+    def check_all_exist(prefix, weights):
+        for weight in weights:
+            # We check for woff2, woff, and ttf
+            exists = False
+            for ext in ['woff2', 'woff', 'ttf']:
+                if (FONTS_DIR / f"{prefix}-{weight}.{ext}").exists():
+                    exists = True
+                    break
+            if not exists:
+                return False
+        return True
+
     # Download Spline Sans
     print("Spline Sans:")
-    urls = get_font_urls("Spline+Sans", weights)
-    for weight, url in urls:
-        # Determine file extension
-        ext = url.split('.')[-1].split('?')[0]
-        filename = f"spline-sans-{weight}.{ext}"
-        if download_font(url, filename):
-            downloaded += 1
-        else:
-            failed += 1
+    if check_all_exist("spline-sans", weights):
+        print("  All Spline Sans fonts already exist.")
+        skipped += len(weights)
+    else:
+        urls = get_font_urls("Spline+Sans", weights)
+        for weight, url in urls:
+            # Determine file extension
+            ext = url.split('.')[-1].split('?')[0]
+            filename = f"spline-sans-{weight}.{ext}"
+            if download_font(url, filename):
+                downloaded += 1
+            else:
+                failed += 1
     
     # Download Noto Sans
     print("\nNoto Sans:")
-    urls = get_font_urls("Noto+Sans", weights)
-    for weight, url in urls:
-        ext = url.split('.')[-1].split('?')[0]
-        filename = f"noto-sans-{weight}.{ext}"
-        if download_font(url, filename):
-            downloaded += 1
-        else:
-            failed += 1
+    if check_all_exist("noto-sans", weights):
+        print("  All Noto Sans fonts already exist.")
+        skipped += len(weights)
+    else:
+        urls = get_font_urls("Noto+Sans", weights)
+        for weight, url in urls:
+            ext = url.split('.')[-1].split('?')[0]
+            filename = f"noto-sans-{weight}.{ext}"
+            if download_font(url, filename):
+                downloaded += 1
+            else:
+                failed += 1
     
     # Download Material Symbols
     print("\nMaterial Symbols Outlined:")
-    url = f"https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
-    try:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=10) as response:
-            css_content = response.read().decode('utf-8')
-            matches = re.findall(r'url\((https://[^\s)]+)\)', css_content)
-            if matches:
-                font_url = matches[0]
-                ext = font_url.split('.')[-1].split('?')[0]
-                filename = f"material-symbols-outlined.{ext}"
-                if download_font(font_url, filename):
-                    downloaded += 1
-                else:
-                    failed += 1
-    except Exception as e:
-        print(f"Error: {e}")
-        failed += 1
+    material_exists = False
+    for ext in ['woff2', 'woff', 'ttf']:
+        if (FONTS_DIR / f"material-symbols-outlined.{ext}").exists():
+            material_exists = True
+            break
+            
+    if material_exists:
+        print("  Material Symbols Outlined already exists.")
+        skipped += 1
+    else:
+        url = f"https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+        try:
+            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=10) as response:
+                css_content = response.read().decode('utf-8')
+                matches = re.findall(r'url\((https://[^\s)]+)\)', css_content)
+                if matches:
+                    font_url = matches[0]
+                    ext = font_url.split('.')[-1].split('?')[0]
+                    filename = f"material-symbols-outlined.{ext}"
+                    if download_font(font_url, filename):
+                        downloaded += 1
+                    else:
+                        failed += 1
+        except Exception as e:
+            print(f"Error: {e}")
+            failed += 1
     
-    print(f"\n✓ Font download complete!")
-    print(f"Downloaded: {downloaded} files")
+    print(f"\n✓ Font processing complete!")
+    if downloaded > 0:
+        print(f"Downloaded: {downloaded} files")
+    if skipped > 0:
+        print(f"Skipped: {skipped} files (already exist)")
     if failed > 0:
         print(f"Failed: {failed} files")
     
-    print(f"\nDownloaded files in {FONTS_DIR}:")
+    print(f"\nFiles in {FONTS_DIR}:")
     font_files = list(FONTS_DIR.glob("*")) 
     font_files = [f for f in font_files if f.suffix in ['.woff2', '.ttf', '.woff']]
     if font_files:
@@ -113,7 +153,7 @@ def main():
             size = f.stat().st_size / 1024
             print(f"  {f.name} ({size:.1f} KB)")
     else:
-        print("  (No font files downloaded)")
+        print("  (No font files found)")
 
 if __name__ == "__main__":
     main()
