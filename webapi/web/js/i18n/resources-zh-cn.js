@@ -68,7 +68,10 @@ const resourcesZhCn = {
         "noBlockedDomainData": "暂无拦截域名数据。",
         "noRecentQueries": "暂无最近查询。",
         "noRecentlyBlocked": "暂无最近拦截的域名。",
-        "errorLoadingData": "加载数据出错。"
+        "errorLoadingData": "加载数据出错。",
+        "period1Day": "1天",
+        "period7Days": "7天",
+        "period30Days": "30天"
     },
     "config": {
         "sections": "配置分类",

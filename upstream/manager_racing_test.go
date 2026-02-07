@@ -96,7 +96,10 @@ func TestShouldSkipServerInRacing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			health := NewServerHealth("test:53", DefaultHealthCheckConfig())
+			health := NewServerHealth("test:53", DefaultHealthCheckConfig(), &StatsConfig{
+				UpstreamStatsBucketMinutes: 10,
+				UpstreamStatsRetentionDays: 90,
+			})
 			health.status = tt.status
 
 			srv := &HealthAwareUpstream{
@@ -272,8 +275,14 @@ func TestRacingEarlyTrigger(t *testing.T) {
 	// 创建Manager
 	manager := &Manager{
 		servers: []*HealthAwareUpstream{
-			NewHealthAwareUpstream(primary, DefaultHealthCheckConfig()),
-			NewHealthAwareUpstream(secondary, DefaultHealthCheckConfig()),
+			NewHealthAwareUpstream(primary, DefaultHealthCheckConfig(), &StatsConfig{
+				UpstreamStatsBucketMinutes: 10,
+				UpstreamStatsRetentionDays: 90,
+			}),
+			NewHealthAwareUpstream(secondary, DefaultHealthCheckConfig(), &StatsConfig{
+				UpstreamStatsBucketMinutes: 10,
+				UpstreamStatsRetentionDays: 90,
+			}),
 		},
 		strategy:            "racing",
 		timeoutMs:           5000,

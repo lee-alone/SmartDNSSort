@@ -2,93 +2,106 @@
 
 const API_URL = '/api/stats';
 
+// 全局变量：时间范围选择
+let generalStatsPeriodDays = 7;
+let upstreamStatsPeriodDays = 7;
+let generalStatsAbortController = null;
+let generalStatsLoading = false;
+
 function updateDashboard() {
-    // Fetch main stats and hot domains
-    fetch(API_URL)
-        .then(response => {
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            return response.json();
-        })
-        .then(data => {
-            document.getElementById('total_queries').textContent = data.total_queries || 0;
-            document.getElementById('cache_hits').textContent = data.cache_hits || 0;
-            document.getElementById('cache_misses').textContent = data.cache_misses || 0;
-            document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
-            document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
-            document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
-            if (data.system_stats) {
-                const sys = data.system_stats;
-                document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
-                document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
-                document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
-                
-                // 显示可用内存详情
-                const memTotalMB = sys.mem_total_mb || 0;
-                const memUsedMB = sys.mem_used_mb || 0;
-                const memAvailableMB = memTotalMB - memUsedMB;
-                document.getElementById('mem_usage_detail').textContent = 
-                    memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
-                
-                document.getElementById('goroutines').textContent = sys.goroutines || 0;
-            }
-            if (data.uptime_seconds) {
-                document.getElementById('system_uptime').textContent = formatUptime(data.uptime_seconds);
-            }
-            if (data.cache_memory_stats) {
-                const mem = data.cache_memory_stats;
-                const memoryUsageBar = document.getElementById('memory_usage_bar');
-                const memoryUsageText = document.getElementById('memory_usage_text');
-                const cacheEntries = document.getElementById('cache_entries');
-                const expiredEntries = document.getElementById('expired_entries');
-                const protectedEntries = document.getElementById('protected_entries');
-                const evictionsPerMin = document.getElementById('evictions_per_min');
+    // 如果指定了时间范围，使用时间范围 API
+    if (generalStatsPeriodDays !== 7 || document.getElementById('general_stats_period_select')?.value) {
+        updateGeneralStats();
+        updateUpstreamStats();
+    } else {
+        // 否则使用完整统计 API
+        // Fetch main stats and hot domains
+        fetch(API_URL)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                document.getElementById('total_queries').textContent = data.total_queries || 0;
+                document.getElementById('cache_hits').textContent = data.cache_hits || 0;
+                document.getElementById('cache_misses').textContent = data.cache_misses || 0;
+                document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
+                document.getElementById('cache_hit_rate').textContent = (data.cache_hit_rate || 0).toFixed(2) + '%';
+                document.getElementById('upstream_failures').textContent = data.upstream_failures || 0;
+                if (data.system_stats) {
+                    const sys = data.system_stats;
+                    document.getElementById('cpu_usage_pct').textContent = (sys.cpu_usage_pct || 0).toFixed(1) + '%';
+                    document.getElementById('cpu_cores').textContent = sys.cpu_cores || 0;
+                    document.getElementById('mem_usage_pct').textContent = (sys.mem_usage_pct || 0).toFixed(1) + '%';
+                    
+                    // 显示可用内存详情
+                    const memTotalMB = sys.mem_total_mb || 0;
+                    const memUsedMB = sys.mem_used_mb || 0;
+                    const memAvailableMB = memTotalMB - memUsedMB;
+                    document.getElementById('mem_usage_detail').textContent = 
+                        memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
+                    
+                    document.getElementById('goroutines').textContent = sys.goroutines || 0;
+                }
+                if (data.uptime_seconds) {
+                    document.getElementById('system_uptime').textContent = formatUptime(data.uptime_seconds);
+                }
+                if (data.cache_memory_stats) {
+                    const mem = data.cache_memory_stats;
+                    const memoryUsageBar = document.getElementById('memory_usage_bar');
+                    const memoryUsageText = document.getElementById('memory_usage_text');
+                    const cacheEntries = document.getElementById('cache_entries');
+                    const expiredEntries = document.getElementById('expired_entries');
+                    const protectedEntries = document.getElementById('protected_entries');
+                    const evictionsPerMin = document.getElementById('evictions_per_min');
 
-                memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
-                memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
-                cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
-                expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
-                protectedEntries.textContent = mem.protected_entries.toLocaleString();
-                evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
-            }
-            // 注意：upstream_stats 表格现在由 fetchUpstreamStats() 单独处理
-            // 不在这里处理，避免数据竞态条件
-            const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
-            hotDomainsTable.innerHTML = '';
-            if (data.top_domains && data.top_domains.length > 0) {
-                data.top_domains.forEach(item => {
-                    const row = hotDomainsTable.insertRow();
-                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-                });
-            } else {
-                hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
-            }
+                    memoryUsageBar.style.width = `${mem.memory_percent.toFixed(2)}%`;
+                    memoryUsageText.textContent = `${mem.current_memory_mb} MB / ${mem.max_memory_mb} MB`;
+                    cacheEntries.textContent = `${mem.current_entries.toLocaleString()} / ${mem.max_entries.toLocaleString()}`;
+                    expiredEntries.textContent = `${mem.expired_entries.toLocaleString()} (${(mem.expired_percent || 0).toFixed(1)}%)`;
+                    protectedEntries.textContent = mem.protected_entries.toLocaleString();
+                    evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
+                }
+                // 注意：upstream_stats 表格现在由 fetchUpstreamStats() 单独处理
+                // 不在这里处理，避免数据竞态条件
+                const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
+                hotDomainsTable.innerHTML = '';
+                if (data.top_domains && data.top_domains.length > 0) {
+                    data.top_domains.forEach(item => {
+                        const row = hotDomainsTable.insertRow();
+                        row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
+                    });
+                } else {
+                    hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
+                }
 
-            // Render blocked domains
-            const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
-            blockedDomainsTable.innerHTML = '';
-            if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
-                data.top_blocked_domains.forEach(item => {
-                    const row = blockedDomainsTable.insertRow();
-                    row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-                });
-            } else {
-                blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
-            }
-            // Update status indicator
-            const statusEl = document.getElementById('status');
-            const statusText = statusEl.querySelector('.status-text');
-            if (statusText) statusText.textContent = i18n.t('status.connected');
-            statusEl.className = 'status-indicator connected';
-        })
-        .catch(error => {
-            const statusEl = document.getElementById('status');
-            const statusText = statusEl.querySelector('.status-text');
-            if (statusText) statusText.textContent = i18n.t('status.error');
-            statusEl.className = 'status-indicator error';
-        });
+                // Render blocked domains
+                const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
+                blockedDomainsTable.innerHTML = '';
+                if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
+                    data.top_blocked_domains.forEach(item => {
+                        const row = blockedDomainsTable.insertRow();
+                        row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
+                    });
+                } else {
+                    blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
+                }
+                // Update status indicator
+                const statusEl = document.getElementById('status');
+                const statusText = statusEl.querySelector('.status-text');
+                if (statusText) statusText.textContent = i18n.t('status.connected');
+                statusEl.className = 'status-indicator connected';
+            })
+            .catch(error => {
+                const statusEl = document.getElementById('status');
+                const statusText = statusEl.querySelector('.status-text');
+                if (statusText) statusText.textContent = i18n.t('status.error');
+                statusEl.className = 'status-indicator error';
+            });
 
-    // Fetch upstream server stats
-    fetchUpstreamStats();
+        // Fetch upstream server stats
+        fetchUpstreamStats();
+    }
 
     // Fetch recent queries
     fetch('/api/recent-queries')
@@ -116,6 +129,9 @@ function updateDashboard() {
 }
 
 function initializeDashboardButtons() {
+    // 初始化时间范围选择器
+    initializeStatsSelectors();
+    
     document.getElementById('clearCacheButton').addEventListener('click', () => {
         if (!confirm(i18n.t('messages.confirmClearCache'))) return;
         fetch('/api/cache/clear', { method: 'POST' })
@@ -246,6 +262,183 @@ function fetchRecentlyBlocked() {
 // 使用标志防止并发请求和竞态条件
 let upstreamStatsLoading = false;
 let upstreamStatsAbortController = null;
+
+// 更新常规统计（支持时间范围）
+function updateGeneralStats() {
+	if (generalStatsLoading) {
+		return;
+	}
+	
+	if (generalStatsAbortController) {
+		generalStatsAbortController.abort();
+	}
+	
+	generalStatsAbortController = new AbortController();
+	generalStatsLoading = true;
+	
+	const url = `/api/stats?days=${generalStatsPeriodDays}`;
+	
+	fetch(url, { signal: generalStatsAbortController.signal })
+		.then(response => {
+			if (!response.ok) throw new Error('Failed to fetch stats');
+			return response.json();
+		})
+		.then(data => {
+			if (data && data.data) {
+				updateGeneralStatsDisplay(data.data);
+			}
+		})
+		.catch(error => {
+			if (error.name !== 'AbortError') {
+				console.error('Error fetching general stats:', error);
+			}
+		})
+		.finally(() => {
+			generalStatsLoading = false;
+		});
+}
+
+// 更新上游统计（支持时间范围）
+function updateUpstreamStats() {
+	if (upstreamStatsLoading) {
+		return;
+	}
+	
+	if (upstreamStatsAbortController) {
+		upstreamStatsAbortController.abort();
+	}
+	
+	upstreamStatsAbortController = new AbortController();
+	upstreamStatsLoading = true;
+	
+	const url = `/api/upstream-stats?days=${upstreamStatsPeriodDays}`;
+	
+	fetch(url, { signal: upstreamStatsAbortController.signal })
+		.then(response => {
+			if (!response.ok) throw new Error('Failed to fetch upstream stats');
+			return response.json();
+		})
+		.then(data => {
+			if (data && data.data && data.data.servers) {
+				updateUpstreamStatsDisplay(data.data.servers);
+			}
+		})
+		.catch(error => {
+			if (error.name !== 'AbortError') {
+				console.error('Error fetching upstream stats:', error);
+			}
+		})
+		.finally(() => {
+			upstreamStatsLoading = false;
+		});
+}
+
+// 显示常规统计数据
+function updateGeneralStatsDisplay(stats) {
+	// 更新查询数
+	const queriesEl = document.getElementById('total_queries');
+	if (queriesEl) {
+		queriesEl.textContent = formatNumber(stats.total_queries || 0);
+	}
+	
+	// 更新缓存命中
+	const cacheHitsEl = document.getElementById('cache_hits');
+	if (cacheHitsEl) {
+		cacheHitsEl.textContent = formatNumber(stats.cache_hits || 0);
+	}
+	
+	// 更新缓存未命中
+	const cacheMissesEl = document.getElementById('cache_misses');
+	if (cacheMissesEl) {
+		cacheMissesEl.textContent = formatNumber(stats.cache_misses || 0);
+	}
+	
+	// 更新缓存成功率
+	const cacheRateEl = document.getElementById('cache_hit_rate');
+	if (cacheRateEl) {
+		const rate = stats.cache_success_rate || 0;
+		cacheRateEl.textContent = rate.toFixed(2) + '%';
+	}
+	
+	// 更新上游失败
+	const upstreamFailuresEl = document.getElementById('upstream_failures');
+	if (upstreamFailuresEl) {
+		upstreamFailuresEl.textContent = formatNumber(stats.upstream_failures || 0);
+	}
+}
+
+// 显示上游统计数据
+function updateUpstreamStatsDisplay(servers) {
+	const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
+	if (!tbody) {
+		return;
+	}
+	
+	if (!servers || servers.length === 0) {
+		tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center">No upstream servers</td></tr>';
+		return;
+	}
+	
+	const fragment = document.createDocumentFragment();
+	
+	servers.forEach(server => {
+		const row = document.createElement('tr');
+		row.className = 'border-b border-[#e9e8ce] dark:border-[#3a3922] hover:bg-[#f9f9f0] dark:hover:bg-[#2a2818]';
+		
+		const successRate = server.success_rate || 0;
+		const rateColor = successRate >= 95 ? 'bg-green-500' : successRate >= 80 ? 'bg-yellow-500' : 'bg-red-500';
+		
+		// 获取本地化的状态文本
+		const statusText = getStatusText(server.status);
+		
+		row.innerHTML = `
+			<td class="px-6 py-3 font-medium">${server.address}</td>
+			<td class="px-6 py-3">${server.protocol}</td>
+			<td class="px-6 py-3">
+				<div class="flex items-center gap-2">
+					<div class="w-20 bg-gray-200 rounded-full h-2">
+						<div class="h-2 rounded-full ${rateColor}" style="width: ${successRate}%"></div>
+					</div>
+					<span class="text-sm font-medium">${successRate.toFixed(1)}%</span>
+				</div>
+			</td>
+			<td class="px-6 py-3">${statusText}</td>
+			<td class="px-6 py-3">${server.latency_ms.toFixed(1)} ms</td>
+			<td class="px-6 py-3">${server.total}</td>
+			<td class="px-6 py-3 text-green-600">${server.success}</td>
+			<td class="px-6 py-3 text-red-600">${server.failure}</td>
+		`;
+		
+		fragment.appendChild(row);
+	});
+	
+	tbody.innerHTML = '';
+	tbody.appendChild(fragment);
+}
+
+// 格式化数字（添加千位分隔符）
+function formatNumber(num) {
+	return num.toLocaleString();
+}
+
+// 初始化时间范围选择器事件监听
+function initializeStatsSelectors() {
+	const generalSelect = document.getElementById('general_stats_period_select');
+	if (generalSelect) {
+		generalSelect.addEventListener('change', (e) => {
+			generalStatsPeriodDays = parseInt(e.target.value);
+			updateGeneralStats();
+		});
+	}
+	
+	const upstreamSelect = document.getElementById('upstream_stats_period_select');
+	if (upstreamSelect) {
+		upstreamSelect.addEventListener('change', (e) => {
+			upstreamStatsPeriodDays = parseInt(e.target.value);
+			updateUpstreamStats();
+		});
+	}
+}
 
 function fetchUpstreamStats() {
     // 防止并发请求

@@ -165,4 +165,17 @@ type StatsConfig struct {
 	HotDomainsBucketMinutes int `yaml:"hot_domains_bucket_minutes,omitempty" json:"hot_domains_bucket_minutes"`
 	HotDomainsShardCount    int `yaml:"hot_domains_shard_count,omitempty" json:"hot_domains_shard_count"`
 	HotDomainsMaxPerBucket  int `yaml:"hot_domains_max_per_bucket,omitempty" json:"hot_domains_max_per_bucket"`
+
+	// 被拦截域名配置
+	BlockedDomainsWindowHours   int `yaml:"blocked_domains_window_hours,omitempty" json:"blocked_domains_window_hours"`
+	BlockedDomainsBucketMinutes int `yaml:"blocked_domains_bucket_minutes,omitempty" json:"blocked_domains_bucket_minutes"`
+	BlockedDomainsShardCount    int `yaml:"blocked_domains_shard_count,omitempty" json:"blocked_domains_shard_count"`
+
+	// 通用统计时间桶配置
+	GeneralStatsBucketMinutes int `yaml:"general_stats_bucket_minutes,omitempty" json:"general_stats_bucket_minutes"`
+	GeneralStatsRetentionDays int `yaml:"general_stats_retention_days,omitempty" json:"general_stats_retention_days"`
+
+	// 上游服务器统计时间桶配置
+	UpstreamStatsBucketMinutes int `yaml:"upstream_stats_bucket_minutes,omitempty" json:"upstream_stats_bucket_minutes"`
+	UpstreamStatsRetentionDays int `yaml:"upstream_stats_retention_days,omitempty" json:"upstream_stats_retention_days"`
 }

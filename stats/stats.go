@@ -32,6 +32,9 @@ type Stats struct {
 	// 新增：Blocked Domains 追踪器
 	blockedDomains *BlockedDomainsTracker
 
+	// 新增：通用统计的时间桶追踪器
+	generalStatsTracker *GeneralStatsTracker
+
 	// 缓存驱逐统计
 	lastEvictionCount int64     // 上次记录的驱逐计数
 	lastCheckTime     time.Time // 上次检查时间
@@ -51,43 +54,61 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 		}
 	}()
 
+	// 计算通用统计的桶数量
+	bucketCount := (cfg.GeneralStatsRetentionDays * 24 * 60) / cfg.GeneralStatsBucketMinutes
+	if bucketCount < 1 {
+		bucketCount = 1
+	}
+
+	generalStatsTracker := NewGeneralStatsTracker(
+		time.Duration(cfg.GeneralStatsBucketMinutes)*time.Minute,
+		bucketCount,
+	)
+
 	return &Stats{
-		failedNodes:    make(map[string]int64),
-		hotDomains:     NewHotDomainsTracker(cfg),
-		blockedDomains: NewBlockedDomainsTracker(cfg),
-		startTime:      time.Now(),
-		lastCheckTime:  time.Now(),
+		failedNodes:         make(map[string]int64),
+		hotDomains:          NewHotDomainsTracker(cfg),
+		blockedDomains:      NewBlockedDomainsTracker(cfg),
+		generalStatsTracker: generalStatsTracker,
+		startTime:           time.Now(),
+		lastCheckTime:       time.Now(),
 	}
 }
 
 // IncQueries 增加查询计数
 func (s *Stats) IncQueries() {
 	atomic.AddInt64(&s.queries, 1)
+	s.generalStatsTracker.RecordQuery()
 }
 
 // IncEffectiveQueries 增加有效查询计数（排除被广告拦截的查询）
 func (s *Stats) IncEffectiveQueries() {
 	atomic.AddInt64(&s.effectiveQueries, 1)
+	s.generalStatsTracker.RecordEffectiveQuery()
 }
 
 // IncCacheHits 增加缓存命中计数
 func (s *Stats) IncCacheHits() {
 	atomic.AddInt64(&s.cacheHits, 1)
+	s.generalStatsTracker.RecordCacheHit()
 }
 
 // IncCacheMisses 增加缓存未命中计数
 func (s *Stats) IncCacheMisses() {
 	atomic.AddInt64(&s.cacheMisses, 1)
+	s.generalStatsTracker.RecordCacheMiss()
 }
 
 // IncCacheStaleRefresh 增加缓存更新计数（缓存已过期但返回给用户，同时向上游查询）
 func (s *Stats) IncCacheStaleRefresh() {
 	atomic.AddInt64(&s.cacheStaleRefresh, 1)
+	s.generalStatsTracker.RecordCacheStaleRefresh()
 }
 
 // IncUpstreamFailures 增加上游失败计数 (总计)
 func (s *Stats) IncUpstreamFailures() {
 	atomic.AddInt64(&s.upstreamFailures, 1)
+	s.generalStatsTracker.RecordUpstreamFailure()
 }
 
 // IncPingSuccesses 增加 ping 成功计数
@@ -110,6 +131,36 @@ func (s *Stats) RecordFailedNode(node string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failedNodes[node]++
+}
+
+// GetStatsWithTimeRange 获取指定时间范围的统计数据
+// days: 查询天数（1, 7, 30）
+func (s *Stats) GetStatsWithTimeRange(days int) map[string]interface{} {
+	// 参数验证
+	if days < 1 || days > 90 {
+		days = 7 // 默认7天
+	}
+
+	startTime := time.Now().AddDate(0, 0, -days)
+	bucketStats := s.generalStatsTracker.Aggregate(startTime)
+
+	// 计算缓存成功率
+	totalCacheOps := bucketStats["cache_hits"] + bucketStats["cache_misses"]
+	cacheSuccessRate := 0.0
+	if totalCacheOps > 0 {
+		cacheSuccessRate = float64(bucketStats["cache_hits"]) / float64(totalCacheOps) * 100
+	}
+
+	return map[string]interface{}{
+		"total_queries":       bucketStats["queries"],
+		"effective_queries":   bucketStats["effective_queries"],
+		"cache_hits":          bucketStats["cache_hits"],
+		"cache_misses":        bucketStats["cache_misses"],
+		"cache_success_rate":  cacheSuccessRate,
+		"cache_stale_refresh": bucketStats["cache_stale_refresh"],
+		"upstream_failures":   bucketStats["upstream_failures"],
+		"time_range_days":     days,
+	}
 }
 
 // GetStats 获取所有统计数据
@@ -282,10 +333,12 @@ func (s *Stats) Reset() {
 
 	s.hotDomains.Reset()
 	s.blockedDomains.Reset()
+	s.generalStatsTracker.Reset()
 }
 
 // Stop 停止统计服务
 func (s *Stats) Stop() {
 	s.hotDomains.Stop()
 	s.blockedDomains.Stop()
+	s.generalStatsTracker.Stop()
 }

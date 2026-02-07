@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"smartdnssort/logger"
 	"smartdnssort/upstream"
+	"strconv"
 )
 
 // UpstreamServerStats 上游服务器统计信息
@@ -37,6 +38,19 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取时间范围参数
+	daysStr := r.URL.Query().Get("days")
+	days := 7 // 默认7天
+
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil {
+			// 参数验证：只允许 1, 7, 30
+			if d == 1 || d == 7 || d == 30 {
+				days = d
+			}
+		}
+	}
+
 	upstreamMgr := s.dnsServer.GetUpstreamManager()
 	if upstreamMgr == nil {
 		s.writeJSONError(w, "Upstream manager not available", http.StatusInternalServerError)
@@ -47,18 +61,18 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 	servers := upstreamMgr.GetServers()
 	if len(servers) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		response := APIResponse{
-			Success: true,
-			Message: "No upstream servers configured",
-			Data: UpstreamStatsResponse{
-				Servers: []UpstreamServerStats{},
+		response := map[string]interface{}{
+			"success": true,
+			"message": "No upstream servers configured",
+			"data": map[string]interface{}{
+				"servers": []interface{}{},
 			},
 		}
 		json.NewEncoder(w).Encode(response)
 		return
 	}
 
-	var statsServers []UpstreamServerStats
+	var statsServers []map[string]interface{}
 
 	for _, srv := range servers {
 		// 获取健康状态信息
@@ -76,93 +90,29 @@ func (s *Server) handleUpstreamStats(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 获取健康状态统计数据
-		healthStats := health.GetStats()
+		// 使用时间范围查询统计
+		healthStats := health.GetStatsWithTimeRange(days)
 
-		// 从健康状态中获取成功/失败计数
-		success := int64(0)
-		failure := int64(0)
-		if successVal, ok := healthStats["success"].(int64); ok {
-			success = successVal
+		serverStats := map[string]interface{}{
+			"address":      healthStats["address"],
+			"protocol":     srv.Protocol(),
+			"success":      healthStats["success"],
+			"failure":      healthStats["failure"],
+			"total":        healthStats["total"],
+			"success_rate": healthStats["success_rate"],
+			"status":       healthStats["status"],
+			"latency_ms":   healthStats["latency_ms"],
 		}
-		if failureVal, ok := healthStats["failure"].(int64); ok {
-			failure = failureVal
-		}
-		total := success + failure
-
-		// 计算成功率
-		successRate := 0.0
-		if total > 0 {
-			successRate = float64(success) / float64(total) * 100
-		}
-
-		// 获取状态字符串
-		statusStr := "healthy"
-		if statusVal, ok := healthStats["status"].(string); ok {
-			statusStr = statusVal
-		}
-
-		// 获取延迟（毫秒）
-		latencyMs := healthAwareSrv.GetHealth().GetLatency().Seconds() * 1000
-
-		// 获取最后失败时间
-		var lastFailure *string
-		if lastFailureStr, ok := healthStats["last_failure"].(string); ok && lastFailureStr != "" {
-			lastFailure = &lastFailureStr
-		}
-
-		// 获取距离最后失败的秒数
-		var secondsSinceLastFailure *int
-		if secondsSince, ok := healthStats["seconds_since_last_failure"].(int); ok && secondsSince > 0 {
-			secondsSinceLastFailure = &secondsSince
-		}
-
-		// 获取熔断剩余秒数
-		circuitBreakerRemaining := 0
-		if cbRemaining, ok := healthStats["circuit_breaker_remaining_seconds"].(int); ok {
-			circuitBreakerRemaining = cbRemaining
-		}
-
-		// 获取连续失败/成功次数
-		consecutiveFailures := 0
-		if cf, ok := healthStats["consecutive_failures"].(int); ok {
-			consecutiveFailures = cf
-		}
-
-		consecutiveSuccesses := 0
-		if cs, ok := healthStats["consecutive_successes"].(int); ok {
-			consecutiveSuccesses = cs
-		}
-
-		serverStats := UpstreamServerStats{
-			Address:                        srv.Address(),
-			Protocol:                       srv.Protocol(),
-			Success:                        success,
-			Failure:                        failure,
-			Total:                          total,
-			SuccessRate:                    successRate,
-			Status:                         statusStr,
-			LatencyMs:                      latencyMs,
-			ConsecutiveFailures:            consecutiveFailures,
-			ConsecutiveSuccesses:           consecutiveSuccesses,
-			LastFailure:                    lastFailure,
-			SecondsSinceLastFailure:        secondsSinceLastFailure,
-			CircuitBreakerRemainingSeconds: circuitBreakerRemaining,
-			IsTemporarilySkipped:           healthAwareSrv.ShouldSkipTemporarily(),
-		}
-
-		logger.Debugf("Server stats: address=%s, protocol=%s, success=%d, failure=%d, total=%d, rate=%.2f%%",
-			serverStats.Address, serverStats.Protocol, serverStats.Success, serverStats.Failure, serverStats.Total, serverStats.SuccessRate)
 
 		statsServers = append(statsServers, serverStats)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	response := APIResponse{
-		Success: true,
-		Message: "Upstream servers statistics",
-		Data: UpstreamStatsResponse{
-			Servers: statsServers,
+	response := map[string]interface{}{
+		"success": true,
+		"message": "Upstream servers statistics for last " + strconv.Itoa(days) + " days",
+		"data": map[string]interface{}{
+			"servers": statsServers,
 		},
 	}
 	json.NewEncoder(w).Encode(response)

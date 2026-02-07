@@ -76,7 +76,7 @@ const (
 )
 
 // NewManager 创建上游 DNS 管理器
-func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats) *Manager {
+func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats, statsConfig *StatsConfig) *Manager {
 	numServers := len(servers)
 
 	// 1. 策略自适应选择
@@ -108,7 +108,7 @@ func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats) 
 	// 将普通 Upstream 包装为 HealthAwareUpstream
 	healthAwareServers := make([]*HealthAwareUpstream, len(servers))
 	for i, server := range servers {
-		healthAwareServers[i] = NewHealthAwareUpstream(server, convertConfigHealthCheck(&cfg.HealthCheck))
+		healthAwareServers[i] = NewHealthAwareUpstream(server, convertConfigHealthCheck(&cfg.HealthCheck), statsConfig)
 	}
 
 	// 初始化动态参数优化

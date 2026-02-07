@@ -52,11 +52,14 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	server := &Server{
-		cfg:           cfg,
-		stats:         s,
-		cache:         cache.NewCache(&cfg.Cache),
-		msgPool:       cache.NewMsgPool(),
-		upstream:      upstream.NewManager(&cfg.Upstream, upstreams, s),
+		cfg:     cfg,
+		stats:   s,
+		cache:   cache.NewCache(&cfg.Cache),
+		msgPool: cache.NewMsgPool(),
+		upstream: upstream.NewManager(&cfg.Upstream, upstreams, s, &upstream.StatsConfig{
+			UpstreamStatsBucketMinutes: cfg.Stats.UpstreamStatsBucketMinutes,
+			UpstreamStatsRetentionDays: cfg.Stats.UpstreamStatsRetentionDays,
+		}),
 		pinger:        ping.NewPinger(cfg.Ping.Count, cfg.Ping.TimeoutMs, cfg.Ping.Concurrency, cfg.Ping.MaxTestIPs, cfg.Ping.RttCacheTtlSeconds, cfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json"),
 		sortQueue:     sortQueue,
 		refreshQueue:  refreshQueue,

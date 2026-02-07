@@ -58,6 +58,13 @@ func (s *Server) GetStats() map[string]interface{} {
 	return st
 }
 
+// GetStatsWithTimeRange 获取指定时间范围的统计信息
+func (s *Server) GetStatsWithTimeRange(days int) map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stats.GetStatsWithTimeRange(days)
+}
+
 // CalculateEvictionsPerMinute 计算每分钟的驱逐率
 func (s *Server) CalculateEvictionsPerMinute(currentEvictionCount int64) float64 {
 	s.mu.RLock()

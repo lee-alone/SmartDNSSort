@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"smartdnssort/logger"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -80,6 +81,33 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取时间范围参数
+	daysStr := r.URL.Query().Get("days")
+	days := 7 // 默认7天
+
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil {
+			// 参数验证：只允许 1, 7, 30
+			if d == 1 || d == 7 || d == 30 {
+				days = d
+			}
+		}
+	}
+
+	// 如果指定了时间范围，返回时间范围内的统计
+	if daysStr != "" {
+		stats := s.dnsServer.GetStatsWithTimeRange(days)
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Statistics for last " + strconv.Itoa(days) + " days",
+			"data":    stats,
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// 否则返回完整统计信息
 	stats := s.dnsServer.GetStats()
 	cacheCfg := s.dnsServer.GetConfig().Cache
 	currentEntries := s.dnsCache.GetCurrentEntries()

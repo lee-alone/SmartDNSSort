@@ -247,6 +247,33 @@ func setStatsDefaults(cfg *Config) {
 	if cfg.Stats.HotDomainsMaxPerBucket == 0 {
 		cfg.Stats.HotDomainsMaxPerBucket = 5000
 	}
+
+	// 被拦截域名配置默认值
+	if cfg.Stats.BlockedDomainsWindowHours == 0 {
+		cfg.Stats.BlockedDomainsWindowHours = 24
+	}
+	if cfg.Stats.BlockedDomainsBucketMinutes == 0 {
+		cfg.Stats.BlockedDomainsBucketMinutes = 10
+	}
+	if cfg.Stats.BlockedDomainsShardCount == 0 {
+		cfg.Stats.BlockedDomainsShardCount = 16
+	}
+
+	// 通用统计时间桶配置默认值
+	if cfg.Stats.GeneralStatsBucketMinutes == 0 {
+		cfg.Stats.GeneralStatsBucketMinutes = 10
+	}
+	if cfg.Stats.GeneralStatsRetentionDays == 0 {
+		cfg.Stats.GeneralStatsRetentionDays = 90
+	}
+
+	// 上游统计时间桶配置默认值
+	if cfg.Stats.UpstreamStatsBucketMinutes == 0 {
+		cfg.Stats.UpstreamStatsBucketMinutes = 10
+	}
+	if cfg.Stats.UpstreamStatsRetentionDays == 0 {
+		cfg.Stats.UpstreamStatsRetentionDays = 90
+	}
 }
 
 // setPrefetchDefaults 设置预取配置的默认值

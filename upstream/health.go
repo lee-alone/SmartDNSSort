@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// StatsConfig 统计配置（用于上游统计时间桶）
+type StatsConfig struct {
+	UpstreamStatsBucketMinutes int
+	UpstreamStatsRetentionDays int
+}
+
 // HealthStatus 服务器健康状态
 type HealthStatus int
 
@@ -78,12 +84,34 @@ type ServerHealth struct {
 
 	// 累计失败次数
 	totalFailures int64
+
+	// 新增：上游统计时间桶追踪器
+	statsTracker *UpstreamStatsTracker
 }
 
 // NewServerHealth 创建服务器健康状态管理器
-func NewServerHealth(address string, config *HealthCheckConfig) *ServerHealth {
+// statsConfig: 统计配置，用于动态计算桶数量
+func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *StatsConfig) *ServerHealth {
 	if config == nil {
 		config = DefaultHealthCheckConfig()
+	}
+
+	// 计算桶数量
+	bucketMinutes := 10 // 默认 10 分钟
+	retentionDays := 90 // 默认 90 天
+
+	if statsConfig != nil {
+		if statsConfig.UpstreamStatsBucketMinutes > 0 {
+			bucketMinutes = statsConfig.UpstreamStatsBucketMinutes
+		}
+		if statsConfig.UpstreamStatsRetentionDays > 0 {
+			retentionDays = statsConfig.UpstreamStatsRetentionDays
+		}
+	}
+
+	bucketCount := (retentionDays * 24 * 60) / bucketMinutes
+	if bucketCount < 1 {
+		bucketCount = 1
 	}
 
 	return &ServerHealth{
@@ -92,6 +120,7 @@ func NewServerHealth(address string, config *HealthCheckConfig) *ServerHealth {
 		config:       config,
 		latency:      200 * time.Millisecond, // 初始延迟设为 200ms 的默认值
 		latencyAlpha: 0.2,                    // EWMA 的 alpha 因子
+		statsTracker: NewUpstreamStatsTracker(address, time.Duration(bucketMinutes)*time.Minute, bucketCount),
 	}
 }
 
@@ -103,6 +132,7 @@ func (h *ServerHealth) MarkSuccess() {
 	h.consecutiveSuccesses++
 	h.consecutiveFailures = 0
 	h.totalSuccesses++ // 增加累计成功计数
+	h.statsTracker.RecordSuccess()
 
 	// 如果连续成功达到阈值，恢复健康状态
 	if h.consecutiveSuccesses >= h.config.SuccessThreshold {
@@ -123,6 +153,7 @@ func (h *ServerHealth) MarkFailure() {
 	h.consecutiveSuccesses = 0
 	h.lastFailureTime = time.Now()
 	h.totalFailures++ // 增加累计失败计数
+	h.statsTracker.RecordFailure()
 
 	// 根据失败次数更新状态
 	if h.consecutiveFailures >= h.config.CircuitBreakerThreshold {
@@ -234,6 +265,43 @@ func (h *ServerHealth) GetStats() map[string]interface{} {
 	return stats
 }
 
+// GetStatsWithTimeRange 获取指定时间范围的统计信息
+func (h *ServerHealth) GetStatsWithTimeRange(days int) map[string]interface{} {
+	if days < 1 || days > 90 {
+		days = 7
+	}
+
+	startTime := time.Now().AddDate(0, 0, -days)
+	success, failure := h.statsTracker.Aggregate(startTime)
+	total := success + failure
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	successRate := 0.0
+	if total > 0 {
+		successRate = float64(success) / float64(total) * 100
+	}
+
+	statusStr := "healthy"
+	switch h.status {
+	case HealthStatusDegraded:
+		statusStr = "degraded"
+	case HealthStatusUnhealthy:
+		statusStr = "unhealthy"
+	}
+
+	return map[string]interface{}{
+		"address":      h.address,
+		"success":      success,
+		"failure":      failure,
+		"total":        total,
+		"success_rate": successRate,
+		"status":       statusStr,
+		"latency_ms":   h.latency.Seconds() * 1000,
+	}
+}
+
 // Reset 重置健康状态（用于测试或手动恢复）
 func (h *ServerHealth) Reset() {
 	h.mu.Lock()
@@ -246,6 +314,7 @@ func (h *ServerHealth) Reset() {
 	h.circuitBreakerStartTime = time.Time{}
 	h.totalSuccesses = 0 // 重置累计成功
 	h.totalFailures = 0  // 重置累计失败
+	h.statsTracker.Reset()
 }
 
 // ClearStats 清除统计数据（成功/失败计数），但保留健康状态
@@ -276,4 +345,9 @@ func (h *ServerHealth) GetLatency() time.Duration {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.latency
+}
+
+// Stop 停止统计追踪器
+func (h *ServerHealth) Stop() {
+	h.statsTracker.Stop()
 }

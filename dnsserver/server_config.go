@@ -54,7 +54,10 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 			}
 		}
 
-		newUpstream = upstream.NewManager(&newCfg.Upstream, upstreams, s.stats)
+		newUpstream = upstream.NewManager(&newCfg.Upstream, upstreams, s.stats, &upstream.StatsConfig{
+			UpstreamStatsBucketMinutes: newCfg.Stats.UpstreamStatsBucketMinutes,
+			UpstreamStatsRetentionDays: newCfg.Stats.UpstreamStatsRetentionDays,
+		})
 		// 设置缓存更新回调
 		s.setupUpstreamCallback(newUpstream)
 	}
