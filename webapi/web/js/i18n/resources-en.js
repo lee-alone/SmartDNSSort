@@ -86,7 +86,8 @@ const resourcesEn = {
             "other": "Other Settings",
             "prefetch": "Prefetch",
             "webui": "Web UI",
-            "system": "System"
+            "system": "System",
+            "maintenance": "Backup & Restore"
         },
         "dns": {
             "legend": "DNS Service",
@@ -233,6 +234,23 @@ const resourcesEn = {
         },
         "other": {
             "legend": "System & Advanced Settings"
+        },
+        "maintenance": {
+            "legend": "Backup & Restore",
+            "export": "Export Configuration",
+            "exportHelp": "Download your current configuration as a JSON file, easy for backup or migration.",
+            "import": "Import Configuration",
+            "importHelp": "Restore configuration from a JSON file.",
+            "reset": "Reset to Defaults",
+            "resetHelp": "Restore all configuration items to factory defaults. This operation cannot be undone, please operate with caution.",
+            "importSuccess": "Configuration imported successfully.",
+            "importError": "Import failed: {error}",
+            "resetSuccess": "Restored default settings successfully.",
+            "resetError": "Reset failed: {error}",
+            "resetConfirm": "Are you sure you want to perform this action? This will overwrite all your current settings! A backup will be created automatically.",
+            "invalidJsonError": "Invalid JSON file format.",
+            "exportError": "Export failed: {error}",
+            "importConfirm": "Are you sure you want to import this configuration? This will overwrite current settings and create an automatic backup."
         },
         "save": "Save & Apply"
     },

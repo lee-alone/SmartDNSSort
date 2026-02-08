@@ -1,0 +1,81 @@
+<section id="section-maintenance"
+    class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden mt-6">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors"
+        onclick="toggleConfigSection(this)">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold" data-i18n="config.maintenance.legend">Backup & Restore</h2>
+            <span class="material-symbols-outlined section-toggle-icon">expand_more</span>
+        </div>
+    </div>
+    <div class="section-content p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Export -->
+            <div
+                class="maintenance-card p-5 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-black/20">
+                <div class="flex items-start gap-4">
+                    <div class="p-3 rounded-lg bg-primary/10 text-primary">
+                        <span class="material-symbols-outlined">download</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-1" data-i18n="config.maintenance.export">Export
+                            Configuration</h3>
+                        <p class="text-sm text-text-muted-light dark:text-text-muted-dark mb-4"
+                            data-i18n="config.maintenance.exportHelp">Download your current configuration as a JSON
+                            file.</p>
+                        <button onclick="exportConfig()"
+                            class="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                            <span class="material-symbols-outlined text-sm">download</span>
+                            <span data-i18n="config.maintenance.export">Export Configuration</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import -->
+            <div
+                class="maintenance-card p-5 rounded-xl border border-border-light dark:border-border-dark bg-background-light dark:bg-black/20">
+                <div class="flex items-start gap-4">
+                    <div class="p-3 rounded-lg bg-secondary/10 text-secondary">
+                        <span class="material-symbols-outlined">upload</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-1" data-i18n="config.maintenance.import">Import
+                            Configuration</h3>
+                        <p class="text-sm text-text-muted-light dark:text-text-muted-dark mb-4"
+                            data-i18n="config.maintenance.importHelp">Restore configuration from a JSON file.</p>
+                        <div class="flex items-center gap-2">
+                            <input type="file" id="import-config-file" accept=".json" class="hidden"
+                                onchange="importConfig(this)">
+                            <button onclick="document.getElementById('import-config-file').click()"
+                                class="px-4 py-2 bg-secondary hover:bg-secondary-hover text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm">upload</span>
+                                <span data-i18n="config.maintenance.import">Import Configuration</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reset -->
+            <div class="maintenance-card p-5 rounded-xl border border-red-500/30 bg-red-500/5 md:col-span-2">
+                <div class="flex items-start gap-4">
+                    <div class="p-3 rounded-lg bg-red-500/10 text-red-500">
+                        <span class="material-symbols-outlined">restart_alt</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-1 text-red-500" data-i18n="config.maintenance.reset">Reset
+                            to Defaults</h3>
+                        <p class="text-sm text-text-muted-light dark:text-text-muted-dark mb-4"
+                            data-i18n="config.maintenance.resetHelp">Restore all settings to factory defaults. This
+                            action cannot be undone.</p>
+                        <button onclick="resetConfig()"
+                            class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                            <span class="material-symbols-outlined text-sm">restart_alt</span>
+                            <span data-i18n="config.maintenance.reset">Reset to Defaults</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

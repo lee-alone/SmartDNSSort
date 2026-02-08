@@ -1,35 +1,51 @@
 <div class="flex gap-6 h-full">
     <!-- Config Sidebar Navigation -->
-    <div class="hidden lg:flex flex-col w-56 flex-shrink-0 bg-background-light dark:bg-background-dark rounded-xl border border-border-light dark:border-border-dark p-4 h-fit sticky top-6">
-        <h3 class="text-sm font-bold text-text-sub-light dark:text-text-sub-dark mb-4 px-3" data-i18n="config.sections">Sections</h3>
+    <div
+        class="hidden lg:flex flex-col w-56 flex-shrink-0 bg-background-light dark:bg-background-dark rounded-xl border border-border-light dark:border-border-dark p-4 h-fit sticky top-6">
+        <h3 class="text-sm font-bold text-text-sub-light dark:text-text-sub-dark mb-4 px-3" data-i18n="config.sections">
+            Sections</h3>
         <nav class="flex flex-col gap-2">
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors bg-primary text-black" data-section="dns">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors bg-primary text-black"
+                data-section="dns">
                 <span class="material-symbols-outlined text-[18px]">dns</span>
                 <span data-i18n="config.nav.dns">DNS Service</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="upstream">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="upstream">
                 <span class="material-symbols-outlined text-[18px]">cloud_upload</span>
                 <span data-i18n="config.nav.upstream">Upstream</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="recursor">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="recursor">
                 <span class="material-symbols-outlined text-[18px]">hub</span>
                 <span data-i18n="config.nav.recursor">Recursor</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="ping">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="ping">
                 <span class="material-symbols-outlined text-[18px]">speed</span>
                 <span data-i18n="config.nav.ping">IP Optimization</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="cache">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="cache">
                 <span class="material-symbols-outlined text-[18px]">storage</span>
                 <span data-i18n="config.nav.cache">Cache</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="adblock">
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="adblock">
                 <span class="material-symbols-outlined text-[18px]">security</span>
                 <span data-i18n="config.nav.adblock">AdBlock</span>
             </button>
-            <button type="button" class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5" data-section="other">
-                <span class="material-symbols-outlined text-[18px]">tune</span>
-                <span data-i18n="config.nav.other">Other Settings</span>
+            <button type="button"
+                class="config-nav-btn flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-text-sub-light dark:text-text-sub-dark hover:bg-black/5 dark:hover:bg-white/5"
+                data-section="maintenance">
+                <span class="material-symbols-outlined text-[18px]">settings_backup_restore</span>
+                <span data-i18n="config.nav.maintenance">Backup & Restore</span>
             </button>
         </nav>
     </div>
@@ -38,28 +54,27 @@
     <form id="configForm" class="flex-1">
         <div class="space-y-6 pb-24">
             <!-- DNS Service Card -->
-            <section id="section-dns" class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
-                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors" onclick="toggleConfigSection(this)">
+            <section id="section-dns"
+                class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden">
+                <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors"
+                    onclick="toggleConfigSection(this)">
                     <div class="flex items-center justify-between">
                         <h2 class="text-xl font-bold" data-i18n="config.dns.legend">DNS Service</h2>
                         <span class="material-symbols-outlined section-toggle-icon">expand_more</span>
                     </div>
                 </div>
                 <div class="section-content p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <div class="form-group"><label for="dns.listen_port"
-                            class="block text-sm font-medium mb-2"
+                    <div class="form-group"><label for="dns.listen_port" class="block text-sm font-medium mb-2"
                             data-i18n="config.dns.listenPort">Listen Port</label><input type="number"
                             id="dns.listen_port" name="dns.listen_port"
                             class="w-full h-12 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
                     </div>
-                    <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox"
-                            id="dns.enable_tcp" name="dns.enable_tcp"
-                            class="h-5 w-5 rounded text-primary focus:ring-primary"><label
+                    <div class="form-group flex items-center gap-4 pt-6"><input type="checkbox" id="dns.enable_tcp"
+                            name="dns.enable_tcp" class="h-5 w-5 rounded text-primary focus:ring-primary"><label
                             for="dns.enable_tcp" data-i18n="config.dns.enableTcp">Enable
-                            TCP</label><input type="checkbox" id="dns.enable_ipv6"
-                            name="dns.enable_ipv6"
-                            class="h-5 w-5 rounded text-primary focus:ring-primary ml-4"><label
-                            for="dns.enable_ipv6" data-i18n="config.dns.enableIpv6">Enable IPv6</label>
+                            TCP</label><input type="checkbox" id="dns.enable_ipv6" name="dns.enable_ipv6"
+                            class="h-5 w-5 rounded text-primary focus:ring-primary ml-4"><label for="dns.enable_ipv6"
+                            data-i18n="config.dns.enableIpv6">Enable IPv6</label>
                     </div>
                 </div>
             </section>
@@ -81,6 +96,9 @@
 
             <!-- Other Settings Card -->
             <div id="other-config-container"></div>
+
+            <!-- Maintenance Card -->
+            <div id="maintenance-config-container"></div>
         </div>
         <div class="fixed bottom-6 right-6 z-50">
             <button type="button" onclick="saveConfig()"

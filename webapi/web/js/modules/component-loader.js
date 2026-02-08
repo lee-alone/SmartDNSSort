@@ -32,7 +32,7 @@ const ComponentLoader = {
      * @param {Array} components - Array of {path, containerId} objects
      */
     async loadComponents(components) {
-        const promises = components.map(comp => 
+        const promises = components.map(comp =>
             this.loadComponent(comp.path, comp.containerId)
         );
         await Promise.all(promises);
@@ -61,6 +61,7 @@ const ComponentLoader = {
             { path: 'components/config-cache.html', containerId: 'cache-config-container' },
             { path: 'components/config-adblock.html', containerId: 'adblock-config-container' },
             { path: 'components/config-other.html', containerId: 'other-config-container' },
+            { path: 'components/config-maintenance.html', containerId: 'maintenance-config-container' },
         ];
 
         await this.loadComponents(configComponents);

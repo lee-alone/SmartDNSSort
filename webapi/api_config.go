@@ -5,12 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"smartdnssort/config"
 	"smartdnssort/logger"
+	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const MaxConfigSize = 1 << 20 // 1MB limit for config uploads
 
 // 配置验证的常量定义
 const (
@@ -26,11 +32,31 @@ const (
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.handleGetConfig(w)
+		if r.URL.Path == "/api/config/export" {
+			s.handleExportConfig(w, r)
+		} else {
+			s.handleGetConfig(w)
+		}
 	case http.MethodPost:
-		s.handlePostConfig(w, r)
+		if r.URL.Path == "/api/config/reset" {
+			s.handleResetConfig(w, r)
+		} else {
+			s.handlePostConfig(w, r)
+		}
 	default:
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleExportConfig 导出当前配置
+func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
+	currentConfig := s.dnsServer.GetConfig()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=smartdnssort-config.json")
+	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
+		logger.Errorf("Failed to encode config for export: %v", err)
+		s.writeJSONError(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -51,8 +77,13 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 	s.cfgMutex.Lock()
 	defer s.cfgMutex.Unlock()
 
-	// 读取请求体
-	bodyBytes, err := io.ReadAll(r.Body)
+	// 检查 Content-Length 或限制读取大小以防止 DoS
+	if r.ContentLength > MaxConfigSize {
+		s.writeJSONError(w, "Request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, MaxConfigSize))
 	if err != nil {
 		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -130,6 +161,71 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info("✓ Configuration applied to DNS server successfully")
 	s.writeJSONSuccess(w, "Configuration saved and applied successfully", nil)
+}
+
+// handleResetConfig 恢复默认配置
+func (s *Server) handleResetConfig(w http.ResponseWriter, r *http.Request) {
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
+	// 备份当前配置
+	backupPath := fmt.Sprintf("%s.backup_%d", s.configPath, time.Now().Unix())
+	if err := s.backupConfigFile(s.configPath, backupPath); err != nil {
+		logger.Warnf("Failed to create config backup: %v", err)
+	} else {
+		logger.Infof("✓ Current configuration backed up to %s", backupPath)
+	}
+
+	// 从默认内容解析配置
+	newCfg := &config.Config{}
+	if err := yaml.Unmarshal([]byte(config.DefaultConfigContent), newCfg); err != nil {
+		s.writeJSONError(w, "Failed to parse default config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 写入配置文件
+	if err := s.writeConfigFile([]byte(config.DefaultConfigContent)); err != nil {
+		logger.Errorf("Failed to reset config file %s: %v", s.configPath, err)
+		s.writeJSONError(w, "Failed to write default config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 应用新配置到运行中的服务器
+	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
+		logger.Errorf("✗ Failed to apply default configuration: %v", err)
+		s.writeJSONError(w, "Failed to apply default configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Infof("✓ Configuration reset to defaults successfully")
+	s.writeJSONSuccess(w, "Configuration reset to defaults successfully", nil)
+}
+
+// backupConfigFile 备份配置文件
+func (s *Server) backupConfigFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		return err
+	}
+
+	// 清理旧备份，只保留最近 5 个
+	const maxBackups = 5
+	backups, err := filepath.Glob(s.configPath + ".backup_*")
+	if err == nil && len(backups) > maxBackups {
+		// 按修改时间排序（或者按文件名，因为包含时间戳）
+		sort.Strings(backups)
+		// 删除多余的旧备份
+		for i := 0; i < len(backups)-maxBackups; i++ {
+			os.Remove(backups[i])
+			logger.Debugf("Removed old config backup: %s", backups[i])
+		}
+	}
+
+	return nil
 }
 
 // validateConfig 验证配置
@@ -244,6 +340,26 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
 	}
+
+	// 验证系统配置
+	if cfg.System.MaxCPUCores < 0 {
+		return fmt.Errorf("max_cpu_cores cannot be negative")
+	}
+	if cfg.System.SortQueueWorkers < 0 {
+		return fmt.Errorf("sort_queue_workers cannot be negative")
+	}
+	if cfg.System.RefreshWorkers < 0 {
+		return fmt.Errorf("refresh_workers cannot be negative")
+	}
+
+	// 验证统计配置
+	if cfg.Stats.HotDomainsWindowHours < 0 {
+		return fmt.Errorf("hot_domains_window_hours cannot be negative")
+	}
+	if cfg.Stats.BlockedDomainsWindowHours < 0 {
+		return fmt.Errorf("blocked_domains_window_hours cannot be negative")
+	}
+
 	return nil
 }
 

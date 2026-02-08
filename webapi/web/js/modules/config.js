@@ -109,7 +109,7 @@ function populateForm(config) {
         if (typeof updateRecursorStatus === 'function') {
             updateRecursorStatus();
         }
-        
+
         // 添加递归状态变化监听
         const recursorCheckbox = document.getElementById('upstream.enable_recursor');
         if (recursorCheckbox) {
@@ -295,7 +295,7 @@ function saveConfig() {
 function updateStrategyUI() {
     const strategySelect = document.getElementById('upstream.strategy');
     if (!strategySelect) return;
-    
+
     const sequentialParams = document.getElementById('sequential-params');
     const racingParams = document.getElementById('racing-params');
     const racingParamsConcurrent = document.getElementById('racing-params-concurrent');
@@ -343,29 +343,29 @@ function updateUpstreamRecursorAlert() {
     const recursorCheckbox = document.getElementById('upstream.enable_recursor');
     const alertBox = document.getElementById('recursor-status-alert');
     const upstreamServersField = document.getElementById('upstream.servers');
-    
+
     if (!recursorCheckbox || !alertBox) return;
-    
+
     if (recursorCheckbox.checked) {
         // 显示提示
         alertBox.classList.remove('hidden');
     } else {
         // 隐藏提示
         alertBox.classList.add('hidden');
-        
+
         // 当取消递归时，检查是否需要填充默认服务器
         if (upstreamServersField) {
             const currentServers = upstreamServersField.value.trim();
-            
+
             // 如果上游服务器为空，自动填充默认的 DoH 服务器
             if (!currentServers) {
                 const defaultServers = [
                     'https://dns.google/dns-query',
                     'https://cloudflare-dns.com/dns-query'
                 ].join('\n');
-                
+
                 upstreamServersField.value = defaultServers;
-                
+
                 // 显示提示信息
                 showDefaultServersNotification();
             }
@@ -393,9 +393,9 @@ function showDefaultServersNotification() {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(notification);
-    
+
     // 3 秒后自动移除
     setTimeout(() => {
         notification.remove();
@@ -408,3 +408,80 @@ window.addEventListener('languageChanged', () => {
     loadConfig();
     updateStrategyUI();
 });
+
+// Maintenance functions
+function exportConfig() {
+    fetch(CONFIG_API_URL + '/export')
+        .then(response => {
+            if (!response.ok) throw new Error('Download failed');
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'smartdnssort-config.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+            alert(i18n.t('config.maintenance.exportError', { error: error.message }));
+        });
+}
+
+function importConfig(input) {
+    if (!input.files || !input.files[0]) return;
+
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (e) {
+        try {
+            const config = JSON.parse(e.target.result);
+            if (confirm(i18n.t('config.maintenance.importConfirm'))) {
+                fetch(CONFIG_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.text().then(text => {
+                                throw new Error(text || `HTTP ${response.status}`);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(() => {
+                        alert(i18n.t('config.maintenance.importSuccess'));
+                        loadConfig();
+                    })
+                    .catch(error => alert(i18n.t('config.maintenance.importError', { error: error.message })));
+            }
+        } catch (err) {
+            alert(i18n.t('config.maintenance.invalidJsonError'));
+        }
+    };
+    reader.readAsText(file);
+    // Reset input
+    input.value = '';
+}
+
+function resetConfig() {
+    if (confirm(i18n.t('config.maintenance.resetConfirm'))) {
+        fetch(CONFIG_API_URL + '/reset', {
+            method: 'POST'
+        })
+            .then(response => {
+                if (!response.ok) throw new Error('Reset failed');
+                return response.json();
+            })
+            .then(() => {
+                alert(i18n.t('config.maintenance.resetSuccess'));
+                loadConfig();
+            })
+            .catch(error => alert(i18n.t('config.maintenance.resetError', { error: error.message })));
+    }
+}

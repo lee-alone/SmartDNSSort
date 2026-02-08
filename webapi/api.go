@@ -90,6 +90,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/cache/clear", s.handleClearCache)
 	mux.HandleFunc("/api/cache/memory", s.handleCacheMemoryStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/config/reset", s.handleConfig)
+	mux.HandleFunc("/api/config/export", s.handleConfig)
 	mux.HandleFunc("/api/recent-queries", s.handleRecentQueries)
 	mux.HandleFunc("/api/recent-blocked", s.handleRecentlyBlocked)
 	mux.HandleFunc("/api/hot-domains", s.handleHotDomains)

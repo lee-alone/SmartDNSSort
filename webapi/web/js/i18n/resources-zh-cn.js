@@ -86,7 +86,8 @@ const resourcesZhCn = {
             "other": "其他设置",
             "prefetch": "预取",
             "webui": "Web 界面",
-            "system": "系统"
+            "system": "系统",
+            "maintenance": "备份与还原"
         },
         "dns": {
             "legend": "DNS 服务",
@@ -233,6 +234,23 @@ const resourcesZhCn = {
         },
         "other": {
             "legend": "系统与高级设置"
+        },
+        "maintenance": {
+            "legend": "备份与还原",
+            "export": "导出配置",
+            "exportHelp": "将当前配置下载为 JSON 文件，方便备份或迁移。",
+            "import": "导入配置",
+            "importHelp": "从 JSON 文件中恢复配置。",
+            "reset": "恢复默认设置",
+            "resetHelp": "将所有配置项恢复为出厂默认值。该操作无法撤销，请谨慎操作。",
+            "importSuccess": "配置已成功导入。",
+            "importError": "导入配置失败：{error}",
+            "resetSuccess": "已成功恢复默认设置。",
+            "resetError": "恢复默认设置失败：{error}",
+            "resetConfirm": "您确定要执行此操作吗？这将覆盖您当前的所有设置！系统会自动备份当前配置。",
+            "invalidJsonError": "无效的 JSON 文件格式。",
+            "exportError": "导出配置失败：{error}",
+            "importConfirm": "确定要导入此配置文件吗？这会覆盖当前设置并自动备份当前配置。"
         },
         "save": "保存并应用"
     },
