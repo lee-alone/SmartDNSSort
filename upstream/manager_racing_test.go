@@ -99,7 +99,7 @@ func TestShouldSkipServerInRacing(t *testing.T) {
 			health := NewServerHealth("test:53", DefaultHealthCheckConfig(), &StatsConfig{
 				UpstreamStatsBucketMinutes: 10,
 				UpstreamStatsRetentionDays: 90,
-			})
+			}, nil)
 			health.status = tt.status
 
 			srv := &HealthAwareUpstream{
@@ -278,11 +278,11 @@ func TestRacingEarlyTrigger(t *testing.T) {
 			NewHealthAwareUpstream(primary, DefaultHealthCheckConfig(), &StatsConfig{
 				UpstreamStatsBucketMinutes: 10,
 				UpstreamStatsRetentionDays: 90,
-			}),
+			}, nil),
 			NewHealthAwareUpstream(secondary, DefaultHealthCheckConfig(), &StatsConfig{
 				UpstreamStatsBucketMinutes: 10,
 				UpstreamStatsRetentionDays: 90,
-			}),
+			}, nil),
 		},
 		strategy:            "racing",
 		timeoutMs:           5000,

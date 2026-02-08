@@ -13,6 +13,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
+	"smartdnssort/upstream"
 	"smartdnssort/webapi"
 	"sync"
 	"syscall"
@@ -124,6 +125,9 @@ func main() {
 	// 初始化统计模块
 	s := stats.NewStats(&cfg.Stats)
 	defer s.Stop()
+
+	// 初始化网络健康检查器
+	defer upstream.ShutdownNetworkChecker()
 
 	// 启动 DNS 服务器
 	dnsServer := dnsserver.NewServer(cfg, s)

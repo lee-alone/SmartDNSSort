@@ -87,11 +87,15 @@ type ServerHealth struct {
 
 	// 新增：上游统计时间桶追踪器
 	statsTracker *UpstreamStatsTracker
+
+	// 网络健康检查器
+	networkChecker NetworkHealthChecker
 }
 
 // NewServerHealth 创建服务器健康状态管理器
 // statsConfig: 统计配置，用于动态计算桶数量
-func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *StatsConfig) *ServerHealth {
+// networkChecker: 网络健康检查器（可选）
+func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *StatsConfig, networkChecker NetworkHealthChecker) *ServerHealth {
 	if config == nil {
 		config = DefaultHealthCheckConfig()
 	}
@@ -115,12 +119,13 @@ func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *Sta
 	}
 
 	return &ServerHealth{
-		address:      address,
-		status:       HealthStatusHealthy,
-		config:       config,
-		latency:      200 * time.Millisecond, // 初始延迟设为 200ms 的默认值
-		latencyAlpha: 0.2,                    // EWMA 的 alpha 因子
-		statsTracker: NewUpstreamStatsTracker(address, time.Duration(bucketMinutes)*time.Minute, bucketCount),
+		address:        address,
+		status:         HealthStatusHealthy,
+		config:         config,
+		latency:        200 * time.Millisecond, // 初始延迟设为 200ms 的默认值
+		latencyAlpha:   0.2,                    // EWMA 的 alpha 因子
+		statsTracker:   NewUpstreamStatsTracker(address, time.Duration(bucketMinutes)*time.Minute, bucketCount),
+		networkChecker: networkChecker,
 	}
 }
 
@@ -128,6 +133,11 @@ func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *Sta
 func (h *ServerHealth) MarkSuccess() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// 网络异常期，冻结统计和熔断计数
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return // 直接返回，不更新任何计数
+	}
 
 	h.consecutiveSuccesses++
 	h.consecutiveFailures = 0
@@ -148,6 +158,11 @@ func (h *ServerHealth) MarkSuccess() {
 func (h *ServerHealth) MarkFailure() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// 网络异常期，冻结统计和熔断计数
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return // 直接返回，不更新任何计数
+	}
 
 	h.consecutiveFailures++
 	h.consecutiveSuccesses = 0

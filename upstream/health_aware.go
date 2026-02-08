@@ -18,10 +18,11 @@ type HealthAwareUpstream struct {
 
 // NewHealthAwareUpstream 创建带健康检查的上游服务器
 // statsConfig: 统计配置，用于动态计算上游统计的桶数量
-func NewHealthAwareUpstream(upstream Upstream, healthConfig *HealthCheckConfig, statsConfig *StatsConfig) *HealthAwareUpstream {
+// networkChecker: 网络健康检查器（可选）
+func NewHealthAwareUpstream(upstream Upstream, healthConfig *HealthCheckConfig, statsConfig *StatsConfig, networkChecker NetworkHealthChecker) *HealthAwareUpstream {
 	return &HealthAwareUpstream{
 		upstream: upstream,
-		health:   NewServerHealth(upstream.Address(), healthConfig, statsConfig),
+		health:   NewServerHealth(upstream.Address(), healthConfig, statsConfig, networkChecker),
 	}
 }
 

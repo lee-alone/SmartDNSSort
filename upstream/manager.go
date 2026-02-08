@@ -107,8 +107,9 @@ func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats, 
 
 	// 将普通 Upstream 包装为 HealthAwareUpstream
 	healthAwareServers := make([]*HealthAwareUpstream, len(servers))
+	networkChecker := GetGlobalNetworkChecker()
 	for i, server := range servers {
-		healthAwareServers[i] = NewHealthAwareUpstream(server, convertConfigHealthCheck(&cfg.HealthCheck), statsConfig)
+		healthAwareServers[i] = NewHealthAwareUpstream(server, convertConfigHealthCheck(&cfg.HealthCheck), statsConfig, networkChecker)
 	}
 
 	// 初始化动态参数优化
