@@ -57,7 +57,7 @@
     </div>
 
     <!-- Config Content Area -->
-    <form id="configForm" class="flex-1">
+    <form id="configForm" class="flex-1" onsubmit="event.preventDefault();">
         <div class="space-y-6 pb-24">
             <!-- DNS Service Card -->
             <section id="section-dns"
@@ -107,7 +107,7 @@
             <div id="maintenance-config-container"></div>
         </div>
         <div class="fixed bottom-6 right-6 z-50">
-            <button type="button" onclick="saveConfig()"
+            <button type="button" onclick="saveConfig(event)"
                 class="h-11 px-8 rounded-full bg-primary text-black font-bold shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
                 <span class="material-symbols-outlined text-[20px]">save</span>
                 <span data-i18n="config.save">Save & Apply</span>

@@ -150,7 +150,13 @@ function loadConfig() {
         });
 }
 
-function saveConfig() {
+function saveConfig(event) {
+    // 防止表单默认提交行为（防止 URL 参数化）
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
     return new Promise((resolve, reject) => {
         const form = document.getElementById('configForm');
         if (!form) {
