@@ -80,3 +80,8 @@ func LoadConfig(filePath string) (*Config, error) {
 
 	return &cfg, nil
 }
+
+// SetDefaults 为配置结构设置默认值
+func SetDefaults(cfg *Config) {
+	setDefaultValues(cfg, nil)
+}

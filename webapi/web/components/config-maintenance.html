@@ -46,7 +46,7 @@
                         <div class="flex items-center gap-2">
                             <input type="file" id="import-config-file" accept=".json" class="hidden"
                                 onchange="importConfig(this)">
-                            <button onclick="document.getElementById('import-config-file').click()"
+                            <button type="button" onclick="document.getElementById('import-config-file').click()"
                                 class="px-4 py-2 bg-secondary hover:bg-secondary-hover text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
                                 <span class="material-symbols-outlined text-sm">upload</span>
                                 <span data-i18n="config.maintenance.import">Import Configuration</span>

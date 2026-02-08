@@ -85,55 +85,45 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, MaxConfigSize))
 	if err != nil {
+		logger.Errorf("Failed to read request body: %v", err)
 		s.writeJSONError(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close() // 显式关闭请求体
-	logger.Debugf("Received config update request: %s", string(bodyBytes))
+	defer r.Body.Close()
+	logger.Debugf("Received config update request (size: %d bytes)", len(bodyBytes))
 
-	// 解码新配置为新对象（不使用现有配置）
-	newCfg := &config.Config{}
+	// 1. 加载现有配置作为基准
+	newCfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		logger.Warnf("Failed to load existing config as base, using default template: %v", err)
+		newCfg = &config.Config{}
+		yaml.Unmarshal([]byte(config.DefaultConfigContent), newCfg)
+		config.SetDefaults(newCfg)
+	}
+
+	// 2. 将新配置（JSON 格式）解析并覆盖到基准配置上
 	if err := json.Unmarshal(bodyBytes, newCfg); err != nil {
+		logger.Errorf("JSON Unmarshal failed: %v", err)
 		s.writeJSONError(w, "Failed to parse config JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	logger.Debugf("Parsed config - DNS port: %d, Cache TTL: %d/%d",
-		newCfg.DNS.ListenPort, newCfg.Cache.FastResponseTTL, newCfg.Cache.UserReturnTTL)
-	logger.Debugf("Upstream servers: %v", newCfg.Upstream.Servers)
-	logger.Debugf("Upstream bootstrap DNS: %v", newCfg.Upstream.BootstrapDNS)
-
-	// 验证配置
+	// 3. 验证合并后的配置
 	if err := s.validateConfig(newCfg); err != nil {
+		logger.Errorf("Configuration validation failed: %v", err)
 		s.writeJSONError(w, "Configuration validation failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	existingCfg, err := config.LoadConfig(s.configPath)
-	if err == nil {
-		// 保留不在 Web UI 中修改或由系统动态更新的字段
-		if newCfg.AdBlock.LastUpdate == 0 {
-			newCfg.AdBlock.LastUpdate = existingCfg.AdBlock.LastUpdate
-		}
-		if len(newCfg.AdBlock.FailedSources) == 0 {
-			newCfg.AdBlock.FailedSources = existingCfg.AdBlock.FailedSources
-		}
-
-		if newCfg.System.LogLevel == "" && existingCfg.System.LogLevel != "" {
-			newCfg.System.LogLevel = existingCfg.System.LogLevel
-		}
-		if newCfg.Stats.HotDomainsWindowHours == 0 && existingCfg.Stats.HotDomainsWindowHours > 0 {
-			newCfg.Stats = existingCfg.Stats
-		}
-
-		// 如果 Web UI 没有传递动态优化配置，保留现有的
-		if newCfg.Upstream.DynamicParamOptimization.EWMAAlpha == nil && existingCfg.Upstream.DynamicParamOptimization.EWMAAlpha != nil {
-			newCfg.Upstream.DynamicParamOptimization = existingCfg.Upstream.DynamicParamOptimization
-		}
+	// 4. 备份当前配置文件
+	backupPath := fmt.Sprintf("%s.backup_%d", s.configPath, time.Now().Unix())
+	if err := s.backupConfigFile(s.configPath, backupPath); err != nil {
+		logger.Warnf("Failed to create config backup: %v", err)
+	} else {
+		logger.Infof("✓ Current configuration backed up to %s", backupPath)
 	}
 
-	// 使用正确的YAML标签将配置序列化为YAML
-	// 创建一个自定义编码器来确保格式正确
+	// 5. 使用正确的YAML标签将配置序列化为YAML
 	yamlData, err := yaml.Marshal(newCfg)
 	if err != nil {
 		logger.Errorf("Failed to marshal config to YAML: %v", err)
@@ -141,9 +131,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Debugf("Generated YAML:\n%s", string(yamlData))
-
-	// 写入配置文件
+	// 6. 写入配置文件
 	if err := s.writeConfigFile(yamlData); err != nil {
 		logger.Errorf("Failed to write config file %s: %v", s.configPath, err)
 		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
@@ -152,7 +140,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	logger.Infof("✓ Configuration written to %s successfully", s.configPath)
 
-	// 应用新配置到运行中的服务器
+	// 7. 应用新配置到运行中的服务器
 	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
 		logger.Errorf("✗ Failed to apply new configuration: %v", err)
 		s.writeJSONError(w, "Failed to apply configuration to running server: "+err.Error(), http.StatusInternalServerError)
@@ -231,6 +219,7 @@ func (s *Server) backupConfigFile(src, dst string) error {
 // validateConfig 验证配置
 func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.DNS.ListenPort <= 0 || cfg.DNS.ListenPort > 65535 {
+		logger.Errorf("Validation failed: invalid DNS listen port %d", cfg.DNS.ListenPort)
 		return fmt.Errorf("invalid DNS listen port: %d", cfg.DNS.ListenPort)
 	}
 
@@ -244,17 +233,21 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	}
 
 	if len(cfg.Upstream.Servers) == 0 && !cfg.Upstream.EnableRecursor {
+		logger.Error("Validation failed: at least one upstream server is required, or enable local recursion")
 		return fmt.Errorf("at least one upstream server is required, or enable local recursion")
 	}
 	if cfg.Upstream.TimeoutMs <= 0 {
+		logger.Errorf("Validation failed: upstream timeout must be positive, got %d", cfg.Upstream.TimeoutMs)
 		return fmt.Errorf("upstream timeout must be positive")
 	}
 	if cfg.Upstream.Strategy != "" && cfg.Upstream.Strategy != "random" && cfg.Upstream.Strategy != "parallel" && cfg.Upstream.Strategy != "sequential" && cfg.Upstream.Strategy != "racing" && cfg.Upstream.Strategy != "auto" {
+		logger.Errorf("Validation failed: invalid upstream strategy %s", cfg.Upstream.Strategy)
 		return fmt.Errorf("invalid upstream strategy: %s (must be 'random', 'parallel', 'sequential', 'racing', or 'auto')", cfg.Upstream.Strategy)
 	}
 
 	// User-provided concurrency, if any, must be positive.
 	if cfg.Upstream.Concurrency != nil && *cfg.Upstream.Concurrency <= 0 {
+		logger.Errorf("Validation failed: upstream concurrency must be positive, got %d", *cfg.Upstream.Concurrency)
 		return fmt.Errorf("upstream concurrency must be positive if specified, got %d", *cfg.Upstream.Concurrency)
 	}
 
@@ -262,6 +255,7 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.SequentialTimeout != nil {
 		val := *cfg.Upstream.SequentialTimeout
 		if val < MinSequentialTimeoutMs || val > MaxSequentialTimeoutMs {
+			logger.Errorf("Validation failed: sequential timeout must be between %dms and %dms, got %dms", MinSequentialTimeoutMs, MaxSequentialTimeoutMs, val)
 			return fmt.Errorf("sequential timeout must be between %dms and %dms if specified, got %dms", MinSequentialTimeoutMs, MaxSequentialTimeoutMs, val)
 		}
 	}
@@ -270,19 +264,22 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.RacingDelay != nil {
 		val := *cfg.Upstream.RacingDelay
 		if val < MinRacingDelayMs || val > MaxRacingDelayMs {
+			logger.Errorf("Validation failed: racing delay must be between %dms and %dms, got %dms", MinRacingDelayMs, MaxRacingDelayMs, val)
 			return fmt.Errorf("racing delay must be between %dms and %dms if specified, got %dms", MinRacingDelayMs, MaxRacingDelayMs, val)
 		}
 	}
 	// User-provided racing max concurrent, if any, must be within bounds.
 	if cfg.Upstream.RacingMaxConcurrent != nil {
 		val := *cfg.Upstream.RacingMaxConcurrent
-		if val < MinRacingMaxConcurrent || val > MaxRacingMaxConcurrent { // 适当放宽上限，manager 会根据服务器数再次限制
+		if val < MinRacingMaxConcurrent || val > MaxRacingMaxConcurrent {
+			logger.Errorf("Validation failed: racing max concurrent must be between 2 and 10, got %d", val)
 			return fmt.Errorf("racing max concurrent must be between 2 and 10 if specified, got %d", val)
 		}
 	}
 
 	// User-provided max connections, if any, must be non-negative (0 for auto).
 	if cfg.Upstream.MaxConnections != nil && *cfg.Upstream.MaxConnections < 0 {
+		logger.Error("Validation failed: max connections must be non-negative")
 		return fmt.Errorf("max connections must be non-negative if specified")
 	}
 
@@ -290,73 +287,94 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 	if cfg.Upstream.DynamicParamOptimization.EWMAAlpha != nil {
 		alpha := *cfg.Upstream.DynamicParamOptimization.EWMAAlpha
 		if alpha <= 0 || alpha >= 1 {
+			logger.Errorf("Validation failed: ewma_alpha must be between 0 and 1, got %f", alpha)
 			return fmt.Errorf("dynamic optimization ewma_alpha must be between 0 and 1")
 		}
 	}
 	if cfg.Upstream.DynamicParamOptimization.MaxStepMs != nil {
 		if *cfg.Upstream.DynamicParamOptimization.MaxStepMs <= 0 {
+			logger.Errorf("Validation failed: max_step_ms must be positive, got %d", *cfg.Upstream.DynamicParamOptimization.MaxStepMs)
 			return fmt.Errorf("dynamic optimization max_step_ms must be positive")
 		}
 	}
 	if cfg.Cache.MinTTLSeconds < 0 {
+		logger.Error("Validation failed: cache min TTL cannot be negative")
 		return fmt.Errorf("cache min TTL cannot be negative")
 	}
 	if cfg.Cache.MaxTTLSeconds < 0 {
+		logger.Error("Validation failed: cache max TTL cannot be negative")
 		return fmt.Errorf("cache max TTL cannot be negative")
 	}
 	if cfg.Cache.MinTTLSeconds > 0 && cfg.Cache.MaxTTLSeconds > 0 && cfg.Cache.MinTTLSeconds > cfg.Cache.MaxTTLSeconds {
+		logger.Errorf("Validation failed: cache min TTL (%d) cannot be greater than max TTL (%d)", cfg.Cache.MinTTLSeconds, cfg.Cache.MaxTTLSeconds)
 		return fmt.Errorf("cache min TTL cannot be greater than max TTL")
 	}
 	if cfg.Cache.FastResponseTTL <= 0 {
+		logger.Errorf("Validation failed: cache fast response TTL must be positive, got %d", cfg.Cache.FastResponseTTL)
 		return fmt.Errorf("cache fast response TTL must be positive")
 	}
 	if cfg.Cache.UserReturnTTL <= 0 {
+		logger.Errorf("Validation failed: cache user return TTL must be positive, got %d", cfg.Cache.UserReturnTTL)
 		return fmt.Errorf("cache user return TTL must be positive")
 	}
 	if cfg.Cache.NegativeTTLSeconds < 0 {
+		logger.Error("Validation failed: cache negative TTL cannot be negative")
 		return fmt.Errorf("cache negative TTL cannot be negative")
 	}
 	if cfg.Cache.ErrorCacheTTL < 0 {
+		logger.Error("Validation failed: cache error TTL cannot be negative")
 		return fmt.Errorf("cache error TTL cannot be negative")
 	}
 	if cfg.Ping.Count <= 0 {
+		logger.Errorf("Validation failed: ping count must be positive, got %d", cfg.Ping.Count)
 		return fmt.Errorf("ping count must be positive")
 	}
 	if cfg.Ping.TimeoutMs <= 0 {
+		logger.Errorf("Validation failed: ping timeout must be positive, got %d", cfg.Ping.TimeoutMs)
 		return fmt.Errorf("ping timeout must be positive")
 	}
 	if cfg.Ping.Concurrency <= 0 {
+		logger.Errorf("Validation failed: ping concurrency must be positive, got %d", cfg.Ping.Concurrency)
 		return fmt.Errorf("ping concurrency must be positive")
 	}
 	if cfg.Ping.MaxTestIPs < 0 {
+		logger.Error("Validation failed: max test IPs cannot be negative")
 		return fmt.Errorf("ping max test IPs cannot be negative")
 	}
 	if cfg.Ping.RttCacheTtlSeconds < 0 {
+		logger.Error("Validation failed: ping RTT cache TTL cannot be negative")
 		return fmt.Errorf("ping RTT cache TTL cannot be negative")
 	}
 	if cfg.Ping.Strategy != "min" && cfg.Ping.Strategy != "avg" && cfg.Ping.Strategy != "auto" {
+		logger.Errorf("Validation failed: invalid ping strategy %s", cfg.Ping.Strategy)
 		return fmt.Errorf("ping strategy must be 'min', 'avg' or 'auto'")
 	}
 	if cfg.WebUI.ListenPort <= 0 || cfg.WebUI.ListenPort > 65535 {
+		logger.Errorf("Validation failed: invalid WebUI listen port %d", cfg.WebUI.ListenPort)
 		return fmt.Errorf("invalid WebUI listen port: %d", cfg.WebUI.ListenPort)
 	}
 
 	// 验证系统配置
 	if cfg.System.MaxCPUCores < 0 {
+		logger.Error("Validation failed: max_cpu_cores cannot be negative")
 		return fmt.Errorf("max_cpu_cores cannot be negative")
 	}
 	if cfg.System.SortQueueWorkers < 0 {
+		logger.Error("Validation failed: sort_queue_workers cannot be negative")
 		return fmt.Errorf("sort_queue_workers cannot be negative")
 	}
 	if cfg.System.RefreshWorkers < 0 {
+		logger.Error("Validation failed: refresh_workers cannot be negative")
 		return fmt.Errorf("refresh_workers cannot be negative")
 	}
 
 	// 验证统计配置
 	if cfg.Stats.HotDomainsWindowHours < 0 {
+		logger.Error("Validation failed: hot_domains_window_hours cannot be negative")
 		return fmt.Errorf("hot_domains_window_hours cannot be negative")
 	}
 	if cfg.Stats.BlockedDomainsWindowHours < 0 {
+		logger.Error("Validation failed: blocked_domains_window_hours cannot be negative")
 		return fmt.Errorf("blocked_domains_window_hours cannot be negative")
 	}
 

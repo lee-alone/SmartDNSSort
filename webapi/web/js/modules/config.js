@@ -402,7 +402,9 @@ function showDefaultServersNotification() {
     }, 3000);
 }
 
-document.addEventListener('componentsLoaded', initializeConfigUI);
+document.addEventListener('componentsLoaded', () => {
+    initializeConfigUI();
+});
 
 window.addEventListener('languageChanged', () => {
     loadConfig();
@@ -432,7 +434,9 @@ function exportConfig() {
 }
 
 function importConfig(input) {
-    if (!input.files || !input.files[0]) return;
+    if (!input.files || !input.files[0]) {
+        return;
+    }
 
     const file = input.files[0];
     const reader = new FileReader();
@@ -440,7 +444,9 @@ function importConfig(input) {
     reader.onload = function (e) {
         try {
             const config = JSON.parse(e.target.result);
-            if (confirm(i18n.t('config.maintenance.importConfirm'))) {
+
+            const confirmMsg = i18n.t('config.maintenance.importConfirm') || "Confirm import?";
+            if (confirm(confirmMsg)) {
                 fetch(CONFIG_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -454,15 +460,20 @@ function importConfig(input) {
                         }
                         return response.json();
                     })
-                    .then(() => {
+                    .then(data => {
                         alert(i18n.t('config.maintenance.importSuccess'));
                         loadConfig();
                     })
-                    .catch(error => alert(i18n.t('config.maintenance.importError', { error: error.message })));
+                    .catch(error => {
+                        alert(i18n.t('config.maintenance.importError', { error: error.message }));
+                    });
             }
         } catch (err) {
-            alert(i18n.t('config.maintenance.invalidJsonError'));
+            alert(i18n.t('config.maintenance.invalidJsonError') + ": " + err.message);
         }
+    };
+    reader.onerror = function (err) {
+        alert("Error reading file");
     };
     reader.readAsText(file);
     // Reset input
@@ -485,3 +496,6 @@ function resetConfig() {
             .catch(error => alert(i18n.t('config.maintenance.resetError', { error: error.message })));
     }
 }
+window.importConfig = importConfig;
+window.exportConfig = exportConfig;
+window.resetConfig = resetConfig;
