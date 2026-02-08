@@ -134,6 +134,11 @@ function updateDashboard() {
 
     // Fetch recently blocked domains
     fetchRecentlyBlocked();
+    
+    // Update AdBlock status statistics (Blocked Today and Blocked Total)
+    if (typeof updateAdBlockTab === 'function') {
+        updateAdBlockTab();
+    }
 }
 
 function initializeDashboardButtons() {
