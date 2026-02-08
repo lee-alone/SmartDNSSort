@@ -81,39 +81,25 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取时间范围参数
-	daysStr := r.URL.Query().Get("days")
-	days := 7 // 默认7天
+	// 1. 获取基础统计信息（包含系统状态和全量域名统计）
+	stats := s.dnsServer.GetStats()
 
+	// 2. 获取时间范围参数并覆盖计数型数据
+	daysStr := r.URL.Query().Get("days")
 	if daysStr != "" {
 		if d, err := strconv.Atoi(daysStr); err == nil {
 			// 参数验证：只允许 1, 7, 30
 			if d == 1 || d == 7 || d == 30 {
-				days = d
+				rangeStats := s.dnsServer.GetStatsWithTimeRange(d)
+				// 使用时间范围内的计数覆盖实时累计计数
+				for k, v := range rangeStats {
+					stats[k] = v
+				}
 			}
 		}
 	}
 
-	// 如果指定了时间范围，返回时间范围内的统计
-	if daysStr != "" {
-		stats := s.dnsServer.GetStatsWithTimeRange(days)
-
-		// 添加热门域名和拦截域名数据（这些不受时间范围限制）
-		stats["top_domains"] = s.dnsServer.GetStats()["top_domains"]
-		stats["top_blocked_domains"] = s.dnsServer.GetStats()["top_blocked_domains"]
-
-		w.Header().Set("Content-Type", "application/json")
-		response := map[string]interface{}{
-			"success": true,
-			"message": "Statistics for last " + strconv.Itoa(days) + " days",
-			"data":    stats,
-		}
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-
-	// 否则返回完整统计信息
-	stats := s.dnsServer.GetStats()
+	// 3. 计算缓存内存统计（实时数据，不受时间范围影响）
 	cacheCfg := s.dnsServer.GetConfig().Cache
 	currentEntries := s.dnsCache.GetCurrentEntries()
 	expiredEntries := s.dnsCache.GetExpiredEntries()
@@ -147,6 +133,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"evictions_per_min": evictionsPerMin,
 	}
 
+	// 保持与原有格式兼容：直接返回统计 map，不包装 success/data (由 dashboard.js 决定)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
 		logger.Errorf("Failed to encode stats: %v", err)
