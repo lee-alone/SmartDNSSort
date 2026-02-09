@@ -50,8 +50,9 @@ func NewNetworkHealthChecker() NetworkHealthChecker {
 		failureThreshold: 2,               // 连续失败2次标记异常
 		probeTimeout:     5 * time.Second, // 5秒超时
 		probeURLs: []string{
-			"http://dns.msftncsi.com/ncsi.txt",                  // Windows NCSI
+			"http://www.msftconnecttest.com/connecttest.txt",    // Windows NCSI
 			"http://connectivitycheck.gstatic.com/generate_204", // Android NCSI
+			"http://www.apple.com/library/test/success.html",    // Apple NCSI
 		},
 		stopCh: make(chan struct{}),
 	}
@@ -160,6 +161,10 @@ func (c *networkHealthChecker) probe() bool {
 func (c *networkHealthChecker) probeURL(url string) bool {
 	client := &http.Client{
 		Timeout: c.probeTimeout,
+		// 不自动跟随重定向，检查原始响应状态码
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // 不自动跟随重定向
+		},
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -180,10 +185,14 @@ func (c *networkHealthChecker) probeURL(url string) bool {
 		_ = resp.Body.Close()
 	}()
 
-	// HTTP状态码2xx或204表示成功
-	// Windows NCSI 返回 200 和特定文本
+	// HTTP状态码判断：
+	// Windows NCSI 返回 200 OK
 	// Android NCSI 返回 204 No Content
-	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent
+	// Apple NCSI 返回 302 Found (重定向)，302说明网络通畅
+	// 只要能收到HTTP响应就说明网络通常，因此200/204/302都视为成功
+	return resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusNoContent ||
+		resp.StatusCode == http.StatusFound
 }
 
 // ====== 全局单例管理 ======
