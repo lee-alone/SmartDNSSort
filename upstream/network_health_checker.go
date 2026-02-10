@@ -1,8 +1,8 @@
 package upstream
 
 import (
-	"io"
-	"net/http"
+	"context"
+	"net"
 	"smartdnssort/logger"
 	"sync"
 	"sync/atomic"
@@ -21,6 +21,16 @@ type NetworkHealthChecker interface {
 	Stop()
 }
 
+// NetworkHealthConfig 网络健康检查配置
+type NetworkHealthConfig struct {
+	ProbeInterval       time.Duration // 探测间隔
+	FailureThreshold    int           // 失败阈值
+	ProbeTimeout        time.Duration // 单次探测超时
+	ProbeDomains        []string      // 探测域名列表
+	TestPorts           []string      // 测试的端口列表
+	MaxTestIPsPerDomain int           // 每个域名最多测试的IP数
+}
+
 // networkHealthChecker 网络健康检查器实现
 type networkHealthChecker struct {
 	// 原子操作：网络是否健康
@@ -32,28 +42,23 @@ type networkHealthChecker struct {
 	// 互斥锁保护 consecutiveFailures
 	mu sync.Mutex
 
-	// 配置参数（硬编码）
-	probeInterval    time.Duration // 探测间隔（5分钟）
-	failureThreshold int           // 失败阈值（2次）
-	probeTimeout     time.Duration // 单次探测超时（5秒）
-	probeURLs        []string      // 探测URL列表
+	// 配置参数
+	config NetworkHealthConfig
 
 	// 控制循环
 	stopCh chan struct{}
 	done   sync.WaitGroup
 }
 
-// NewNetworkHealthChecker 创建网络健康检查器
+// NewNetworkHealthChecker 创建网络健康检查器（使用默认配置）
 func NewNetworkHealthChecker() NetworkHealthChecker {
+	return NewNetworkHealthCheckerWithConfig(DefaultNetworkHealthConfig())
+}
+
+// NewNetworkHealthCheckerWithConfig 使用自定义配置创建网络健康检查器
+func NewNetworkHealthCheckerWithConfig(config NetworkHealthConfig) NetworkHealthChecker {
 	checker := &networkHealthChecker{
-		probeInterval:    5 * time.Minute, // 5分钟探测一次
-		failureThreshold: 2,               // 连续失败2次标记异常
-		probeTimeout:     5 * time.Second, // 5秒超时
-		probeURLs: []string{
-			"http://www.msftconnecttest.com/connecttest.txt",    // Windows NCSI
-			"http://connectivitycheck.gstatic.com/generate_204", // Android NCSI
-			"http://www.apple.com/library/test/success.html",    // Apple NCSI
-		},
+		config: config,
 		stopCh: make(chan struct{}),
 	}
 
@@ -61,6 +66,24 @@ func NewNetworkHealthChecker() NetworkHealthChecker {
 	checker.networkHealthy.Store(true)
 
 	return checker
+}
+
+// DefaultNetworkHealthConfig 返回默认配置
+func DefaultNetworkHealthConfig() NetworkHealthConfig {
+	return NetworkHealthConfig{
+		ProbeInterval:       5 * time.Minute,
+		FailureThreshold:    2,
+		ProbeTimeout:        2 * time.Second,       // 2秒超时
+		MaxTestIPsPerDomain: 3,                     // 每个域名最多测试3个IP
+		TestPorts:           []string{"443", "80"}, // 443优先，更可靠
+		ProbeDomains: []string{
+			"www.taobao.com",
+			"www.apple.com",
+			"www.microsoft.com",
+			"www.cloudflare.com",
+			"www.jd.com",
+		},
+	}
 }
 
 // IsNetworkHealthy 返回网络是否健康
@@ -84,7 +107,7 @@ func (c *networkHealthChecker) Stop() {
 func (c *networkHealthChecker) probeLoop() {
 	defer c.done.Done()
 
-	ticker := time.NewTicker(c.probeInterval)
+	ticker := time.NewTicker(c.config.ProbeInterval)
 	defer ticker.Stop()
 
 	for {
@@ -106,6 +129,9 @@ func (c *networkHealthChecker) performProbe() {
 
 	if healthy {
 		// 探测成功，重置失败计数
+		if c.consecutiveFailures > 0 {
+			logger.Infof("Network health check passed, failures reset from %d", c.consecutiveFailures)
+		}
 		c.consecutiveFailures = 0
 
 		// 如果之前网络异常，现在恢复，记录日志
@@ -116,9 +142,10 @@ func (c *networkHealthChecker) performProbe() {
 	} else {
 		// 探测失败，增加失败计数
 		c.consecutiveFailures++
+		logger.Warnf("Network health check failed (%d/%d)", c.consecutiveFailures, c.config.FailureThreshold)
 
 		// 连续失败达到阈值，标记网络异常
-		if c.consecutiveFailures >= c.failureThreshold {
+		if c.consecutiveFailures >= c.config.FailureThreshold {
 			if c.networkHealthy.Load() {
 				logger.Warn("Network health abnormal detected, statistics frozen")
 				c.networkHealthy.Store(false)
@@ -127,18 +154,24 @@ func (c *networkHealthChecker) performProbe() {
 	}
 }
 
-// probe 并发探测所有URL，任一成功则返回true
+// probe 使用TCP连接测试探测所有域名，只有全部失败才返回false
+// 返回true表示至少有一个域名ping通（网络正常）
+// 返回false表示所有域名都ping不通（网络掉线）
 func (c *networkHealthChecker) probe() bool {
-	// 使用WaitGroup和channel并发探测，任一成功即返回
-	resultCh := make(chan bool, len(c.probeURLs))
+	// 为所有DNS解析创建共享的context，3秒超时
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// 并发探测所有域名
+	resultCh := make(chan bool, len(c.config.ProbeDomains))
 	var wg sync.WaitGroup
 
-	for _, url := range c.probeURLs {
+	for _, domain := range c.config.ProbeDomains {
 		wg.Add(1)
-		go func(url string) {
+		go func(domain string) {
 			defer wg.Done()
-			resultCh <- c.probeURL(url)
-		}(url)
+			resultCh <- c.probeDomainWithCtx(domain, ctx)
+		}(domain)
 	}
 
 	// 在goroutine完成时关闭channel
@@ -147,52 +180,65 @@ func (c *networkHealthChecker) probe() bool {
 		close(resultCh)
 	}()
 
-	// 任一URL返回success就认为网络正常
+	// 统计成功和失败的数量，快速失败优化：一旦有成功就返回
 	for result := range resultCh {
 		if result {
+			// 已经至少一个成功，立即返回
+			// 其他goroutine继续运行但结果被忽略
 			return true
+		}
+	}
+
+	// 所有域名都失败
+	return false
+}
+
+// probeDomainWithCtx 使用TCP连接测试探测单个域名
+// 测试前3个IP（优先选择IPv4），每个IP测试443和80端口
+// ctx 是共享的DNS解析超时context
+func (c *networkHealthChecker) probeDomainWithCtx(domain string, ctx context.Context) bool {
+	// 解析域名获取IP地址（使用共享的context）
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+
+	dialer := net.Dialer{Timeout: c.config.ProbeTimeout}
+
+	// 测试前 MaxTestIPsPerDomain 个 IP（优先选择 IPv4）
+	testCount := 0
+	for _, ipAddr := range ips {
+		if testCount >= c.config.MaxTestIPsPerDomain {
+			break
+		}
+
+		ip := ipAddr.IP
+
+		// 优先测 IPv4
+		if ip.To4() == nil {
+			continue
+		}
+		testCount++
+
+		// 测试配置的端口（443优先，更可靠）
+		for _, port := range c.config.TestPorts {
+			conn, err := dialer.Dial("tcp", ip.String()+":"+port)
+			if err == nil {
+				conn.Close()
+				return true
+			}
 		}
 	}
 
 	return false
 }
 
-// probeURL 单个URL的探测
-func (c *networkHealthChecker) probeURL(url string) bool {
-	client := &http.Client{
-		Timeout: c.probeTimeout,
-		// 不自动跟随重定向，检查原始响应状态码
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // 不自动跟随重定向
-		},
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return false
-	}
-
-	// 添加合理的User-Agent
-	req.Header.Set("User-Agent", "SmartDNSSort/1.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-
-	defer func() {
-		_, _ = io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-	}()
-
-	// HTTP状态码判断：
-	// Windows NCSI 返回 200 OK
-	// Android NCSI 返回 204 No Content
-	// Apple NCSI 返回 302 Found (重定向)，302说明网络通畅
-	// 只要能收到HTTP响应就说明网络通常，因此200/204/302都视为成功
-	return resp.StatusCode == http.StatusOK ||
-		resp.StatusCode == http.StatusNoContent ||
-		resp.StatusCode == http.StatusFound
+// probeDomain 使用TCP连接测试探测单个域名（已弃用，保留用于向后兼容）
+// 新代码应使用 probeDomainWithCtx
+func (c *networkHealthChecker) probeDomain(domain string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return c.probeDomainWithCtx(domain, ctx)
 }
 
 // ====== 全局单例管理 ======
