@@ -1,12 +1,14 @@
 package upstream
 
 import (
-	"context"
 	"net"
 	"smartdnssort/logger"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 // NetworkHealthChecker 网络健康检查器接口
@@ -23,12 +25,10 @@ type NetworkHealthChecker interface {
 
 // NetworkHealthConfig 网络健康检查配置
 type NetworkHealthConfig struct {
-	ProbeInterval       time.Duration // 探测间隔
-	FailureThreshold    int           // 失败阈值
-	ProbeTimeout        time.Duration // 单次探测超时
-	ProbeDomains        []string      // 探测域名列表
-	TestPorts           []string      // 测试的端口列表
-	MaxTestIPsPerDomain int           // 每个域名最多测试的IP数
+	ProbeInterval    time.Duration // 探测间隔
+	FailureThreshold int           // 失败阈值
+	ProbeTimeout     time.Duration // 单次探测超时
+	ProbeIPs         []string      // 探测IP列表
 }
 
 // networkHealthChecker 网络健康检查器实现
@@ -71,17 +71,14 @@ func NewNetworkHealthCheckerWithConfig(config NetworkHealthConfig) NetworkHealth
 // DefaultNetworkHealthConfig 返回默认配置
 func DefaultNetworkHealthConfig() NetworkHealthConfig {
 	return NetworkHealthConfig{
-		ProbeInterval:       5 * time.Minute,
-		FailureThreshold:    2,
-		ProbeTimeout:        2 * time.Second,       // 2秒超时
-		MaxTestIPsPerDomain: 3,                     // 每个域名最多测试3个IP
-		TestPorts:           []string{"443", "80"}, // 443优先，更可靠
-		ProbeDomains: []string{
-			"www.taobao.com",
-			"www.apple.com",
-			"www.microsoft.com",
-			"www.cloudflare.com",
-			"www.jd.com",
+		ProbeInterval:    5 * time.Minute,
+		FailureThreshold: 2,
+		ProbeTimeout:     2 * time.Second,
+		ProbeIPs: []string{
+			"8.8.8.8",   // Google DNS
+			"8.8.4.4",   // Google DNS
+			"223.5.5.5", // Alibaba DNS (China)
+			"223.6.6.6", // Alibaba DNS (China)
 		},
 	}
 }
@@ -154,24 +151,20 @@ func (c *networkHealthChecker) performProbe() {
 	}
 }
 
-// probe 使用TCP连接测试探测所有域名，只有全部失败才返回false
-// 返回true表示至少有一个域名ping通（网络正常）
-// 返回false表示所有域名都ping不通（网络掉线）
+// probe 使用ICMP ping测试探测所有IP，只有全部失败才返回false
+// 返回true表示至少有一个IP ping通（网络正常）
+// 返回false表示所有IP都ping不通（网络掉线）
 func (c *networkHealthChecker) probe() bool {
-	// 为所有DNS解析创建共享的context，3秒超时
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// 并发探测所有域名
-	resultCh := make(chan bool, len(c.config.ProbeDomains))
+	// 并发探测所有IP
+	resultCh := make(chan bool, len(c.config.ProbeIPs))
 	var wg sync.WaitGroup
 
-	for _, domain := range c.config.ProbeDomains {
+	for _, ip := range c.config.ProbeIPs {
 		wg.Add(1)
-		go func(domain string) {
+		go func(ip string) {
 			defer wg.Done()
-			resultCh <- c.probeDomainWithCtx(domain, ctx)
-		}(domain)
+			resultCh <- c.probeIP(ip)
+		}(ip)
 	}
 
 	// 在goroutine完成时关闭channel
@@ -189,56 +182,78 @@ func (c *networkHealthChecker) probe() bool {
 		}
 	}
 
-	// 所有域名都失败
+	// 所有IP都失败
 	return false
 }
 
-// probeDomainWithCtx 使用TCP连接测试探测单个域名
-// 测试前3个IP（优先选择IPv4），每个IP测试443和80端口
-// ctx 是共享的DNS解析超时context
-func (c *networkHealthChecker) probeDomainWithCtx(domain string, ctx context.Context) bool {
-	// 解析域名获取IP地址（使用共享的context）
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
-	if err != nil || len(ips) == 0 {
+// probeIP 使用ICMP ping测试单个IP
+func (c *networkHealthChecker) probeIP(ip string) bool {
+	// 创建ICMP连接
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		logger.Debugf("Failed to create ICMP connection for %s: %v", ip, err)
+		return false
+	}
+	defer conn.Close()
+
+	// 设置读超时
+	conn.SetDeadline(time.Now().Add(c.config.ProbeTimeout))
+
+	// 记录开始时间用于RTT统计
+	start := time.Now()
+
+	// 创建ICMP echo请求
+	msg := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:  1,
+			Seq: 1,
+		},
+	}
+
+	// 编码消息
+	b, err := msg.Marshal(nil)
+	if err != nil {
+		logger.Debugf("Failed to marshal ICMP message for %s: %v", ip, err)
 		return false
 	}
 
-	dialer := net.Dialer{Timeout: c.config.ProbeTimeout}
+	// 发送ICMP echo请求
+	_, err = conn.WriteTo(b, &net.IPAddr{IP: net.ParseIP(ip)})
+	if err != nil {
+		logger.Debugf("Failed to send ICMP echo to %s: %v", ip, err)
+		return false
+	}
 
-	// 测试前 MaxTestIPsPerDomain 个 IP（优先选择 IPv4）
-	testCount := 0
-	for _, ipAddr := range ips {
-		if testCount >= c.config.MaxTestIPsPerDomain {
-			break
-		}
+	// 接收ICMP echo回复（缓冲区大小优化为256字节）
+	reply := make([]byte, 256)
+	_, _, err = conn.ReadFrom(reply)
+	if err != nil {
+		logger.Debugf("Failed to receive ICMP echo reply from %s: %v", ip, err)
+		return false
+	}
 
-		ip := ipAddr.IP
+	// 解析回复（1 = ICMPv4 protocol number）
+	rm, err := icmp.ParseMessage(1, reply)
+	if err != nil {
+		logger.Debugf("Failed to parse ICMP reply from %s: %v", ip, err)
+		return false
+	}
 
-		// 优先测 IPv4
-		if ip.To4() == nil {
-			continue
-		}
-		testCount++
-
-		// 测试配置的端口（443优先，更可靠）
-		for _, port := range c.config.TestPorts {
-			conn, err := dialer.Dial("tcp", ip.String()+":"+port)
-			if err == nil {
-				conn.Close()
+	// 检查是否是echo回复，并验证ID和Seq
+	if rm.Type == ipv4.ICMPTypeEchoReply {
+		if echoReply, ok := rm.Body.(*icmp.Echo); ok {
+			if echoReply.ID == 1 && echoReply.Seq == 1 {
+				rtt := time.Since(start)
+				logger.Debugf("Ping to %s successful, RTT: %v", ip, rtt)
 				return true
 			}
 		}
 	}
 
+	logger.Debugf("Unexpected ICMP response from %s: %v", ip, rm.Type)
 	return false
-}
-
-// probeDomain 使用TCP连接测试探测单个域名（已弃用，保留用于向后兼容）
-// 新代码应使用 probeDomainWithCtx
-func (c *networkHealthChecker) probeDomain(domain string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	return c.probeDomainWithCtx(domain, ctx)
 }
 
 // ====== 全局单例管理 ======

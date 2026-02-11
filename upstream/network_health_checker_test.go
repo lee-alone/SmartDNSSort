@@ -1,8 +1,6 @@
 package upstream
 
 import (
-	"context"
-	"net"
 	"testing"
 	"time"
 )
@@ -20,12 +18,10 @@ func TestNetworkHealthCheckerInitialState(t *testing.T) {
 // TestNetworkHealthCheckerWithCustomConfig 测试自定义配置
 func TestNetworkHealthCheckerWithCustomConfig(t *testing.T) {
 	config := NetworkHealthConfig{
-		ProbeInterval:       1 * time.Second,
-		FailureThreshold:    1,
-		ProbeTimeout:        1 * time.Second,
-		MaxTestIPsPerDomain: 2,
-		TestPorts:           []string{"443", "80"},
-		ProbeDomains:        []string{"localhost"},
+		ProbeInterval:    1 * time.Second,
+		FailureThreshold: 1,
+		ProbeTimeout:     1 * time.Second,
+		ProbeIPs:         []string{"8.8.8.8", "8.8.4.4"},
 	}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
@@ -36,22 +32,20 @@ func TestNetworkHealthCheckerWithCustomConfig(t *testing.T) {
 	}
 }
 
-// TestNetworkHealthCheckerProbeDomainSuccess 测试成功的域名探测
-func TestNetworkHealthCheckerProbeDomainSuccess(t *testing.T) {
+// TestNetworkHealthCheckerProbeDomainSuccess 测试成功的IP探测
+func TestNetworkHealthCheckerProbeIPSuccess(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 5 * time.Second
-	config.ProbeDomains = []string{"localhost"}
+	config.ProbeIPs = []string{"8.8.8.8"}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 
 	// 初始状态：健康
 	checker.(*networkHealthChecker).networkHealthy.Store(true)
 
-	// 执行探测 - localhost应该总是可以解析的
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	result := checker.(*networkHealthChecker).probeDomainWithCtx("localhost", ctx)
-	// 注意：这个测试可能因为localhost没有开放的端口而失败，这是预期的
+	// 执行探测 - 8.8.8.8应该可以ping通（如果网络连接正常）
+	result := checker.(*networkHealthChecker).probeIP("8.8.8.8")
+	// 注意：这个测试可能因为网络环境而失败，这是预期的
 	_ = result
 }
 
@@ -59,37 +53,35 @@ func TestNetworkHealthCheckerProbeDomainSuccess(t *testing.T) {
 func TestNetworkHealthCheckerProbeFail(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 1 * time.Second
-	config.ProbeDomains = []string{"invalid.domain.that.does.not.exist.local"}
+	config.ProbeIPs = []string{"192.0.2.1"} // RFC 5737 TEST-NET-1，不可达
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 
 	// 执行探测
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	result := checker.(*networkHealthChecker).probeDomainWithCtx("invalid.domain.that.does.not.exist.local", ctx)
+	result := checker.(*networkHealthChecker).probeIP("192.0.2.1")
 	if result {
-		t.Error("Expected probe to fail for invalid domain")
+		t.Error("Expected probe to fail for unreachable IP")
 	}
 }
 
-// TestNetworkHealthCheckerProbeAllFail 测试所有域名都失败
+// TestNetworkHealthCheckerProbeAllFail 测试所有IP都失败
 func TestNetworkHealthCheckerProbeAllFail(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 1 * time.Second
-	config.ProbeDomains = []string{
-		"invalid1.local",
-		"invalid2.local",
-		"invalid3.local",
-		"invalid4.local",
-		"invalid5.local",
+	config.ProbeIPs = []string{
+		"192.0.2.1",
+		"192.0.2.2",
+		"192.0.2.3",
+		"192.0.2.4",
+		"192.0.2.5",
 	}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 
-	// 执行探测 - 所有域名都应该失败
+	// 执行探测 - 所有IP都应该失败
 	result := checker.(*networkHealthChecker).probe()
 	if result {
-		t.Error("Expected probe to fail when all domains are unreachable")
+		t.Error("Expected probe to fail when all IPs are unreachable")
 	}
 }
 
@@ -97,7 +89,7 @@ func TestNetworkHealthCheckerProbeAllFail(t *testing.T) {
 func TestNetworkHealthCheckerConsecutiveFailures(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 1 * time.Second
-	config.ProbeDomains = []string{"invalid.local"}
+	config.ProbeIPs = []string{"192.0.2.1"}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)
@@ -129,7 +121,7 @@ func TestNetworkHealthCheckerConsecutiveFailures(t *testing.T) {
 func TestNetworkHealthCheckerRecovery(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 5 * time.Second
-	config.ProbeDomains = []string{"invalid.local"}
+	config.ProbeIPs = []string{"192.0.2.1"}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)
@@ -145,15 +137,15 @@ func TestNetworkHealthCheckerRecovery(t *testing.T) {
 		t.Error("Network should be marked as abnormal")
 	}
 
-	// 现在更改为可以解析的域名
-	c.config.ProbeDomains = []string{"localhost"}
+	// 现在更改为可以ping通的IP
+	c.config.ProbeIPs = []string{"8.8.8.8"}
 
-	// 执行探测，应该恢复（如果localhost有开放的端口）
+	// 执行探测，应该恢复（如果网络连接正常）
 	c.performProbe()
 
 	// 如果恢复成功，失败计数应该重置
 	if c.consecutiveFailures != 0 {
-		t.Logf("Consecutive failures: %d (may be non-zero if localhost probe failed)", c.consecutiveFailures)
+		t.Logf("Consecutive failures: %d (may be non-zero if probe failed)", c.consecutiveFailures)
 	}
 }
 
@@ -161,7 +153,7 @@ func TestNetworkHealthCheckerRecovery(t *testing.T) {
 func TestNetworkHealthCheckerStartStop(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeInterval = 50 * time.Millisecond
-	config.ProbeDomains = []string{"localhost"}
+	config.ProbeIPs = []string{"8.8.8.8"}
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 
@@ -188,55 +180,52 @@ func TestNetworkHealthCheckerTimeout(t *testing.T) {
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)
 
-	// 尝试连接到一个不存在的IP地址（应该超时）
-	dialer := net.Dialer{
-		Timeout: c.config.ProbeTimeout,
-	}
-
-	// 使用一个不可达的IP地址（RFC 5737 TEST-NET-1）
-	_, err := dialer.Dial("tcp", "192.0.2.1:80")
-	if err == nil {
-		t.Error("Expected connection to timeout or fail")
+	// 尝试ping一个不可达的IP地址（应该超时）
+	result := c.probeIP("192.0.2.1")
+	if result {
+		t.Error("Expected ping to unreachable IP to fail")
 	}
 }
 
-// TestNetworkHealthCheckerDomainResolution 测试域名解析
-func TestNetworkHealthCheckerDomainResolution(t *testing.T) {
-	// 测试localhost解析
-	ips, err := net.LookupIP("localhost")
-	if err != nil {
-		t.Fatalf("Failed to resolve localhost: %v", err)
-	}
-
-	if len(ips) == 0 {
-		t.Error("Expected to resolve at least one IP for localhost")
-	}
-}
-
-// TestNetworkHealthCheckerIPv4Priority 测试IPv4优先
-func TestNetworkHealthCheckerIPv4Priority(t *testing.T) {
+// TestNetworkHealthCheckerDomainResolution 测试IP配置
+func TestNetworkHealthCheckerIPConfig(t *testing.T) {
+	// 测试默认配置中的IP
 	config := DefaultNetworkHealthConfig()
-	config.ProbeTimeout = 5 * time.Second
-	config.MaxTestIPsPerDomain = 3
 
-	_ = NewNetworkHealthCheckerWithConfig(config)
-
-	// 测试IPv4优先逻辑
-	ips, err := net.LookupIP("localhost")
-	if err != nil {
-		t.Fatalf("Failed to resolve localhost: %v", err)
+	if len(config.ProbeIPs) == 0 {
+		t.Error("Expected ProbeIPs to be configured")
 	}
 
-	// 计算IPv4数量
-	ipv4Count := 0
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			ipv4Count++
+	// 验证包含Google和Alibaba DNS
+	hasGoogle := false
+	hasAlibaba := false
+	for _, ip := range config.ProbeIPs {
+		if ip == "8.8.8.8" || ip == "8.8.4.4" {
+			hasGoogle = true
+		}
+		if ip == "223.5.5.5" || ip == "223.6.6.6" {
+			hasAlibaba = true
 		}
 	}
 
-	if ipv4Count == 0 {
-		t.Logf("No IPv4 addresses found for localhost (may be IPv6-only)")
+	if !hasGoogle {
+		t.Error("Expected Google DNS IPs in configuration")
+	}
+	if !hasAlibaba {
+		t.Error("Expected Alibaba DNS IPs in configuration")
+	}
+}
+
+// TestNetworkHealthCheckerIPv4Priority 测试IP配置
+func TestNetworkHealthCheckerIPConfiguration(t *testing.T) {
+	config := DefaultNetworkHealthConfig()
+	config.ProbeTimeout = 5 * time.Second
+
+	_ = NewNetworkHealthCheckerWithConfig(config)
+
+	// 验证配置中有有效的IP地址
+	if len(config.ProbeIPs) == 0 {
+		t.Error("Expected ProbeIPs to be configured")
 	}
 }
 
