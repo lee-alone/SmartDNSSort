@@ -281,9 +281,9 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 	return nil
 }
 
-func (m *AdBlockManager) CheckHost(domain string) (bool, string) {
+func (m *AdBlockManager) CheckHost(domain string) (MatchResult, string) {
 	if !m.cfg.Enable {
-		return false, ""
+		return MatchNeutral, ""
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -389,17 +389,25 @@ func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
 }
 
 type TestResult struct {
-	Domain  string `json:"domain"`
-	Blocked bool   `json:"blocked"`
-	Rule    string `json:"rule"`
-	Source  string `json:"source"` // This would be hard to implement without more info
+	Domain string `json:"domain"`
+	Status string `json:"status"` // "blocked", "allowed", "neutral"
+	Rule   string `json:"rule"`
+	Source string `json:"source"`
 }
 
 func (m *AdBlockManager) TestDomain(domain string) TestResult {
-	blocked, rule := m.CheckHost(domain)
+	result, rule := m.CheckHost(domain)
+	status := "neutral"
+	switch result {
+	case MatchBlocked:
+		status = "blocked"
+	case MatchAllowed:
+		status = "allowed"
+	}
+
 	return TestResult{
-		Domain:  domain,
-		Blocked: blocked,
-		Rule:    rule,
+		Domain: domain,
+		Status: status,
+		Rule:   rule,
 	}
 }

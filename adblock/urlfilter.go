@@ -50,26 +50,25 @@ func (e *URLFilterEngine) LoadRules(rules []string) error {
 	return nil
 }
 
-func (e *URLFilterEngine) CheckHost(domain string) (bool, string) {
+func (e *URLFilterEngine) CheckHost(domain string) (MatchResult, string) {
 	if e.engine == nil {
-		return false, ""
+		return MatchNeutral, ""
 	}
 
 	result, matched := e.engine.Match(domain)
 	if !matched || result == nil {
-		return false, ""
+		return MatchNeutral, ""
 	}
 
 	if result.NetworkRule != nil {
-		// 新版统一用 .Text() 方法获取原始规则文本
 		ruleText := result.NetworkRule.Text()
 		if strings.HasPrefix(ruleText, "@@") {
-			return false, ""
+			return MatchAllowed, ruleText
 		}
-		return true, ruleText
+		return MatchBlocked, ruleText
 	}
 
-	return false, ""
+	return MatchNeutral, ""
 }
 
 func (e *URLFilterEngine) Count() int {

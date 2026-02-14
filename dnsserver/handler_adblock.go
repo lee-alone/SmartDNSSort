@@ -26,27 +26,19 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 		s.cache.GetRecentlyBlocked().Add(domain)
 
 		// 根据配置返回拦截响应
-		switch cfg.AdBlock.BlockMode {
-		case "nxdomain":
-			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		case "zero_ip":
-			buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
-		case "refuse":
-			buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		default:
-			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		}
+		s.sendAdBlockResponse(w, r, cfg.AdBlock.BlockMode, cfg.AdBlock.BlockedTTL, cfg.AdBlock.BlockedResponseIP)
 		return true
 	}
 
 	// 2. 检查白名单缓存 (快速路径)
-	// 如果在白名单缓存中，直接跳过 AdBlock 检查
-	if s.cache.GetAllowed(domain) {
+	// 如果在白名单缓存中，且是显式允许的，直接跳过 AdBlock 检查
+	if s.cache.GetExplicitAllowed(domain) {
 		return false // 继续执行后续 DNS 逻辑
 	}
 
 	// 3. 执行完整的规则匹配
-	if blocked, rule := adblockMgr.CheckHost(domain); blocked {
+	matchResult, rule := adblockMgr.CheckHost(domain)
+	if matchResult == adblock.MatchBlocked {
 		logger.Debugf("[AdBlock] Blocked: %s (rule: %s)", domain, rule)
 
 		// 记录统计
@@ -64,26 +56,32 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 		s.cache.GetRecentlyBlocked().Add(domain)
 
 		// 根据配置返回拦截响应
-		switch cfg.AdBlock.BlockMode {
-		case "nxdomain":
-			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		case "zero_ip":
-			buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
-		case "refuse":
-			buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		default:
-			buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-		}
+		s.sendAdBlockResponse(w, r, cfg.AdBlock.BlockMode, cfg.AdBlock.BlockedTTL, cfg.AdBlock.BlockedResponseIP)
 		return true
 	}
 
 	// 写入白名单缓存
-	// 缓存 10 分钟 (600秒)，避免频繁检查热门白名单域名
+	isExplicit := (matchResult == adblock.MatchAllowed)
 	s.cache.SetAllowed(domain, &cache.AllowedCacheEntry{
-		ExpiredAt: time.Now().Add(600 * time.Second),
+		ExpiredAt:  time.Now().Add(600 * time.Second),
+		IsExplicit: isExplicit,
 	})
 
 	return false // 未被拦截，继续处理
+}
+
+// sendAdBlockResponse 根据配置发送拦截响应
+func (s *Server) sendAdBlockResponse(w dns.ResponseWriter, r *dns.Msg, blockMode string, ttl int, responseIP string) {
+	switch blockMode {
+	case "nxdomain":
+		buildNXDomainResponse(w, r, s.msgPool, s, ttl)
+	case "zero_ip":
+		buildZeroIPResponse(w, r, responseIP, ttl, s.msgPool)
+	case "refuse":
+		buildRefuseResponse(w, r, s.msgPool, s, ttl)
+	default:
+		buildNXDomainResponse(w, r, s.msgPool, s, ttl)
+	}
 }
 
 // handleCNAMEChainValidation 对 CNAME 链进行 AdBlock 检查
@@ -93,9 +91,16 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 		return false
 	}
 
+	// 如果主域名是显式允许的，跳过 CNAME 链检查
+	if s.cache.GetExplicitAllowed(domain) {
+		logger.Debugf("[AdBlock] Domain %s is explicitly allowed, skipping CNAME chain validation", domain)
+		return false
+	}
+
 	for _, cnameToCheck := range cnames {
 		cnameDomain := strings.TrimRight(cnameToCheck, ".")
-		if blocked, rule := adblockMgr.CheckHost(cnameDomain); blocked {
+		matchResult, rule := adblockMgr.CheckHost(cnameDomain)
+		if matchResult == adblock.MatchBlocked {
 			logger.Debugf("[AdBlock] CNAME Blocked: %s found in chain for %s (rule: %s)", cnameDomain, domain, rule)
 			adblockMgr.RecordBlock(domain, rule) // 记录主域名被拦截
 			s.stats.RecordBlockedDomain(domain)
@@ -111,17 +116,13 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 			s.cache.GetRecentlyBlocked().Add(domain)
 
 			// 返回拦截响应
-			switch cfg.AdBlock.BlockMode {
-			case "nxdomain":
-				buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-			case "zero_ip":
-				buildZeroIPResponse(w, r, cfg.AdBlock.BlockedResponseIP, cfg.AdBlock.BlockedTTL, s.msgPool)
-			case "refuse":
-				buildRefuseResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-			default:
-				buildNXDomainResponse(w, r, s.msgPool, s, cfg.AdBlock.BlockedTTL)
-			}
+			s.sendAdBlockResponse(w, r, cfg.AdBlock.BlockMode, cfg.AdBlock.BlockedTTL, cfg.AdBlock.BlockedResponseIP)
 			return true
+		} else if matchResult == adblock.MatchAllowed {
+			// 如果 CNAME 链中的某个域名被明确允许，我们可以选择停止检查或者仅针对此 CNAME 允许
+			// 通常 AdGuard 逻辑是如果链中任何一个被拦截，则拦截主域名
+			// 但是如果主域名被允许，已经在上面处理了
+			logger.Debugf("[AdBlock] CNAME %s is explicitly allowed, continuing chain validation", cnameDomain)
 		}
 	}
 	return false

@@ -31,32 +31,32 @@ func NewSimpleFilter() *SimpleFilter {
 }
 
 // CheckHost implements the FilterEngine interface.
-func (f *SimpleFilter) CheckHost(domain string) (bool, string) {
+func (f *SimpleFilter) CheckHost(domain string) (MatchResult, string) {
 	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
 
 	// 1. 检查精确匹配 (黑名单)
 	if matched, rule := f.exactMatcher.Match(domain); matched {
-		return true, "Blacklist: " + rule
+		return MatchBlocked, "Blacklist: " + rule
 	}
 
 	// 2. 检查 Hosts 匹配
 	if matched, rule := f.hostsMatcher.Match(domain); matched {
-		return true, "Hosts: " + rule
+		return MatchBlocked, "Hosts: " + rule
 	}
 
 	// 3. 检查后缀匹配 (AdBlock ||example.com^)
 	if matched, rule := f.suffixMatcher.Match(domain); matched {
-		return true, "AdBlock: " + rule
+		return MatchBlocked, "AdBlock: " + rule
 	}
 
 	// 4. 检查正则匹配 (新增)
 	for _, rule := range f.regexRules {
 		if rule.Pattern.MatchString(domain) {
-			return true, "Regex: " + rule.Raw
+			return MatchBlocked, "Regex: " + rule.Raw
 		}
 	}
 
-	return false, ""
+	return MatchNeutral, ""
 }
 
 // LoadRules implements the FilterEngine interface.
