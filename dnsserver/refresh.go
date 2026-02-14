@@ -38,6 +38,7 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	var finalIPs []string
 	var fullCNAMEs []string
 	var finalTTL uint32
+	var recordsToCache []dns.RR
 
 	if len(result.IPs) == 0 && len(result.CNAMEs) > 0 {
 		// Scenario 1: Got a CNAME, need to resolve it recursively
@@ -63,11 +64,14 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 			}
 		}
 		finalTTL = finalResult.TTL
+		// 保存原始查询的记录（包含 CNAME），而不是递归结果的记录
+		recordsToCache = result.Records
 	} else {
 		// Scenario 2: Got IPs directly, or an empty result
 		finalIPs = result.IPs
 		fullCNAMEs = result.CNAMEs
 		finalTTL = result.TTL
+		recordsToCache = result.Records
 	}
 
 	// If we still have no IPs, there's nothing to sort or update.
@@ -81,17 +85,15 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	// 只为原始查询域名创建缓存，不为CNAME链中的其他域名创建缓存
 	// 原因：CNAME链中的每个域名可能有不同的IP，不应该都关联到相同的IP列表
 	// 这会导致直接查询CNAME时返回错误的IP，造成证书错误
-	s.cache.SetRaw(domain, qtype, finalIPs, fullCNAMEs, finalTTL)
+
+	// 获取完整的 DNS 记录（包括 TXT、MX、SRV 等）
+	// 这是修复 Bug 的关键：使用 SetRawRecords 而不是 SetRaw
+	// SetRaw 会将 Records 字段设置为 nil，导致非 IP 记录在刷新后丢失
+	s.cache.SetRawRecords(domain, qtype, recordsToCache, fullCNAMEs, finalTTL)
+
 	// 通知 Prefetcher 更新 IP 哈希
 	s.prefetcher.UpdateSimHash(domain, finalIPs)
 	go s.sortIPsAsync(domain, qtype, finalIPs, finalTTL, time.Now())
-
-	// ========== 关键修复：删除为CNAME创建缓存的循环 ==========
-	// 修复前的代码会为CNAME链中的每个域名都创建缓存，导致所有CNAME都关联到相同的IP
-	// 这是导致"域名和IP不匹配"问题的根本原因
-	//
-	// 修复后：只为原始查询域名创建缓存
-	// 如果用户直接查询CNAME，会触发新的查询，而不是返回错误的缓存IP
 }
 
 // RefreshDomain is the public method to trigger a cache refresh for a domain.
