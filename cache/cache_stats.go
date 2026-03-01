@@ -32,10 +32,11 @@ func (c *Cache) getMemoryUsagePercentLocked() float64 {
 	return float64(c.rawCache.Len()) / float64(c.maxEntries)
 }
 
-// GetExpiredEntries 统计已过期的条目数（快速估算）
+// GetExpiredHeapEntries 统计过期堆中的条目数（内部监控指标）
 // 使用过期堆快速估算，而不是遍历所有条目
 // 时间复杂度从 O(n) 降低到 O(k)，其中 k 是堆中已过期的条目数
-func (c *Cache) GetExpiredEntries() int {
+// 注意：此指标包含幽灵索引（堆中存在但缓存中不存在的索引）
+func (c *Cache) GetExpiredHeapEntries() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -54,6 +55,24 @@ func (c *Cache) GetExpiredEntries() int {
 	}
 
 	return count
+}
+
+// GetExpiredEntries 统计已过期的条目数（UI展示指标）
+// 返回缓存中实际存在且已过期的条目数
+// 此指标不会超过总条目数，符合用户直觉
+func (c *Cache) GetExpiredEntries() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return int(c.actualExpiredCount)
+}
+
+// GetStaleHeapEntries 统计堆中的幽灵索引数（监控指标）
+// 幽灵索引：堆中存在但缓存中不存在的索引
+// 用于监控堆的健康度
+func (c *Cache) GetStaleHeapEntries() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return int(c.staleHeapCount)
 }
 
 // GetProtectedEntries 统计受保护的条目数

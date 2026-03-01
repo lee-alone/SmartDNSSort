@@ -54,6 +54,10 @@ type Cache struct {
 
 	// 监控指标
 	heapChannelFullCount int64 // channel 满的次数（原子操作）
+
+	// 过期统计（用于UI展示）
+	actualExpiredCount int64 // 实际过期条目计数（缓存中存在且已过期的条目）
+	staleHeapCount     int64 // 幽灵索引计数（堆中存在但缓存中不存在的索引）
 }
 
 // NewCache 创建新的缓存实例
@@ -134,6 +138,11 @@ func (c *Cache) Clear() {
 	c.blockedCache = make(map[string]*BlockedCacheEntry)
 	c.allowedCache = make(map[string]*AllowedCacheEntry)
 	c.msgCache.Clear()
+
+	// 清空过期堆和统计
+	c.expiredHeap = make(expireHeap, 0)
+	c.actualExpiredCount = 0
+	c.staleHeapCount = 0
 }
 
 // Close 关闭缓存，清理资源

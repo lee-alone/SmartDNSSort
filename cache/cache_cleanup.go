@@ -15,6 +15,10 @@ const (
 	// MaxCleanupDuration 单次清理最多耗时
 	// 防止清理操作阻塞 DNS 查询
 	MaxCleanupDuration = 10 * time.Millisecond
+
+	// MaxStaleHeapCleanupSize 单次清理幽灵索引的最大数量
+	// 幽灵索引：堆中存在但缓存中不存在的索引
+	MaxStaleHeapCleanupSize = 500
 )
 
 // CleanupStats 清理统计信息
@@ -37,6 +41,7 @@ type CleanupStats struct {
 //
 // 4. 改进：使用版本号识别陈旧索引，避免被旧的堆索引误删新数据
 // 5. 批量清理限制：防止单次清理耗时过长导致 DNS 查询延迟尖峰
+// 6. 两阶段清理：先清理幽灵索引，再清理实际过期条目
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -57,7 +62,50 @@ func (c *Cache) CleanExpired() {
 	// 批量清理限制
 	startTime := timeNow()
 	cleanedCount := 0
+	staleCleanedCount := 0 // 幽灵索引清理计数
 
+	// 第一阶段：清理幽灵索引（缓存中不存在的索引）
+	// 无论压力状态如何，都优先清理幽灵索引，避免堆无限增长
+	for len(c.expiredHeap) > 0 && staleCleanedCount < MaxStaleHeapCleanupSize {
+		// 检查是否超过清理限制
+		if timeNow().Sub(startTime) > MaxCleanupDuration {
+			// 本次清理已耗时过长，停止以避免阻塞 DNS 查询
+			break
+		}
+
+		entry := c.expiredHeap[0]
+
+		// 获取缓存中该键的当前真实状态（使用 GetNoUpdate 避免干扰 LRU 统计）
+		val, exists := c.rawCache.GetNoUpdate(entry.key)
+		if !exists {
+			// 缓存中已不存在（幽灵索引），移除堆中的废弃索引
+			heap.Pop(&c.expiredHeap)
+			staleCleanedCount++
+			continue
+		}
+
+		currentEntry, ok := val.(*RawCacheEntry)
+		if !ok {
+			heap.Pop(&c.expiredHeap)
+			staleCleanedCount++
+			continue
+		}
+
+		// 版本号检查：如果堆中的版本号与缓存中的不一致，说明这是一个陈旧索引
+		if currentEntry.QueryVersion != entry.queryVersion {
+			heap.Pop(&c.expiredHeap)
+			staleCleanedCount++
+			continue
+		}
+
+		// 如果索引有效（缓存中存在且版本号匹配），跳出第一阶段
+		break
+	}
+
+	// 更新幽灵索引计数
+	c.staleHeapCount = int64(len(c.expiredHeap))
+
+	// 第二阶段：清理实际过期条目
 	// 堆是按过期时间排序的
 	for len(c.expiredHeap) > 0 {
 		// 检查是否超过清理限制
@@ -80,7 +128,7 @@ func (c *Cache) CleanExpired() {
 		// 获取缓存中该键的当前真实状态（使用 GetNoUpdate 避免干扰 LRU 统计）
 		val, exists := c.rawCache.GetNoUpdate(entry.key)
 		if !exists {
-			// 缓存中已不存在（可能已被 LRU 驱逐），移除堆中的废弃索引
+			// 缓存中已不存在（幽灵索引），移除堆中的废弃索引
 			heap.Pop(&c.expiredHeap)
 			continue
 		}
@@ -92,7 +140,6 @@ func (c *Cache) CleanExpired() {
 		}
 
 		// 版本号检查：如果堆中的版本号与缓存中的不一致，说明这是一个陈旧索引
-		// 直接丢弃，等待堆中该 key 较新的索引浮上来
 		if currentEntry.QueryVersion != entry.queryVersion {
 			heap.Pop(&c.expiredHeap)
 			continue
@@ -127,6 +174,9 @@ func (c *Cache) CleanExpired() {
 		}
 	}
 
+	// 更新实际过期条目计数（遍历堆中剩余条目，统计实际过期的）
+	c.updateActualExpiredCount(now)
+
 	// 记录清理统计信息
 	c.lastCleanupTime = timeNow()
 	c.lastCleanupCount = cleanedCount
@@ -134,6 +184,28 @@ func (c *Cache) CleanExpired() {
 
 	// 清理辅助缓存（排序、错误等）
 	c.cleanAuxiliaryCaches()
+}
+
+// updateActualExpiredCount 更新实际过期条目计数
+// 遍历堆中剩余条目，统计缓存中存在且已过期的条目数
+func (c *Cache) updateActualExpiredCount(now int64) {
+	count := int64(0)
+	for _, entry := range c.expiredHeap {
+		if entry.expiry <= now {
+			// 检查缓存中是否存在且版本号匹配
+			if val, exists := c.rawCache.GetNoUpdate(entry.key); exists {
+				if currentEntry, ok := val.(*RawCacheEntry); ok {
+					if currentEntry.QueryVersion == entry.queryVersion {
+						count++
+					}
+				}
+			}
+		} else {
+			// 堆是按过期时间排序的，遇到未过期的就可以停止
+			break
+		}
+	}
+	c.actualExpiredCount = count
 }
 
 // GetCleanupStats 获取清理统计信息
