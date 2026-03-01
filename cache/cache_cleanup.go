@@ -81,6 +81,10 @@ func (c *Cache) CleanExpired() {
 			// 缓存中已不存在（幽灵索引），移除堆中的废弃索引
 			heap.Pop(&c.expiredHeap)
 			staleCleanedCount++
+			// 如果这个幽灵索引是过期的，需要递减 actualExpiredCount
+			if entry.expiry <= now {
+				c.actualExpiredCount--
+			}
 			continue
 		}
 
@@ -88,6 +92,10 @@ func (c *Cache) CleanExpired() {
 		if !ok {
 			heap.Pop(&c.expiredHeap)
 			staleCleanedCount++
+			// 如果这个幽灵索引是过期的，需要递减 actualExpiredCount
+			if entry.expiry <= now {
+				c.actualExpiredCount--
+			}
 			continue
 		}
 
@@ -95,6 +103,10 @@ func (c *Cache) CleanExpired() {
 		if currentEntry.QueryVersion != entry.queryVersion {
 			heap.Pop(&c.expiredHeap)
 			staleCleanedCount++
+			// 如果这个陈旧索引是过期的，需要递减 actualExpiredCount
+			if entry.expiry <= now {
+				c.actualExpiredCount--
+			}
 			continue
 		}
 
@@ -168,14 +180,16 @@ func (c *Cache) CleanExpired() {
 			c.rawCache.Delete(entry.key)
 			atomic.AddInt64(&c.evictions, 1) // 记录驱逐
 			heap.Pop(&c.expiredHeap)
-			cleanedCount++ // 增加清理计数
+			c.actualExpiredCount-- // 增量更新：删除时递减
+			cleanedCount++         // 增加清理计数
 		} else {
 			break
 		}
 	}
 
-	// 更新实际过期条目计数（遍历堆中剩余条目，统计实际过期的）
-	c.updateActualExpiredCount(now)
+	// 重新计算实际过期条目计数（只统计堆中剩余的有效过期条目）
+	// 使用增量更新后，这里只需要处理可能的新增过期条目
+	c.recalculateActualExpiredCount(now)
 
 	// 记录清理统计信息
 	c.lastCleanupTime = timeNow()
@@ -186,9 +200,10 @@ func (c *Cache) CleanExpired() {
 	c.cleanAuxiliaryCaches()
 }
 
-// updateActualExpiredCount 更新实际过期条目计数
+// recalculateActualExpiredCount 重新计算实际过期条目计数
 // 遍历堆中剩余条目，统计缓存中存在且已过期的条目数
-func (c *Cache) updateActualExpiredCount(now int64) {
+// 注意：由于使用了增量更新，这里只需要处理可能的新增过期条目
+func (c *Cache) recalculateActualExpiredCount(now int64) {
 	count := int64(0)
 	for _, entry := range c.expiredHeap {
 		if entry.expiry <= now {

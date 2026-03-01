@@ -143,6 +143,7 @@ func (c *Cache) Clear() {
 	c.expiredHeap = make(expireHeap, 0)
 	c.actualExpiredCount = 0
 	c.staleHeapCount = 0
+	c.heapChannelFullCount = 0
 }
 
 // Close 关闭缓存，清理资源
