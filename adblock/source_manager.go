@@ -172,7 +172,8 @@ func (sm *SourceManager) ensureCustomRulesFile(path string) error {
 #
 # 白名单示例（取消注释以启用）：
 # @@||safe.ads.example.com^
-
+@@||loggw.alipay.com^
+@@||log.snssdk.com^
 `
 	return os.WriteFile(path, []byte(template), 0644)
 }
