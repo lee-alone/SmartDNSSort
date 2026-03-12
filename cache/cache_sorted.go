@@ -18,6 +18,11 @@ func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool)
 		return nil, false
 	}
 
+	// 记录 IP 访问热度（只记录第一个 IP，即最优 IP）
+	if c.ipPoolUpdater != nil && len(entry.IPs) > 0 {
+		c.ipPoolUpdater.RecordAccess(entry.IPs[0], domain)
+	}
+
 	return entry, true
 }
 
@@ -25,7 +30,22 @@ func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool)
 // 注意：sortedCache 内部已实现线程安全，无需全局锁
 func (c *Cache) SetSorted(domain string, qtype uint16, entry *SortedCacheEntry) {
 	key := cacheKey(domain, qtype)
+
+	// 获取旧的 IP 列表，用于更新 IP 池引用计数
+	var oldIPs []string
+	if oldEntry, exists := c.sortedCache.Get(key); exists {
+		if oldSorted, ok := oldEntry.(*SortedCacheEntry); ok {
+			oldIPs = oldSorted.IPs
+		}
+	}
+
+	// 设置新的排序缓存
 	c.sortedCache.Set(key, entry)
+
+	// 更新 IP 池引用计数
+	if c.ipPoolUpdater != nil && entry != nil {
+		c.ipPoolUpdater.UpdateDomainIPs(oldIPs, entry.IPs, domain)
+	}
 }
 
 // GetOrStartSort 获取排序状态，如果不存在则创建新的排序任务

@@ -110,6 +110,9 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	server.prefetcher = prefetch.NewPrefetcher(&cfg.Prefetch, s, server.cache, server)
 	server.cache.SetPrefetcher(server.prefetcher)
 
+	// 设置 IP 池更新器，用于维护全局 IP 资源
+	server.cache.SetIPPoolUpdater(server.pinger.GetIPPool())
+
 	// 设置排序函数：使用 ping 进行 IP 排序
 	sortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 		return server.performPingSort(ctx, domain, ips)

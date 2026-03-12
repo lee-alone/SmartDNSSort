@@ -13,6 +13,13 @@ type PrefetchChecker interface {
 	IsTopDomain(domain string) bool
 }
 
+// IPPoolUpdater 定义了 IP 池更新接口
+// 用于在域名 IP 列表变化时更新 IP 池的引用计数
+type IPPoolUpdater interface {
+	UpdateDomainIPs(oldIPs, newIPs []string, domain string)
+	RecordAccess(ip, domain string)
+}
+
 // Cache DNS 缓存管理器
 type Cache struct {
 	mu sync.RWMutex // 保护以下字段
@@ -30,6 +37,7 @@ type Cache struct {
 
 	// 统计和其他字段
 	prefetcher      PrefetchChecker        // Prefetcher 实例，用于热点域名保护
+	ipPoolUpdater   IPPoolUpdater          // IP 池更新器，用于维护全局 IP 资源
 	recentlyBlocked RecentlyBlockedTracker // 最近被拦截的域名追踪器
 	hits            int64                  // 缓存命中计数
 	misses          int64                  // 缓存未命中计数
@@ -88,6 +96,20 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		stopHeapChan:    make(chan struct{}),
 	}
 
+	// 设置 sortedCache 的驱逐回调，用于更新 IP 池引用计数
+	c.sortedCache.SetOnEvict(func(key string, value any) {
+		if c.ipPoolUpdater != nil {
+			if entry, ok := value.(*SortedCacheEntry); ok {
+				// 解析 key 获取域名
+				domain, _ := parseCacheKey(key)
+				if domain != "" {
+					// 通知 IP 池移除该域名的 IP 引用
+					c.ipPoolUpdater.UpdateDomainIPs(entry.IPs, nil, domain)
+				}
+			}
+		}
+	})
+
 	// 启动后台堆维护协程
 	c.startHeapWorker()
 
@@ -105,6 +127,13 @@ func (c *Cache) SetPrefetcher(p PrefetchChecker) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.prefetcher = p
+}
+
+// SetIPPoolUpdater 设置 IP 池更新器，用于维护全局 IP 资源
+func (c *Cache) SetIPPoolUpdater(u IPPoolUpdater) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ipPoolUpdater = u
 }
 
 // GetRecentlyBlocked 获取最近被拦截的域名追踪器

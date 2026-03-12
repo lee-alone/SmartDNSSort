@@ -41,6 +41,7 @@ type Pinger struct {
 	bufferPool       *sync.Pool // 新增: 复用 UDP 读取 buffer
 	failureWeightMgr *IPFailureWeightManager
 	probeFlight      *singleflight.Group // 新增: 请求合并，避免重复探测同一 IP
+	ipPool           *IPPool             // 全局 IP 资源管理器，用于 SNI 绑定
 
 	// Stale-While-Revalidate 相关
 	staleRevalidateMu sync.Mutex
@@ -192,6 +193,11 @@ func (p *Pinger) GetAllIPFailureRecords() []*IPFailureRecord {
 		return p.failureWeightMgr.GetAllRecords()
 	}
 	return nil
+}
+
+// GetIPPool 获取全局 IP 资源管理器
+func (p *Pinger) GetIPPool() *IPPool {
+	return p.ipPool
 }
 
 // calculateDynamicTTL 根据探测结果动态计算缓存 TTL

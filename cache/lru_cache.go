@@ -20,6 +20,9 @@ type LRUCache struct {
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
 	pending    int32 // 待处理的访问记录数
+
+	// 驱逐回调
+	onEvict func(key string, value any) // 当条目被驱逐时调用
 }
 
 // lruNode 链表中的节点
@@ -148,7 +151,13 @@ func (lru *LRUCache) evictOne() {
 	if elem != nil {
 		lru.list.Remove(elem)
 		key := elem.Value.(*lruNode).key
+		value := elem.Value.(*lruNode).value
 		delete(lru.cache, key)
+
+		// 调用驱逐回调
+		if lru.onEvict != nil {
+			lru.onEvict(key, value)
+		}
 	}
 }
 
@@ -188,6 +197,14 @@ func (lru *LRUCache) Close() error {
 // GetPendingAccess 获取待处理的访问记录数（用于监控）
 func (lru *LRUCache) GetPendingAccess() int32 {
 	return atomic.LoadInt32(&lru.pending)
+}
+
+// SetOnEvict 设置驱逐回调函数
+// 当条目被驱逐时调用此回调
+func (lru *LRUCache) SetOnEvict(callback func(key string, value any)) {
+	lru.mu.Lock()
+	defer lru.mu.Unlock()
+	lru.onEvict = callback
 }
 
 // CleanExpired 清理过期的条目，调用方需要提供过期检查函数

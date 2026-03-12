@@ -43,6 +43,7 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		},
 		failureWeightMgr:  NewIPFailureWeightManager(failureWeightPersistFile),
 		probeFlight:       &singleflight.Group{},
+		ipPool:            NewIPPool(), // 初始化全局 IP 资源管理器
 		staleRevalidating: make(map[string]bool),
 		staleGracePeriod:  30 * time.Second, // 默认 30 秒软过期容忍期
 	}

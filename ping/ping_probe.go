@@ -35,9 +35,18 @@ func (p *Pinger) tcpPingPort(ctx context.Context, ip, port string) int {
 
 // tlsHandshakeWithSNI 核心过滤器：TLS ClientHello 带 SNI（≈500 字节）
 // 能够识别 TCP 连接成功但 TLS 握手失败的节点
+// 优先使用 IPPool 中的代表性域名作为 SNI
 func (p *Pinger) tlsHandshakeWithSNI(ip, domain string) int {
+	// 从 IP 池获取代表性域名用于 SNI 绑定
+	sniDomain := domain
+	if p.ipPool != nil {
+		if repDomain, exists := p.ipPool.GetRepDomain(ip); exists {
+			sniDomain = repDomain
+		}
+	}
+
 	conf := &tls.Config{
-		ServerName:         domain,
+		ServerName:         sniDomain,
 		InsecureSkipVerify: true, // 只测速度
 		MinVersion:         tls.VersionTLS12,
 	}

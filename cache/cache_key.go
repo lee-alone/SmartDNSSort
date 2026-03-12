@@ -17,3 +17,17 @@ var builderPool = sync.Pool{
 func cacheKey(domain string, qtype uint16) string {
 	return domain + "#" + strconv.FormatUint(uint64(qtype), 10)
 }
+
+// parseCacheKey 解析缓存键，返回域名和查询类型
+func parseCacheKey(key string) (string, uint16) {
+	parts := strings.Split(key, "#")
+	if len(parts) != 2 {
+		return "", 0
+	}
+	domain := parts[0]
+	qtype, err := strconv.ParseUint(parts[1], 10, 16)
+	if err != nil {
+		return "", 0
+	}
+	return domain, uint16(qtype)
+}

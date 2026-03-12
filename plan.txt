@@ -1,0 +1,29 @@
+SmartDNSSort IP 优选逻辑整改计划
+一、 目标 (Goal)
+解决缓存过期后首位 IP 失效的逻辑漏洞，通过 “全局 IP 池主动巡检” 代替 “域名被动触发测速”，实现 CDN 级别的实时 IP 优选与复用，显著降低 ICMP 频率。
+
+二、 第一阶段：建立全局 IP 资源管理器 (IP Infrastructure)
+新建 IPPool 模块：在 ping 包中实现，维护一个 IP -> {代表性域名, 引用计数, 访问热度} 的结构。
+增量更新机制：联动 Cache.SetSorted，在域名 IP 发生变化时，实时增减 IP 池的引用计数。
+SNI 绑定映射：自动选取该 IP 下引用数最高或访问最频发的域名作为测速时的 代表性域名。
+三、 第二阶段：实现主动巡检调度器 (Proactive Monitor)
+优先级调度算法：计算重量权重 $W = (RefCount \times A + AccessHeat \times B)$，权重越高测速频率越高。
+三级分步刷新：
+T0 核心池：2-3 分钟刷新（最高实时性）。
+T1 活跃池：10-15 分钟刷新。
+T2 淘汰池：长效巡检或不通即剔除。
+背景协程落地：在 
+
+dnsserver/tasks.go
+ 中启动 GlobalIPMonitor。
+四、 第三阶段：SNI 感知与混合探测优化 (Smart Probing)
+SNI 注入：改造 Pinger.smartPing，在 TLS 握手与 HTTP Fallback 时自动从 IPPool 提取 Host 和 ServerName。
+测速逻辑切换：将“用户请求触发测速”降级为“兜底方案”，首选路径改为直接读取 IPPool 维护好的 RTT 数据。
+五、 第四阶段：配置与监控 (Configs & Metrics)
+新增配置参数：如 ip_pool_max_size (默认 1000) 和 proactive_refresh_seconds。
+API/看板展示：在 WebUI 中提供“活跃 IP 池”监控页，展示热点 IP 的 RTT 波动曲线。
+计划状态：等待启动
+
+TIP
+
+风险提示：该改造涉及 ping 与 cache 的深度解耦，第一步我们将优先在 ping 包中建立 IPPool 结构，而不破坏现有查询逻辑，确保系统可以逐步切入。
