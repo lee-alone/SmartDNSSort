@@ -89,11 +89,15 @@ const resourcesZhCn = {
         "accessHeat": "访问热度",
         "rtt": "延迟 (ms)",
         "lastAccess": "最后访问",
-        "noIpData": "暂无 IP 池统计数据",
+        "noIpData": "暂无 IP 记录",
         "refreshPaused": "巡检已暂停",
         "noDeadIPs": "未检测到失效 IP",
         "showAllDeadIPs": "显示全部失效 IP",
-        "deadIPCountInfo": "共有 {{count}} 个失效 IP，仅显示前 10 个"
+        "deadIPCountInfo": "共有 {{count}} 个失效 IP，仅显示前 10 个",
+        "deadIPs": "失效 IP",
+        "topIPs": "热门 IP",
+        "enableMonitor": "监控巡检",
+        "ipCountInfo": "共有 {{count}} 个 IP，仅显示前 10 个"
        },
     "config": {
         "sections": "配置分类",
@@ -187,6 +191,12 @@ const resourcesZhCn = {
             "rttCacheTtlHelp": "RTT 结果的缓存时间 (0 = 禁用)。",
             "enableHttpFallback": "启用 HTTP 回退",
             "enableHttpFallbackHelp": "当 ICMP 失败时回退到基于 HTTP 的 ping。"
+        },
+        "ipMonitor": {
+            "maxSize": "最大池容量",
+            "t0Interval": "核心池 (T0) 检查间隔 (s)",
+            "t1Interval": "活跃池 (T1) 检查间隔 (s)",
+            "t2Interval": "淘汰池 (T2) 检查间隔 (s)"
         },
         "cache": {
             "legend": "缓存",

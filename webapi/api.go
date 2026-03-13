@@ -125,6 +125,7 @@ func (s *Server) Start() error {
 	// IP 池监控 API 路由
 	mux.HandleFunc("/api/ip-pool/status", s.handleIPPoolStatus)
 	mux.HandleFunc("/api/ip-pool/top", s.handleIPPoolTop)
+	mux.HandleFunc("/api/ip-pool/toggle", s.handleIPPoolToggle)
 
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")

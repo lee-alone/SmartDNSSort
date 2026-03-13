@@ -89,11 +89,15 @@ const resourcesEn = {
         "accessHeat": "Access Heat",
         "rtt": "RTT (ms)",
         "lastAccess": "Last Access",
-        "noIpData": "No IP pool data available",
+        "noIpData": "No IP records yet",
         "refreshPaused": "Refresh Paused",
         "noDeadIPs": "No dead IPs detected",
         "showAllDeadIPs": "Show All Dead IPs",
-        "deadIPCountInfo": "Showing 10 of {{count}} dead IPs"
+        "deadIPCountInfo": "Showing 10 of {{count}} dead IPs",
+        "deadIPs": "Dead IPs",
+        "topIPs": "Top IPs",
+        "enableMonitor": "IP Monitor",
+        "ipCountInfo": "Showing 10 of {{count}} IPs"
        },
     "config": {
         "sections": "Sections",
@@ -187,6 +191,12 @@ const resourcesEn = {
             "rttCacheTtlHelp": "Cache duration for RTT results (0 = disabled).",
             "enableHttpFallback": "Enable HTTP Fallback",
             "enableHttpFallbackHelp": "Fall back to HTTP-based ping if ICMP fails."
+        },
+        "ipMonitor": {
+            "maxSize": "Max Pool Size",
+            "t0Interval": "T0 (Core) Check Interval (s)",
+            "t1Interval": "T1 (Active) Check Interval (s)",
+            "t2Interval": "T2 (Evicted) Check Interval (s)"
         },
         "cache": {
             "legend": "Cache",

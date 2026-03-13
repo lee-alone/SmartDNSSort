@@ -52,3 +52,37 @@
                                         Fallback</span></label></div>
         </div>
 </section>
+
+<!-- IP Pool Monitor Settings -->
+<section id="section-ip-monitor" class="config-section bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-border-light dark:border-border-dark overflow-hidden mt-6">
+    <div class="px-6 py-5 border-b border-border-light dark:border-border-dark cursor-pointer hover:bg-black/2 dark:hover:bg-white/2 transition-colors" onclick="toggleConfigSection(this)">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold" data-i18n="dashboard.ipPoolMonitor">IP Pool Monitor</h2>
+            <span class="material-symbols-outlined section-toggle-icon">expand_more</span>
+        </div>
+    </div>
+    <div class="section-content p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        <div class="form-group md:col-span-2">
+            <label class="flex items-center gap-3">
+                <input type="checkbox" id="ip_monitor.enabled" name="ip_monitor.enabled" class="h-5 w-5 rounded text-primary focus:ring-primary">
+                <span data-i18n="dashboard.enableMonitor">Enable IP Monitor</span>
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="ip_monitor.max_size" class="block text-sm font-medium mb-2" data-i18n="config.ipMonitor.maxSize">Max Pool Size</label>
+            <input type="number" id="ip_monitor.max_size" name="ip_monitor.max_size" class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group">
+            <label for="ip_monitor.t0_refresh_interval" class="block text-sm font-medium mb-2" data-i18n="config.ipMonitor.t0Interval">T0 Refresh Interval (s)</label>
+            <input type="number" id="ip_monitor.t0_refresh_interval" name="ip_monitor.t0_refresh_interval" class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group">
+            <label for="ip_monitor.t1_refresh_interval" class="block text-sm font-medium mb-2" data-i18n="config.ipMonitor.t1Interval">T1 Refresh Interval (s)</label>
+            <input type="number" id="ip_monitor.t1_refresh_interval" name="ip_monitor.t1_refresh_interval" class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+        <div class="form-group">
+            <label for="ip_monitor.t2_refresh_interval" class="block text-sm font-medium mb-2" data-i18n="config.ipMonitor.t2Interval">T2 Refresh Interval (s)</label>
+            <input type="number" id="ip_monitor.t2_refresh_interval" name="ip_monitor.t2_refresh_interval" class="w-full h-12 rounded-lg border-border-light dark:border-border-dark bg-background-light dark:bg-black px-4 text-sm">
+        </div>
+    </div>
+</section>

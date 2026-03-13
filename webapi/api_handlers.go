@@ -3,6 +3,7 @@ package webapi
 import (
 	"encoding/json"
 	"net/http"
+	"smartdnssort/config"
 	"smartdnssort/logger"
 	"smartdnssort/upstream"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"gopkg.in/yaml.v3"
 )
 
 // handleQuery 处理 DNS 查询请求
@@ -379,34 +381,56 @@ func (s *Server) handleIPPoolStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleIPPoolTop 处理失效 IP 列表请求
-// 返回所有 RTT >= 999999 的失效 IP
+// 返回失效 IP 列表（默认）或全量 IP 列表
 func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
-	response := IPPoolStatusResponse{
-		TopIPs: []IPPoolResult{},
+	view := r.URL.Query().Get("view") // 'dead' (默认) 或 'all'/'top'
+
+	response := map[string]interface{}{
+		"total_ips":       0,
+		"total_ref_count": 0,
+		"total_heat":      0,
+		"last_updated":    "",
+		"top_ips":         []IPPoolResult{},
+		"monitor_stats":   make(map[string]interface{}),
+		"monitor_enabled": false,
 	}
 
 	// 获取 IP 池信息
 	ipMonitor := s.dnsServer.GetIPMonitor()
 	if ipMonitor != nil {
-		// 获取 IP 池统计信息
+		stats := ipMonitor.GetStats()
+		response["monitor_stats"] = map[string]interface{}{
+			"total_refreshes":     stats.TotalRefreshes,
+			"total_ips_refreshed": stats.TotalIPsRefreshed,
+			"last_refresh_time":   stats.LastRefreshTime.Format(time.RFC3339),
+			"t0_pool_size":        stats.T0PoolSize,
+			"t1_pool_size":        stats.T1PoolSize,
+			"t2_pool_size":        stats.T2PoolSize,
+		}
+		// 获取配置中的 Enabled 状态 (需要加锁或者通过方法获取)
+		// 这里暂且从 dnsServer 配置中读，更准确
+		response["monitor_enabled"] = s.dnsServer.GetConfig().IPMonitor.Enabled
+
 		pool := ipMonitor.GetIPPool()
 		if pool != nil {
-			stats := pool.GetStats()
-			response.TotalIPs = stats.TotalIPs
-			response.TotalRefCount = stats.TotalRefCount
-			response.TotalHeat = stats.TotalHeat
-			response.LastUpdated = stats.LastUpdated.Format(time.RFC3339)
+			poolStats := pool.GetStats()
+			response["total_ips"] = poolStats.TotalIPs
+			response["total_ref_count"] = poolStats.TotalRefCount
+			response["total_heat"] = poolStats.TotalHeat
+			response["last_updated"] = poolStats.LastUpdated.Format(time.RFC3339)
 
-			// 获取所有 IP 并筛选出失效 IP（RTT >= 999999）
+			// 获取所有 IP
 			allIPs := pool.GetAllIPs()
 			pinger := ipMonitor.GetPinger()
+			topIPs := []IPPoolResult{}
+
 			for _, info := range allIPs {
-				rtt := 0
+				rtt := -1
 				if pinger != nil {
 					rttVal, _, exists, _ := pinger.GetIPRTT(info.IP)
 					if exists {
@@ -414,8 +438,8 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
-				// 仅保留失效 IP（RTT >= 999999 表示不可达）
-				if rtt >= 999999 {
+				// 筛选逻辑
+				if view == "all" || view == "top" || rtt >= 999999 {
 					result := IPPoolResult{
 						IP:         info.IP,
 						RepDomain:  info.RepDomain,
@@ -424,28 +448,90 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 						RTT:        rtt,
 						LastAccess: info.LastAccess.Format(time.RFC3339),
 					}
-					response.TopIPs = append(response.TopIPs, result)
+					topIPs = append(topIPs, result)
 				}
 			}
 
-			// 按引用计数降序排列失效 IP，让"最常被引用"的失效 IP 排在前面
-			sort.Slice(response.TopIPs, func(i, j int) bool {
-				return response.TopIPs[i].RefCount > response.TopIPs[j].RefCount
-			})
-		}
+			// 排序
+			if view == "all" || view == "top" {
+				// 按热度排序
+				sort.Slice(topIPs, func(i, j int) bool {
+					if topIPs[i].AccessHeat != topIPs[j].AccessHeat {
+						return topIPs[i].AccessHeat > topIPs[j].AccessHeat
+					}
+					return topIPs[i].RefCount > topIPs[j].RefCount
+				})
+			} else {
+				// 按引用计数排序 (Dead IPs)
+				sort.Slice(topIPs, func(i, j int) bool {
+					return topIPs[i].RefCount > topIPs[j].RefCount
+				})
+			}
 
-		// 获取 IPMonitor 统计信息
-		stats := ipMonitor.GetStats()
-		response.MonitorStats = map[string]interface{}{
-			"total_refreshes":     stats.TotalRefreshes,
-			"total_ips_refreshed": stats.TotalIPsRefreshed,
-			"last_refresh_time":   stats.LastRefreshTime,
-			"t0_pool_size":        stats.T0PoolSize,
-			"t1_pool_size":        stats.T1PoolSize,
-			"t2_pool_size":        stats.T2PoolSize,
+			// 限制返回数量 (如果是 Top IPs 视角)
+			if (view == "all" || view == "top") && len(topIPs) > 100 {
+				topIPs = topIPs[:100]
+			}
+
+			response["top_ips"] = topIPs
+		}
+	} else {
+		// 默认 MonitorStats
+		response["monitor_stats"] = map[string]interface{}{
+			"total_refreshes":     0,
+			"total_ips_refreshed": 0,
+			"last_refresh_time":   "",
+			"t0_pool_size":        0,
+			"t1_pool_size":        0,
+			"t2_pool_size":        0,
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	s.writeJSONSuccess(w, "Dead IPs retrieved successfully", response)
+	s.writeJSONSuccess(w, "IP pool data retrieved successfully", response)
+}
+
+// handleIPPoolToggle 切换 IP 池监控启用状态
+func (s *Server) handleIPPoolToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	enabledStr := r.URL.Query().Get("enabled")
+	enabled := enabledStr == "true"
+
+	// 1. 获取写锁，保护配置更新
+	s.cfgMutex.Lock()
+	defer s.cfgMutex.Unlock()
+
+	// 2. 加载现有配置
+	cfg, err := config.LoadConfig(s.configPath)
+	if err != nil {
+		s.writeJSONError(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 3. 更新配置
+	cfg.IPMonitor.Enabled = enabled
+
+	// 4. 序列化并写入文件
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		s.writeJSONError(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.writeConfigFile(yamlData); err != nil {
+		s.writeJSONError(w, "Failed to write config file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 5. 应用到运行中的服务器
+	if err := s.dnsServer.ApplyConfig(cfg); err != nil {
+		s.writeJSONError(w, "Failed to apply config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSONSuccess(w, "IP monitor status updated successfully", map[string]bool{"enabled": enabled})
 }

@@ -45,7 +45,7 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 	setStatsDefaults(cfg)
 
 	// IPMonitor 配置默认值
-	setIPMonitorDefaults(cfg)
+	setIPMonitorDefaults(cfg, rawData)
 }
 
 // setUpstreamDefaults 设置上游配置的默认值
@@ -299,7 +299,7 @@ func setPrefetchDefaults(cfg *Config) {
 }
 
 // setIPMonitorDefaults 设置 IP 监控器配置的默认值
-func setIPMonitorDefaults(cfg *Config) {
+func setIPMonitorDefaults(cfg *Config, rawData []byte) {
 	if cfg.IPMonitor.MaxSize == 0 {
 		cfg.IPMonitor.MaxSize = 1000
 	}
@@ -323,5 +323,10 @@ func setIPMonitorDefaults(cfg *Config) {
 	}
 	if cfg.IPMonitor.RefreshConcurrency == 0 {
 		cfg.IPMonitor.RefreshConcurrency = 10
+	}
+
+	// 默认开启 IP 池监控，如果配置文件中没有明确禁用
+	if !cfg.IPMonitor.Enabled && !strings.Contains(string(rawData), "\nip_monitor:\n  enabled: false") {
+		cfg.IPMonitor.Enabled = true
 	}
 }
