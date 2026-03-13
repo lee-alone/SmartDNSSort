@@ -67,6 +67,11 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		sortSemaphore: make(chan struct{}, 50), // 限制最多 50 个并发排序任务
 	}
 
+	// 静默隔离改造：将全局网络健康检查器注入给 pinger 实例
+	// 这样 pinger 就可以在断网时拒绝更新缓存，防止缓存污染
+	server.pinger.SetHealthChecker(upstream.GetGlobalNetworkChecker())
+	logger.Info("[Server] Network health checker injected to Pinger for silent isolation.")
+
 	// 尝试加载持久化缓存
 	logger.Info("[Cache] Loading cache from disk...")
 	if err := server.cache.LoadFromDisk("dns_cache.bin"); err != nil {

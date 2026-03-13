@@ -2,6 +2,7 @@ package ping
 
 import (
 	"context"
+	"smartdnssort/logger"
 	"sync"
 	"time"
 
@@ -25,6 +26,11 @@ type rttCacheEntry struct {
 	expiresAt time.Time // 硬过期时间：超过此时间，缓存完全失效并被清理
 }
 
+// NetworkHealthChecker 网络健康检查器接口
+type NetworkHealthChecker interface {
+	IsNetworkHealthy() bool
+}
+
 // Pinger DNS IP 延迟测量和排序工具
 // 提供智能混合探测、缓存和并发测试功能
 type Pinger struct {
@@ -40,8 +46,9 @@ type Pinger struct {
 	stopChan         chan struct{}
 	bufferPool       *sync.Pool // 新增: 复用 UDP 读取 buffer
 	failureWeightMgr *IPFailureWeightManager
-	probeFlight      *singleflight.Group // 新增: 请求合并，避免重复探测同一 IP
-	ipPool           *IPPool             // 全局 IP 资源管理器，用于 SNI 绑定
+	probeFlight      *singleflight.Group  // 新增: 请求合并，避免重复探测同一 IP
+	ipPool           *IPPool              // 全局 IP 资源管理器，用于 SNI 绑定
+	healthChecker    NetworkHealthChecker // 网络健康检查器，用于断网时防止缓存污染
 
 	// Stale-While-Revalidate 相关
 	staleRevalidateMu sync.Mutex
@@ -278,8 +285,18 @@ func (p *Pinger) GetMultipleIPRTTs(ips []string) map[string]Result {
 //   - probeMethod: 探测方法（icmp, tls, udp53, tcp80）
 //
 // 第三阶段修复：内部调用 RecordIPSuccess/Failure，保证权重系统同步更新
+//
+// 静默隔离改造：如果网络探测器报告离线，则拒绝更新缓存，防止缓存污染
 func (p *Pinger) UpdateIPCache(ip string, rtt int, loss float64, probeMethod string) {
 	if p.rttCacheTtlSeconds <= 0 {
+		return
+	}
+
+	// 静默隔离：如果网络探测器报告离线，则拒绝更新缓存
+	// 目的："缓存防毒"。如果是本地断网（由于拨号、网关故障等），
+	// 探测结果必然是全部超时。如果不拦截，这些假性的"不可达"会瞬间刷掉之前缓存的所有优质 IP 数据。
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		logger.Warnf("[Pinger] Network is offline, skipping cache update for %s to prevent poisoning", ip)
 		return
 	}
 
@@ -433,4 +450,20 @@ func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
 			})
 		}
 	}()
+}
+
+// SetHealthChecker 设置网络健康检查器
+// 用于断网时防止缓存污染
+func (p *Pinger) SetHealthChecker(checker NetworkHealthChecker) {
+	p.healthChecker = checker
+}
+
+// IsNetworkOnline 返回网络是否在线
+// 供 IPMonitor 使用，用于判断是否跳过当前刷新周期
+func (p *Pinger) IsNetworkOnline() bool {
+	if p.healthChecker == nil {
+		// 如果没有设置健康检查器，默认认为网络在线
+		return true
+	}
+	return p.healthChecker.IsNetworkHealthy()
 }

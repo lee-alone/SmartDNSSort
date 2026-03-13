@@ -126,10 +126,27 @@ func (m *IPMonitor) run() {
 		case <-m.stopCh:
 			return
 		case <-t0Ticker.C:
+			// 静默隔离：在分发任务之前检查网络状态
+			// 目的："性能损耗与误杀保护"。断网时巡检没有任何意义，
+			// 只会消耗系统资源并产生大量的报错日志。
+			if !m.pinger.IsNetworkOnline() {
+				logger.Warn("[IPMonitor] Network abnormality detected, skipping T0 refresh cycle.")
+				continue
+			}
 			m.refreshT0Pool()
 		case <-t1Ticker.C:
+			// 静默隔离：在分发任务之前检查网络状态
+			if !m.pinger.IsNetworkOnline() {
+				logger.Warn("[IPMonitor] Network abnormality detected, skipping T1 refresh cycle.")
+				continue
+			}
 			m.refreshT1Pool()
 		case <-t2Ticker.C:
+			// 静默隔离：在分发任务之前检查网络状态
+			if !m.pinger.IsNetworkOnline() {
+				logger.Warn("[IPMonitor] Network abnormality detected, skipping T2 refresh cycle.")
+				continue
+			}
 			m.refreshT2Pool()
 		}
 	}
