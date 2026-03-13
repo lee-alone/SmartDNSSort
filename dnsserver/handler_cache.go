@@ -56,7 +56,7 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	stats.IncCacheHits()
 	stats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
 
-	// 1. 判断数据“新鲜度” (RTT 层面)
+	// 1. 判断数据"新鲜度" (RTT 层面)
 	elapsed := time.Since(sorted.Timestamp)
 	rttStale := elapsed.Seconds() >= float64(cfg.Ping.RttCacheTtlSeconds)
 
@@ -64,19 +64,35 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	raw, hasRaw := s.cache.GetRaw(domain, qtype)
 	dnsExpired := !hasRaw || raw.IsExpired()
 
-	// 3. 计算用户视角下的 TTL
+	// 3. 【故障检测】检查所有 IP 是否均为失效状态 (RTT=999999)
+	isDeadPool := true
+	for _, rtt := range sorted.RTTs {
+		if rtt < 999999 { // 只要有一个能通，就不算死局
+			isDeadPool = false
+			break
+		}
+	}
+
+	// 4. 计算用户视角下的 TTL
 	// 如果 DNS 已过期，强制返回 fast_response_ttl
 	var userTTL uint32
-	if dnsExpired {
+	if isDeadPool {
+		// 核心整改点：如果是全死 IP，强行降级为 1s
+		// 目的：1秒缓存保护系统，1秒过期引导客户端再次解析以尝试获取新IP
+		userTTL = 1
+		dnsExpired = true
+		logger.Warnf("[Guard] 域名 %s 所有IP均失效，强制降级TTL并标记过期", domain)
+	} else if dnsExpired {
 		userTTL = uint32(cfg.Cache.FastResponseTTL)
 	} else {
+		// 走您现有的复杂 TTL 计算逻辑，保持兼容性
 		userTTL = s.calculateUserTTL(sorted.TTL, elapsed, cfg, rttStale)
 	}
 
-	// 4. 异步刷新策略：精准决策
-	if rttStale {
+	// 5. 异步刷新策略：精准决策
+	if isDeadPool || rttStale {
 		if dnsExpired {
-			// DNS 也过期了，走最重的 RefreshTask (重新请求上游)
+			// 主动触发全量刷新，去上游拿新节点
 			logger.Debugf("[handleQuery] 排序缓存命中 (Stale: DNS+RTT), 触发异步全量刷新: %s", domain)
 			s.RefreshDomain(domain, qtype)
 		} else {
