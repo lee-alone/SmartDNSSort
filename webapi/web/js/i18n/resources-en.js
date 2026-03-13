@@ -20,7 +20,10 @@ const resourcesEn = {
         "connecting": "Connecting...",
         "connected": "Connected",
         "disconnected": "Disconnected",
-        "error": "Error: Could not fetch stats."
+        "error": "Error: Could not fetch stats.",
+        "internet": "Internet",
+        "online": "Online",
+        "offline": "Offline"
     },
     "dashboard": {
         "generalStats": "General Stats",
@@ -86,7 +89,8 @@ const resourcesEn = {
         "accessHeat": "Access Heat",
         "rtt": "RTT (ms)",
         "lastAccess": "Last Access",
-        "noIpData": "No IP pool data available"
+        "noIpData": "No IP pool data available",
+        "refreshPaused": "Refresh Paused"
     },
     "config": {
         "sections": "Sections",

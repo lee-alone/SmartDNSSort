@@ -100,6 +100,31 @@ function updateDashboard() {
             const statusText = statusEl.querySelector('.status-text');
             if (statusText) statusText.textContent = i18n.t('status.connected');
             statusEl.className = 'status-indicator connected';
+
+            // Update internet status indicator
+            const internetStatusEl = document.getElementById('internet-status');
+            const ipPoolPausedBadge = document.getElementById('ipPoolPausedBadge');
+            if (internetStatusEl) {
+                const internetStatusDot = internetStatusEl.querySelector('.status-dot');
+                const internetStatusIcon = internetStatusEl.querySelector('.status-icon');
+                const isOnline = data.network_online !== false; // 默认为 true
+                
+                if (isOnline) {
+                    internetStatusDot.style.backgroundColor = '#22c55e'; // 绿色
+                    internetStatusIcon.textContent = 'public';
+                    // 隐藏 Badge
+                    if (ipPoolPausedBadge) {
+                        ipPoolPausedBadge.classList.add('hidden');
+                    }
+                } else {
+                    internetStatusDot.style.backgroundColor = '#ef4444'; // 红色
+                    internetStatusIcon.textContent = 'cloud_off';
+                    // 显示 Badge
+                    if (ipPoolPausedBadge) {
+                        ipPoolPausedBadge.classList.remove('hidden');
+                    }
+                }
+            }
         })
         .catch(error => {
             const statusEl = document.getElementById('status');

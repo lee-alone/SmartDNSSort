@@ -20,7 +20,10 @@ const resourcesZhCn = {
         "connecting": "连接中...",
         "connected": "已连接",
         "disconnected": "已断开",
-        "error": "错误：无法获取统计信息。"
+        "error": "错误：无法获取统计信息。",
+        "internet": "互联网连接",
+        "online": "在线",
+        "offline": "离线"
     },
     "dashboard": {
         "generalStats": "常规统计",
@@ -86,7 +89,8 @@ const resourcesZhCn = {
         "accessHeat": "访问热度",
         "rtt": "延迟 (ms)",
         "lastAccess": "最后访问",
-        "noIpData": "暂无 IP 池统计数据"
+        "noIpData": "暂无 IP 池统计数据",
+        "refreshPaused": "巡检已暂停"
     },
     "config": {
         "sections": "配置分类",

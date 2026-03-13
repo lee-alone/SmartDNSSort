@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"smartdnssort/logger"
+	"smartdnssort/upstream"
 	"strconv"
 	"strings"
 	"time"
@@ -133,6 +134,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"protected_entries": s.dnsCache.GetProtectedEntries(),
 		"evictions_per_min": evictionsPerMin,
 	}
+
+	// 添加网络在线状态
+	stats["network_online"] = upstream.GetGlobalNetworkChecker().IsNetworkHealthy()
 
 	// 保持与原有格式兼容：直接返回统计 map，不包装 success/data (由 dashboard.js 决定)
 	w.Header().Set("Content-Type", "application/json")
