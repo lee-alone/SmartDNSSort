@@ -113,6 +113,17 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 设置 IP 池更新器，用于维护全局 IP 资源
 	server.cache.SetIPPoolUpdater(server.pinger.GetIPPool())
 
+	// 初始化 IP 主动巡检调度器
+	logger.Info("[IPMonitor] Initializing IP Monitor...")
+	monitorConfig := ping.DefaultIPMonitorConfig()
+	// 可以从配置文件读取自定义配置
+	// monitorConfig.Enabled = cfg.IPMonitor.Enabled
+	// monitorConfig.T0RefreshInterval = cfg.IPMonitor.T0RefreshInterval
+	// monitorConfig.T1RefreshInterval = cfg.IPMonitor.T1RefreshInterval
+	// monitorConfig.T2RefreshInterval = cfg.IPMonitor.T2RefreshInterval
+	server.ipMonitor = ping.NewIPMonitor(server.pinger, monitorConfig)
+	logger.Info("[IPMonitor] IP Monitor initialized.")
+
 	// 设置排序函数：使用 ping 进行 IP 排序
 	sortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 		return server.performPingSort(ctx, domain, ips)

@@ -2,15 +2,16 @@ package config
 
 // Config 主配置结构
 type Config struct {
-	DNS      DNSConfig      `yaml:"dns" json:"dns"`
-	Upstream UpstreamConfig `yaml:"upstream" json:"upstream"`
-	Ping     PingConfig     `yaml:"ping" json:"ping"`
-	Cache    CacheConfig    `yaml:"cache" json:"cache"`
-	Prefetch PrefetchConfig `yaml:"prefetch" json:"prefetch"`
-	WebUI    WebUIConfig    `yaml:"webui" json:"webui"`
-	AdBlock  AdBlockConfig  `yaml:"adblock" json:"adblock"`
-	System   SystemConfig   `yaml:"system" json:"system"`
-	Stats    StatsConfig    `yaml:"stats" json:"stats"`
+	DNS       DNSConfig      `yaml:"dns" json:"dns"`
+	Upstream  UpstreamConfig `yaml:"upstream" json:"upstream"`
+	Ping      PingConfig     `yaml:"ping" json:"ping"`
+	Cache     CacheConfig    `yaml:"cache" json:"cache"`
+	Prefetch  PrefetchConfig `yaml:"prefetch" json:"prefetch"`
+	WebUI     WebUIConfig    `yaml:"webui" json:"webui"`
+	AdBlock   AdBlockConfig  `yaml:"adblock" json:"adblock"`
+	System    SystemConfig   `yaml:"system" json:"system"`
+	Stats     StatsConfig    `yaml:"stats" json:"stats"`
+	IPMonitor IPPoolConfig   `yaml:"ip_monitor" json:"ip_monitor"`
 }
 
 // DNSConfig DNS 服务器配置
@@ -178,4 +179,26 @@ type StatsConfig struct {
 	// 上游服务器统计时间桶配置
 	UpstreamStatsBucketMinutes int `yaml:"upstream_stats_bucket_minutes,omitempty" json:"upstream_stats_bucket_minutes"`
 	UpstreamStatsRetentionDays int `yaml:"upstream_stats_retention_days,omitempty" json:"upstream_stats_retention_days"`
+}
+
+// IPPoolConfig IP 池配置
+type IPPoolConfig struct {
+	// 是否启用 IP 池监控
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// IP 池最大容量
+	MaxSize int `yaml:"max_size,omitempty" json:"max_size"`
+	// T0 核心池刷新间隔（秒）
+	T0RefreshInterval int `yaml:"t0_refresh_interval,omitempty" json:"t0_refresh_interval"`
+	// T1 活跃池刷新间隔（秒）
+	T1RefreshInterval int `yaml:"t1_refresh_interval,omitempty" json:"t1_refresh_interval"`
+	// T2 淘汰池刷新间隔（秒）
+	T2RefreshInterval int `yaml:"t2_refresh_interval,omitempty" json:"t2_refresh_interval"`
+	// 权重计算参数：引用计数权重
+	RefCountWeight float64 `yaml:"ref_count_weight,omitempty" json:"ref_count_weight"`
+	// 权重计算参数：访问热度权重
+	AccessHeatWeight float64 `yaml:"access_heat_weight,omitempty" json:"access_heat_weight"`
+	// 每次刷新的最大 IP 数量
+	MaxRefreshPerCycle int `yaml:"max_refresh_per_cycle,omitempty" json:"max_refresh_per_cycle"`
+	// 并发测速数量
+	RefreshConcurrency int `yaml:"refresh_concurrency,omitempty" json:"refresh_concurrency"`
 }

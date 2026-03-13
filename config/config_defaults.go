@@ -43,6 +43,9 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 
 	// Stats 配置默认值
 	setStatsDefaults(cfg)
+
+	// IPMonitor 配置默认值
+	setIPMonitorDefaults(cfg)
 }
 
 // setUpstreamDefaults 设置上游配置的默认值
@@ -292,5 +295,33 @@ func setPrefetchDefaults(cfg *Config) {
 	}
 	if cfg.Prefetch.StabilityPenaltyFactor == 0 {
 		cfg.Prefetch.StabilityPenaltyFactor = 0.95
+	}
+}
+
+// setIPMonitorDefaults 设置 IP 监控器配置的默认值
+func setIPMonitorDefaults(cfg *Config) {
+	if cfg.IPMonitor.MaxSize == 0 {
+		cfg.IPMonitor.MaxSize = 1000
+	}
+	if cfg.IPMonitor.T0RefreshInterval == 0 {
+		cfg.IPMonitor.T0RefreshInterval = 120 // 2 分钟
+	}
+	if cfg.IPMonitor.T1RefreshInterval == 0 {
+		cfg.IPMonitor.T1RefreshInterval = 900 // 15 分钟
+	}
+	if cfg.IPMonitor.T2RefreshInterval == 0 {
+		cfg.IPMonitor.T2RefreshInterval = 3600 // 1 小时
+	}
+	if cfg.IPMonitor.RefCountWeight <= 0 {
+		cfg.IPMonitor.RefCountWeight = 1.0
+	}
+	if cfg.IPMonitor.AccessHeatWeight <= 0 {
+		cfg.IPMonitor.AccessHeatWeight = 0.5
+	}
+	if cfg.IPMonitor.MaxRefreshPerCycle == 0 {
+		cfg.IPMonitor.MaxRefreshPerCycle = 50
+	}
+	if cfg.IPMonitor.RefreshConcurrency == 0 {
+		cfg.IPMonitor.RefreshConcurrency = 10
 	}
 }

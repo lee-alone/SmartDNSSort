@@ -38,6 +38,7 @@ type Server struct {
 	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
 	customRespManager  *CustomResponseManager  // 自定义回复管理器
 	recursorMgr        *recursor.Manager       // 嵌入式递归解析器管理器
+	ipMonitor          *ping.IPMonitor         // IP 主动巡检调度器
 	stopCh             chan struct{}           // 用于优雅关闭后台 goroutine
 	sortSemaphore      chan struct{}           // 限制并发排序任务数量（最多 50 个）
 }
@@ -156,4 +157,11 @@ func (s *Server) GetUpstreamManager() *upstream.Manager {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.upstream
+}
+
+// GetIPMonitor returns the IP monitor instance
+func (s *Server) GetIPMonitor() *ping.IPMonitor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ipMonitor
 }

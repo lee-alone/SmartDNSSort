@@ -195,7 +195,7 @@ func (p *IPPool) selectRepDomain(info *IPInfo) {
 	// 这里暂时保持不变，等待下次访问时更新
 }
 
-// updateRepDomain 更新代表性域名
+// updateRepDomain 更新代表性域名（内部方法）
 // 根据访问热度选择代表性域名
 func (p *IPPool) updateRepDomain(info *IPInfo, domain string) {
 	// 简单策略：如果当前域名的热度超过代表性域名的热度，则更新
@@ -203,6 +203,60 @@ func (p *IPPool) updateRepDomain(info *IPInfo, domain string) {
 	// 在实际实现中，可能需要更复杂的策略
 	info.RepDomain = domain
 	info.RepDomainHeat++
+}
+
+// UpdateRepDomainOnSuccess 在探测成功时更新代表性域名
+// 第三阶段优化：当用户访问的域名探测成功时，可以更新该 IP 的代表性域名
+// 参数：
+//   - ip: IP 地址
+//   - domain: 探测成功的域名
+//   - forceUpdate: 是否强制更新（当代表性域名探测失败时设为 true）
+func (p *IPPool) UpdateRepDomainOnSuccess(ip, domain string, forceUpdate bool) {
+	if domain == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if info, exists := p.ips[ip]; exists {
+		if forceUpdate {
+			// 强制更新：代表性域名探测失败，用户域名探测成功
+			info.RepDomain = domain
+			info.RepDomainHeat = 1 // 重置热度
+		} else if info.RepDomain == "" {
+			// 如果没有代表性域名，直接设置
+			info.RepDomain = domain
+			info.RepDomainHeat = 1
+		} else if info.RepDomain == domain {
+			// 如果是同一个域名，增加热度
+			info.RepDomainHeat++
+		}
+		// 否则不更新，保持现有的代表性域名
+	}
+}
+
+// CheckAndUpdateRepDomain 检查并更新代表性域名
+// 第三阶段优化：当探测失败时，尝试切换到备用域名
+// 参数：
+//   - ip: IP 地址
+//   - failedDomain: 探测失败的域名（可能是代表性域名）
+//   - successDomain: 探测成功的域名（用户访问的域名）
+func (p *IPPool) CheckAndUpdateRepDomain(ip, failedDomain, successDomain string) {
+	if successDomain == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if info, exists := p.ips[ip]; exists {
+		// 如果失败的域名是当前代表性域名，则切换到成功的域名
+		if info.RepDomain == failedDomain && failedDomain != successDomain {
+			info.RepDomain = successDomain
+			info.RepDomainHeat = 1
+		}
+	}
 }
 
 // updateStats 更新统计信息

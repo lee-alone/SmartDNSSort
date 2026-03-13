@@ -44,6 +44,9 @@ func (s *Server) Start() error {
 	// 启动定期保存缓存的 goroutine
 	go s.saveCacheRoutine()
 
+	// 启动 IP 主动巡检调度器
+	go s.startIPMonitorRoutine()
+
 	// Start the prefetcher
 	s.prefetcher.Start()
 
@@ -63,6 +66,12 @@ func (s *Server) Start() error {
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown() {
 	logger.Info("[Server] 开始关闭服务器...")
+
+	// 停止 IP 主动巡检调度器
+	if s.ipMonitor != nil {
+		s.ipMonitor.Stop()
+		logger.Info("[IPMonitor] IP Monitor stopped.")
+	}
 
 	// 关闭停止通道，通知所有后台 goroutine 停止
 	close(s.stopCh)

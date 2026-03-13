@@ -16,9 +16,31 @@ import (
 // 2. TCP 443（HTTPS）+ TLS 握手验证（带 SNI）
 // 3. UDP DNS 查询（端口 53，备选方案，增加 500ms 惩罚）
 // 4. TCP 80（HTTP，可选）
+//
+// 第三阶段优化：SNI 感知与混合探测
+// - 自动从 IPPool 提取代表性域名作为 SNI
+// - 如果传入的 domain 为空，则使用 IPPool 中的代表性域名
 func (p *Pinger) smartPing(ctx context.Context, ip, domain string) int {
 	rtt, _ := p.smartPingWithMethod(ctx, ip, domain)
 	return rtt
+}
+
+// getSNIDomain 获取用于 SNI 的域名
+// 优先级：传入域名 > IPPool 代表性域名 > 空字符串
+func (p *Pinger) getSNIDomain(ip, domain string) string {
+	// 如果传入了域名，优先使用
+	if domain != "" {
+		return domain
+	}
+
+	// 从 IP 池获取代表性域名
+	if p.ipPool != nil {
+		if repDomain, exists := p.ipPool.GetRepDomain(ip); exists {
+			return repDomain
+		}
+	}
+
+	return ""
 }
 
 // tcpPingPort 通用 TCP 端口探测（443/80/853 都行）
@@ -35,15 +57,13 @@ func (p *Pinger) tcpPingPort(ctx context.Context, ip, port string) int {
 
 // tlsHandshakeWithSNI 核心过滤器：TLS ClientHello 带 SNI（≈500 字节）
 // 能够识别 TCP 连接成功但 TLS 握手失败的节点
-// 优先使用 IPPool 中的代表性域名作为 SNI
+//
+// 第三阶段优化：直接信任并使用参数传入的 domain 作为 SNI
+// 注意：调用方应该通过 getSNIDomain() 获取正确的 SNI 域名
 func (p *Pinger) tlsHandshakeWithSNI(ip, domain string) int {
-	// 从 IP 池获取代表性域名用于 SNI 绑定
+	// 直接使用传入的 domain 作为 SNI
+	// 调用方（smartPingWithMethod）已经通过 getSNIDomain() 选择了最佳域名
 	sniDomain := domain
-	if p.ipPool != nil {
-		if repDomain, exists := p.ipPool.GetRepDomain(ip); exists {
-			sniDomain = repDomain
-		}
-	}
 
 	conf := &tls.Config{
 		ServerName:         sniDomain,
@@ -163,16 +183,39 @@ func (p *Pinger) icmpPing(ip string) int {
 
 // smartPingWithMethod 智能混合探测，同时返回探测方法
 // 用于标记每个 IP 使用的探测方法，便于调试和监控
+//
+// 第三阶段优化：SNI 感知
+// - 使用 getSNIDomain 获取最佳 SNI 域名
+// - 确保 TLS 握手使用正确的 ServerName
+// - 探测成功后更新代表性域名
 func (p *Pinger) smartPingWithMethod(ctx context.Context, ip, domain string) (int, string) {
+	// 获取用于 SNI 的域名（第三阶段优化）
+	sniDomain := p.getSNIDomain(ip, domain)
+
 	// 第1步：ICMP ping (0ms 权重)
 	if rtt := p.icmpPing(ip); rtt >= 0 {
+		// ICMP 成功，不需要更新 SNI（ICMP 不使用 SNI）
 		return rtt, "icmp"
 	}
 
 	// 第2步：TCP 443 + TLS (100ms 权重)
+	// 使用 SNI 域名进行 TLS 握手验证
 	if rtt := p.tcpPingPort(ctx, ip, "443"); rtt >= 0 {
-		if rtt2 := p.tlsHandshakeWithSNI(ip, domain); rtt2 >= 0 {
+		if rtt2 := p.tlsHandshakeWithSNI(ip, sniDomain); rtt2 >= 0 {
+			// 第三阶段修复：TLS 探测成功，更新代表性域名
+			// 如果传入的 domain 不为空，说明用户访问的域名探测成功
+			// 应该更新该 IP 的代表性域名，以保证 SNI 的长效准确性
+			if domain != "" && p.ipPool != nil {
+				p.ipPool.UpdateRepDomainOnSuccess(ip, domain, false)
+			}
 			return rtt2, "tls" // 只返回原始 RTT，惩罚分由排序逻辑统一加
+		}
+		// TLS 握手失败，但 TCP 连接成功
+		// 可能是 SNI 域名不正确，尝试更新代表性域名
+		if domain != "" && p.ipPool != nil && sniDomain != domain {
+			// 用户传入的域名与 SNI 域名不同，且 TLS 失败
+			// 标记当前代表性域名可能有问题
+			p.ipPool.CheckAndUpdateRepDomain(ip, sniDomain, domain)
 		}
 		return -1, ""
 	}

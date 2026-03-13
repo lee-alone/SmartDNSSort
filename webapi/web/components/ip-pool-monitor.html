@@ -1,0 +1,151 @@
+<!-- IP Pool Monitor Component -->
+<div class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+    <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922] flex justify-between items-center">
+        <h2 class="font-bold text-lg" data-i18n="dashboard.ipPoolMonitor">IP Pool Monitor</h2>
+        <button id="refreshIpPoolBtn" class="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" title="Refresh">
+            <span class="material-symbols-outlined text-sm">refresh</span>
+        </button>
+    </div>
+    
+    <!-- IP Monitor Stats -->
+    <div class="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalIPs">Total IPs</p>
+            <h3 id="ip_pool_total_ips" class="text-xl font-bold">0</h3>
+        </div>
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalRefreshes">Total Refreshes</p>
+            <h3 id="ip_pool_total_refreshes" class="text-xl font-bold">0</h3>
+        </div>
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalIpsRefreshed">Total IPs Refreshed</p>
+            <h3 id="ip_pool_total_ips_refreshed" class="text-xl font-bold">0</h3>
+        </div>
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t0PoolSize">T0 Pool</p>
+            <h3 id="ip_pool_t0_size" class="text-xl font-bold">0</h3>
+        </div>
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t1PoolSize">T1 Pool</p>
+            <h3 id="ip_pool_t1_size" class="text-xl font-bold">0</h3>
+        </div>
+        <div>
+            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t2PoolSize">T2 Pool</p>
+            <h3 id="ip_pool_t2_size" class="text-xl font-bold">0</h3>
+        </div>
+    </div>
+
+    <!-- Top IP List Table -->
+    <div class="overflow-x-auto">
+        <table id="ip_pool_table" class="w-full text-sm text-left">
+            <thead class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+                <tr>
+                    <th class="px-6 py-3" data-i18n="dashboard.ip">IP</th>
+                    <th class="px-6 py-3" data-i18n="dashboard.repDomain">Rep Domain</th>
+                    <th class="px-6 py-3" data-i18n="dashboard.refCount">Ref Count</th>
+                    <th class="px-6 py-3" data-i18n="dashboard.accessHeat">Access Heat</th>
+                    <th class="px-6 py-3" data-i18n="dashboard.rtt">RTT (ms)</th>
+                    <th class="px-6 py-3" data-i18n="dashboard.lastAccess">Last Access</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]" id="ip_pool_table_body">
+                <tr>
+                    <td colspan="6" class="px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark">
+                        <span class="material-symbols-outlined inline-block align-middle mr-2">info</span>
+                        <span data-i18n="dashboard.noIpData">No IP pool data available</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+// IP Pool Monitor JavaScript
+async function loadIPPoolData() {
+    try {
+        const response = await fetch('/api/ip-pool/top?n=20');
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            // Update stats
+            document.getElementById('ip_pool_total_ips').textContent = data.total_ips || 0;
+            document.getElementById('ip_pool_total_refreshes').textContent = data.monitor_stats?.total_refreshes || 0;
+            document.getElementById('ip_pool_total_ips_refreshed').textContent = data.monitor_stats?.total_ips_refreshed || 0;
+            document.getElementById('ip_pool_t0_size').textContent = data.monitor_stats?.t0_pool_size || 0;
+            document.getElementById('ip_pool_t1_size').textContent = data.monitor_stats?.t1_pool_size || 0;
+            document.getElementById('ip_pool_t2_size').textContent = data.monitor_stats?.t2_pool_size || 0;
+            
+            // Update table
+            const tbody = document.getElementById('ip_pool_table_body');
+            if (data.top_ips && data.top_ips.length > 0) {
+                tbody.innerHTML = '';
+                data.top_ips.forEach(ip => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors';
+                    
+                    // Format last access time
+                    const lastAccess = new Date(ip.last_access);
+                    const lastAccessStr = lastAccess.toLocaleString();
+                    
+                    // RTT color coding
+                    let rttClass = 'text-green-600 dark:text-green-400';
+                    if (ip.rtt > 100) rttClass = 'text-yellow-600 dark:text-yellow-400';
+                    if (ip.rtt > 300) rttClass = 'text-red-600 dark:text-red-400';
+                    if (ip.rtt === 0) rttClass = 'text-gray-400';
+                    
+                    row.innerHTML = `
+                        <td class="px-6 py-3 font-mono">${ip.ip || '-'}</td>
+                        <td class="px-6 py-3 truncate max-w-xs">${ip.rep_domain || '-'}</td>
+                        <td class="px-6 py-3">${ip.ref_count || 0}</td>
+                        <td class="px-6 py-3">${ip.access_heat || 0}</td>
+                        <td class="px-6 py-3 font-mono ${rttClass}">${ip.rtt >= 0 ? ip.rtt : '-'}</td>
+                        <td class="px-6 py-3 text-xs">${lastAccessStr}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark">
+                            <span class="material-symbols-outlined inline-block align-middle mr-2">info</span>
+                            <span data-i18n="dashboard.noIpData">No IP pool data available</span>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load IP pool data:', error);
+        const tbody = document.getElementById('ip_pool_table_body');
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-6 py-4 text-center text-red-500">
+                    <span class="material-symbols-outlined inline-block align-middle mr-2">error</span>
+                    Failed to load IP pool data
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial data
+    loadIPPoolData();
+    
+    // Add refresh button listener
+    const refreshBtn = document.getElementById('refreshIpPoolBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadIPPoolData);
+    }
+});
+
+// Auto-refresh every 30 seconds
+setInterval(loadIPPoolData, 30000);
+</script>

@@ -6,6 +6,7 @@ import (
 	"smartdnssort/logger"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -320,4 +321,127 @@ func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(domains)
+}
+
+// IPPoolResult IP 池结果
+type IPPoolResult struct {
+	IP         string `json:"ip"`
+	RepDomain  string `json:"rep_domain"`
+	RefCount   int    `json:"ref_count"`
+	AccessHeat int64  `json:"access_heat"`
+	RTT        int    `json:"rtt"`
+	LastAccess string `json:"last_access"`
+}
+
+// IPPoolStatusResponse IP 池状态响应
+type IPPoolStatusResponse struct {
+	TotalIPs      int                    `json:"total_ips"`
+	TotalRefCount int                    `json:"total_ref_count"`
+	TotalHeat     int64                  `json:"total_heat"`
+	LastUpdated   string                 `json:"last_updated"`
+	MonitorStats  map[string]interface{} `json:"monitor_stats"`
+	TopIPs        []IPPoolResult         `json:"top_ips"`
+}
+
+// handleIPPoolStatus 处理 IP 池状态请求
+func (s *Server) handleIPPoolStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := IPPoolStatusResponse{
+		TopIPs: []IPPoolResult{},
+	}
+
+	// 获取 IP 池信息
+	ipMonitor := s.dnsServer.GetIPMonitor()
+	if ipMonitor != nil {
+		// 获取 IPMonitor 统计信息
+		stats := ipMonitor.GetStats()
+		response.MonitorStats = map[string]interface{}{
+			"total_refreshes":     stats.TotalRefreshes,
+			"total_ips_refreshed": stats.TotalIPsRefreshed,
+			"last_refresh_time":   stats.LastRefreshTime,
+			"t0_pool_size":        stats.T0PoolSize,
+			"t1_pool_size":        stats.T1PoolSize,
+			"t2_pool_size":        stats.T2PoolSize,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	s.writeJSONSuccess(w, "IP pool status retrieved successfully", response)
+}
+
+// handleIPPoolTop 处理 Top IP 列表请求
+func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取数量参数
+	n := 20
+	nStr := r.URL.Query().Get("n")
+	if nStr != "" {
+		if n, err := strconv.Atoi(nStr); err != nil || n <= 0 {
+			n = 20
+		}
+	}
+
+	response := IPPoolStatusResponse{
+		TopIPs: []IPPoolResult{},
+	}
+
+	// 获取 IP 池信息
+	ipMonitor := s.dnsServer.GetIPMonitor()
+	if ipMonitor != nil {
+		// 获取 IP 池统计信息
+		pool := ipMonitor.GetIPPool()
+		if pool != nil {
+			stats := pool.GetStats()
+			response.TotalIPs = stats.TotalIPs
+			response.TotalRefCount = stats.TotalRefCount
+			response.TotalHeat = stats.TotalHeat
+			response.LastUpdated = stats.LastUpdated.Format(time.RFC3339)
+
+			// 获取 Top IP 列表
+			topIPs := pool.GetTopIPsByRefCount(n)
+			for _, info := range topIPs {
+				// 获取 RTT（从 pinger 缓存中获取）
+				rtt := 0
+				pinger := ipMonitor.GetPinger()
+				if pinger != nil {
+					rttVal, _, exists, _ := pinger.GetIPRTT(info.IP)
+					if exists {
+						rtt = rttVal
+					}
+				}
+
+				result := IPPoolResult{
+					IP:         info.IP,
+					RepDomain:  info.RepDomain,
+					RefCount:   info.RefCount,
+					AccessHeat: info.AccessHeat,
+					RTT:        rtt,
+					LastAccess: info.LastAccess.Format(time.RFC3339),
+				}
+				response.TopIPs = append(response.TopIPs, result)
+			}
+		}
+
+		// 获取 IPMonitor 统计信息
+		stats := ipMonitor.GetStats()
+		response.MonitorStats = map[string]interface{}{
+			"total_refreshes":     stats.TotalRefreshes,
+			"total_ips_refreshed": stats.TotalIPsRefreshed,
+			"last_refresh_time":   stats.LastRefreshTime,
+			"t0_pool_size":        stats.T0PoolSize,
+			"t1_pool_size":        stats.T1PoolSize,
+			"t2_pool_size":        stats.T2PoolSize,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	s.writeJSONSuccess(w, "Top IPs retrieved successfully", response)
 }

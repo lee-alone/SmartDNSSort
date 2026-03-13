@@ -23,6 +23,18 @@ func (s *Server) cleanCacheRoutine() {
 	}
 }
 
+// startIPMonitorRoutine 启动全局 IP 监控器
+// 实现主动巡检调度器，根据权重优先级调度 IP 测速
+func (s *Server) startIPMonitorRoutine() {
+	if s.ipMonitor == nil {
+		logger.Warn("[IPMonitor] IP Monitor is not initialized, skipping...")
+		return
+	}
+
+	logger.Info("[IPMonitor] Starting IP Monitor routine...")
+	s.ipMonitor.Start()
+}
+
 // saveCacheRoutine 定期保存缓存到磁盘
 func (s *Server) saveCacheRoutine() {
 	interval := time.Duration(s.cfg.Cache.SaveToDiskIntervalMinutes) * time.Minute
