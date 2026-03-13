@@ -72,7 +72,21 @@ const resourcesZhCn = {
         "statsPeriod": "统计周期",
         "period1Day": "1天",
         "period7Days": "7天",
-        "period30Days": "30天"
+        "period30Days": "30天",
+        "ipPoolMonitor": "IP 池监控",
+        "totalIPs": "总 IP 数",
+        "totalRefreshes": "总巡检次数",
+        "totalIpsRefreshed": "累计巡检 IP 数",
+        "t0PoolSize": "核心池 (T0)",
+        "t1PoolSize": "活跃池 (T1)",
+        "t2PoolSize": "淘汰池 (T2)",
+        "ip": "IP 地址",
+        "repDomain": "代表域名",
+        "refCount": "引用计数",
+        "accessHeat": "访问热度",
+        "rtt": "延迟 (ms)",
+        "lastAccess": "最后访问",
+        "noIpData": "暂无 IP 池统计数据"
     },
     "config": {
         "sections": "配置分类",

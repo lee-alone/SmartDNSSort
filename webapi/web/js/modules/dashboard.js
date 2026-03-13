@@ -235,11 +235,20 @@ function initializeDashboardButtons() {
             performRestart();
         }
     });
+    
+    // 触发动态加载组件的翻译
+    if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
+        window.i18n.applyTranslations();
+    }
 }
 
 document.addEventListener('componentsLoaded', initializeDashboardButtons);
 
 window.addEventListener('languageChanged', () => {
+    // 应用翻译到所有 DOM 元素
+    if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
+        window.i18n.applyTranslations();
+    }
     updateDashboard();
     if (!window.dashboardInterval) {
         window.dashboardInterval = setInterval(updateDashboard, 5000);

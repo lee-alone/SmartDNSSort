@@ -72,7 +72,21 @@ const resourcesEn = {
         "statsPeriod": "Stats Period",
         "period1Day": "1 Day",
         "period7Days": "7 Days",
-        "period30Days": "30 Days"
+        "period30Days": "30 Days",
+        "ipPoolMonitor": "IP Pool Monitor",
+        "totalIPs": "Total IPs",
+        "totalRefreshes": "Total Refreshes",
+        "totalIpsRefreshed": "Total IPs Refreshed",
+        "t0PoolSize": "T0 Pool (Core)",
+        "t1PoolSize": "T1 Pool (Active)",
+        "t2PoolSize": "T2 Pool (Evicted)",
+        "ip": "IP Address",
+        "repDomain": "Rep Domain",
+        "refCount": "Ref Count",
+        "accessHeat": "Access Heat",
+        "rtt": "RTT (ms)",
+        "lastAccess": "Last Access",
+        "noIpData": "No IP pool data available"
     },
     "config": {
         "sections": "Sections",
