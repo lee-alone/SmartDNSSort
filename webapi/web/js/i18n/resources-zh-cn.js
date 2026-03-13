@@ -90,8 +90,11 @@ const resourcesZhCn = {
         "rtt": "延迟 (ms)",
         "lastAccess": "最后访问",
         "noIpData": "暂无 IP 池统计数据",
-        "refreshPaused": "巡检已暂停"
-    },
+        "refreshPaused": "巡检已暂停",
+        "noDeadIPs": "未检测到失效 IP",
+        "showAllDeadIPs": "显示全部失效 IP",
+        "deadIPCountInfo": "共有 {{count}} 个失效 IP，仅显示前 10 个"
+       },
     "config": {
         "sections": "配置分类",
         "nav": {

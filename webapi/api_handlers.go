@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"smartdnssort/logger"
 	"smartdnssort/upstream"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -377,20 +378,12 @@ func (s *Server) handleIPPoolStatus(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONSuccess(w, "IP pool status retrieved successfully", response)
 }
 
-// handleIPPoolTop 处理 Top IP 列表请求
+// handleIPPoolTop 处理失效 IP 列表请求
+// 返回所有 RTT >= 999999 的失效 IP
 func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
-	}
-
-	// 获取数量参数
-	n := 20
-	nStr := r.URL.Query().Get("n")
-	if nStr != "" {
-		if n, err := strconv.Atoi(nStr); err != nil || n <= 0 {
-			n = 20
-		}
 	}
 
 	response := IPPoolStatusResponse{
@@ -409,12 +402,11 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 			response.TotalHeat = stats.TotalHeat
 			response.LastUpdated = stats.LastUpdated.Format(time.RFC3339)
 
-			// 获取 Top IP 列表
-			topIPs := pool.GetTopIPsByRefCount(n)
-			for _, info := range topIPs {
-				// 获取 RTT（从 pinger 缓存中获取）
+			// 获取所有 IP 并筛选出失效 IP（RTT >= 999999）
+			allIPs := pool.GetAllIPs()
+			pinger := ipMonitor.GetPinger()
+			for _, info := range allIPs {
 				rtt := 0
-				pinger := ipMonitor.GetPinger()
 				if pinger != nil {
 					rttVal, _, exists, _ := pinger.GetIPRTT(info.IP)
 					if exists {
@@ -422,16 +414,24 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
-				result := IPPoolResult{
-					IP:         info.IP,
-					RepDomain:  info.RepDomain,
-					RefCount:   info.RefCount,
-					AccessHeat: info.AccessHeat,
-					RTT:        rtt,
-					LastAccess: info.LastAccess.Format(time.RFC3339),
+				// 仅保留失效 IP（RTT >= 999999 表示不可达）
+				if rtt >= 999999 {
+					result := IPPoolResult{
+						IP:         info.IP,
+						RepDomain:  info.RepDomain,
+						RefCount:   info.RefCount,
+						AccessHeat: info.AccessHeat,
+						RTT:        rtt,
+						LastAccess: info.LastAccess.Format(time.RFC3339),
+					}
+					response.TopIPs = append(response.TopIPs, result)
 				}
-				response.TopIPs = append(response.TopIPs, result)
 			}
+
+			// 按引用计数降序排列失效 IP，让"最常被引用"的失效 IP 排在前面
+			sort.Slice(response.TopIPs, func(i, j int) bool {
+				return response.TopIPs[i].RefCount > response.TopIPs[j].RefCount
+			})
 		}
 
 		// 获取 IPMonitor 统计信息
@@ -447,5 +447,5 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	s.writeJSONSuccess(w, "Top IPs retrieved successfully", response)
+	s.writeJSONSuccess(w, "Dead IPs retrieved successfully", response)
 }

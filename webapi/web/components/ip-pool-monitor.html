@@ -40,25 +40,32 @@
 
     <!-- Top IP List Table -->
     <div class="overflow-x-auto">
-        <table id="ip_pool_table" class="w-full text-sm text-left">
-            <thead class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
-                <tr>
-                    <th class="px-6 py-3" data-i18n="dashboard.ip">IP</th>
-                    <th class="px-6 py-3" data-i18n="dashboard.repDomain">Rep Domain</th>
-                    <th class="px-6 py-3" data-i18n="dashboard.refCount">Ref Count</th>
-                    <th class="px-6 py-3" data-i18n="dashboard.accessHeat">Access Heat</th>
-                    <th class="px-6 py-3" data-i18n="dashboard.rtt">RTT (ms)</th>
-                    <th class="px-6 py-3" data-i18n="dashboard.lastAccess">Last Access</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]" id="ip_pool_table_body">
-                <tr>
-                    <td colspan="6" class="px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark">
-                        <span class="material-symbols-outlined inline-block align-middle mr-2">info</span>
-                        <span data-i18n="dashboard.noIpData">No IP pool data available</span>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+    	<table id="ip_pool_table" class="w-full text-sm text-left">
+    		<thead class="text-xs text-text-sub-light dark:text-text-sub-dark uppercase bg-[#f4f4e6] dark:bg-[#23220f]">
+    			<tr>
+    				<th class="px-6 py-3" data-i18n="dashboard.ip">IP</th>
+    				<th class="px-6 py-3" data-i18n="dashboard.repDomain">Rep Domain</th>
+    				<th class="px-6 py-3" data-i18n="dashboard.refCount">Ref Count</th>
+    				<th class="px-6 py-3" data-i18n="dashboard.accessHeat">Access Heat</th>
+    				<th class="px-6 py-3" data-i18n="dashboard.rtt">RTT (ms)</th>
+    				<th class="px-6 py-3" data-i18n="dashboard.lastAccess">Last Access</th>
+    			</tr>
+    		</thead>
+    		<tbody class="divide-y divide-[#e9e8ce] dark:divide-[#3a3922]" id="ip_pool_table_body">
+    			<tr>
+    				<td colspan="6" class="px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark">
+    					<span class="material-symbols-outlined inline-block align-middle mr-2">info</span>
+    					<span data-i18n="dashboard.noIpData">No IP pool data available</span>
+    				</td>
+    			</tr>
+    		</tbody>
+    	</table>
+    	<!-- Expand/Collapse Button Container -->
+    	<div id="expand-container" class="text-center py-3 hidden">
+    		<p id="dead-ip-count-info" class="text-sm text-text-sub-light dark:text-text-sub-dark mb-2"></p>
+    		<button id="btn-expand-ips" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">
+    			<span data-i18n="dashboard.showAllDeadIPs">Show All Dead IPs</span>
+    		</button>
+    	</div>
     </div>
-</div>
+   </div>

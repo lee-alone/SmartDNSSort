@@ -90,8 +90,11 @@ const resourcesEn = {
         "rtt": "RTT (ms)",
         "lastAccess": "Last Access",
         "noIpData": "No IP pool data available",
-        "refreshPaused": "Refresh Paused"
-    },
+        "refreshPaused": "Refresh Paused",
+        "noDeadIPs": "No dead IPs detected",
+        "showAllDeadIPs": "Show All Dead IPs",
+        "deadIPCountInfo": "Showing 10 of {{count}} dead IPs"
+       },
     "config": {
         "sections": "Sections",
         "nav": {
