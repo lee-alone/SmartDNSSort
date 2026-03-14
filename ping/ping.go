@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/icmp"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -54,6 +55,15 @@ type Pinger struct {
 	staleRevalidateMu sync.Mutex
 	staleRevalidating map[string]bool // 记录正在异步更新的 IP，避免重复触发
 	staleGracePeriod  time.Duration   // 软过期容忍期（默认 30 秒）
+
+	// 全局 ICMP 调度器相关字段
+	pendingProbes sync.Map         // 键为 ID (uint16)，值为回调 chan time.Time
+	idCounter     uint32           // 循环生成唯一序列号
+	v4Conn        *icmp.PacketConn // IPv4 单例监听器
+	v6Conn        *icmp.PacketConn // IPv6 单例监听器
+	icmpReady     chan struct{}    // ICMP 监听器就绪信号
+	v4IsUDP       bool             // IPv4 是否使用 UDP 模式
+	v6IsUDP       bool             // IPv6 是否使用 UDP 模式
 }
 
 // PingAndSort 执行并发 ping 测试并返回排序后的结果

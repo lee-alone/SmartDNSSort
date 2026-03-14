@@ -1,19 +1,28 @@
 package ping
 
-import "context"
+import (
+	"context"
+	"smartdnssort/logger"
+)
 
 // pingIP 单个 IP 多次测试 + 惩罚机制 + 快速失败
 // 执行多次 smartPing 测试，计算平均 RTT 和丢包率
 // 对丢包进行惩罚以降低不稳定节点的优先级
-// 如果第一次探测超时，直接判定为"坏 IP"，取消后续探测（快速失败）
+//
+// 第三阶段优化：精细化 FastFail
+// - 区分"路不通"与"层不通"
+// - 如果 ICMP 失败是因为"权限拒绝"或"协议不支持"，严禁触发 FastFail
+// - 此时将 ICMP 权重设为最大，但允许流程继续走到 TCP（443）探测
+// - 只有真正的网络超时才应该触发 FastFail
 func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 	var totalRTT int64 = 0
 	minRTT := 999999
 	successCount := 0
 	probeMethod := ""
+	icmpPermissionError := false // 标记 ICMP 是否因权限问题失败
 
 	for i := 0; i < p.count; i++ {
-		rtt, method := p.smartPingWithMethod(ctx, ip, domain)
+		rtt, method, icmpErr := p.smartPingWithMethod(ctx, ip, domain)
 		if rtt >= 0 {
 			totalRTT += int64(rtt)
 			successCount++
@@ -25,8 +34,18 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 				probeMethod = method
 			}
 		} else {
-			// 第一次探测就失败，触发快速失败机制
+			// 第三阶段优化：检查 ICMP 是否因权限问题失败
+			// 如果是权限问题，不应该触发 FastFail
+			// 修复：直接使用 smartPingWithMethod 返回的 icmpErr，避免重复探测
 			if i == 0 {
+				if icmpErr != nil && (icmpErr.IsPermissionError || icmpErr.IsProtocolError) {
+					icmpPermissionError = true
+					logger.Debugf("[Pinger] ICMP failed for %s due to permission/protocol error, skipping FastFail: %v", ip, icmpErr.Err)
+					// 不触发 FastFail，继续尝试后续探测
+					continue
+				}
+
+				// 如果不是权限问题，触发快速失败机制
 				p.RecordIPFastFail(ip)
 				// 直接返回完全失败的结果，不再进行后续探测
 				// FastFail=true 标记，避免在 PingAndSort 中重复记录
@@ -36,6 +55,11 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 	}
 
 	if successCount == 0 {
+		// 如果所有探测都失败，但 ICMP 是因权限问题失败，不应该标记为 FastFail
+		if icmpPermissionError {
+			logger.Debugf("[Pinger] All probes failed for %s, but ICMP had permission error, not marking as FastFail", ip)
+			return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "none", FastFail: false}
+		}
 		return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "none", FastFail: false}
 	}
 

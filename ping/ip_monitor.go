@@ -419,7 +419,7 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 				}
 
 				// 执行测速（使用 smartPingWithMethod 获取探测方法）
-				rtt, method := m.pinger.smartPingWithMethod(ctx, ip, domain)
+				rtt, method, _ := m.pinger.smartPingWithMethod(ctx, ip, domain)
 
 				// 第三阶段修复：将探测结果写入全局 RTT 缓存
 				// 这样 PingAndSort 就可以直接使用 IPMonitor 维护的数据
