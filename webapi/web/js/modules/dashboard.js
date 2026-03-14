@@ -107,10 +107,13 @@ function updateDashboard() {
             if (internetStatusEl) {
                 const internetStatusDot = internetStatusEl.querySelector('.status-dot');
                 const internetStatusIcon = internetStatusEl.querySelector('.status-icon');
+                const internetStatusText = internetStatusEl.querySelector('[data-i18n="status.internet"]');
                 const isOnline = data.network_online !== false; // 默认为 true
                 
                 if (isOnline) {
                     internetStatusDot.style.backgroundColor = '#22c55e'; // 绿色
+                    internetStatusIcon.style.color = '#22c55e'; // 绿色
+                    internetStatusText.style.color = '#22c55e'; // 绿色
                     internetStatusIcon.textContent = 'public';
                     // 隐藏 Badge
                     if (ipPoolPausedBadge) {
@@ -118,6 +121,8 @@ function updateDashboard() {
                     }
                 } else {
                     internetStatusDot.style.backgroundColor = '#ef4444'; // 红色
+                    internetStatusIcon.style.color = '#ef4444'; // 红色
+                    internetStatusText.style.color = '#ef4444'; // 红色
                     internetStatusIcon.textContent = 'cloud_off';
                     // 显示 Badge
                     if (ipPoolPausedBadge) {
