@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"smartdnssort/logger"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,15 +13,19 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// NewPinger 创建新的 Pinger 实例
+// NewPinger 创建新的 Pinger 实例（纯 ICMP 探测模式）
 // 参数：
-//   - count: 每个 IP 的测试次数
+//   - count: 每个 IP 的测试次数（建议 3-5 次，取平均值）
 //   - timeoutMs: 单次测试超时时间（毫秒）
-//   - concurrency: 并发测试的 IP 数量
+//   - concurrency: 并发测试的 IP 数量（建议 5-10，避免触发 ICMP Flood 保护）
 //   - maxTestIPs: 最多测试的 IP 数量（0 表示测试所有）
 //   - rttCacheTtlSeconds: RTT 缓存过期时间（秒）
-//   - enableHttpFallback: 是否启用 HTTP 备选探测
+//   - enableHttpFallback: 已弃用，保留用于向后兼容
 //   - failureWeightPersistFile: IP失效权重持久化文件路径（空字符串表示不持久化）
+//
+// Debian 部署建议：
+//   - 使用 setcap cap_net_raw+ep SmartDNSSort 赋予二进制文件原始套接字权限
+//   - RAW 模式下，ID 和 Seq 字段由程序完全控制，识别率 100%
 func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int, enableHttpFallback bool, failureWeightPersistFile string) *Pinger {
 	if count <= 0 {
 		count = 3
@@ -40,20 +43,14 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		concurrency:        concurrency,
 		maxTestIPs:         maxTestIPs,
 		rttCacheTtlSeconds: rttCacheTtlSeconds,
-		enableHttpFallback: enableHttpFallback,
 		rttCache:           newShardedRttCache(32), // 使用 32 个分片
 		stopChan:           make(chan struct{}),
-		bufferPool: &sync.Pool{
-			New: func() interface{} {
-				return make([]byte, 512)
-			},
-		},
-		failureWeightMgr:  NewIPFailureWeightManager(failureWeightPersistFile),
-		probeFlight:       &singleflight.Group{},
-		ipPool:            NewIPPool(), // 初始化全局 IP 资源管理器
-		staleRevalidating: make(map[string]bool),
-		staleGracePeriod:  30 * time.Second, // 默认 30 秒软过期容忍期
-		icmpReady:         make(chan struct{}),
+		failureWeightMgr:   NewIPFailureWeightManager(failureWeightPersistFile),
+		probeFlight:        &singleflight.Group{},
+		ipPool:             NewIPPool(), // 初始化全局 IP 资源管理器（用于 IP 监控器）
+		staleRevalidating:  make(map[string]bool),
+		staleGracePeriod:   30 * time.Second, // 默认 30 秒软过期容忍期
+		icmpReady:          make(chan struct{}),
 	}
 
 	// 初始化全局 ICMP 调度器
@@ -167,7 +164,12 @@ func (p *Pinger) startICMPReceiver() {
 					if rm.Type == ipv4.ICMPTypeEchoReply {
 						if echo, ok := rm.Body.(*icmp.Echo); ok {
 							// 查找对应的回调 channel
-							if v, exists := p.pendingProbes.Load(echo.ID); exists {
+							// 修复：在 Linux UDP 模式下，ID 被内核占用，使用 Seq 进行匹配
+							trackingID := echo.ID
+							if p.v4IsUDP {
+								trackingID = echo.Seq
+							}
+							if v, exists := p.pendingProbes.Load(uint16(trackingID)); exists {
 								if ch, ok := v.(chan time.Time); ok {
 									select {
 									case ch <- time.Now():
@@ -227,7 +229,12 @@ func (p *Pinger) startICMPReceiver() {
 					if rm.Type == ipv6.ICMPTypeEchoReply {
 						if echo, ok := rm.Body.(*icmp.Echo); ok {
 							// 查找对应的回调 channel
-							if v, exists := p.pendingProbes.Load(echo.ID); exists {
+							// 修复：在 Linux UDP 模式下，ID 被内核占用，使用 Seq 进行匹配
+							trackingID := echo.ID
+							if p.v6IsUDP {
+								trackingID = echo.Seq
+							}
+							if v, exists := p.pendingProbes.Load(uint16(trackingID)); exists {
 								if ch, ok := v.(chan time.Time); ok {
 									select {
 									case ch <- time.Now():

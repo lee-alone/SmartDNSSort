@@ -15,7 +15,7 @@ type Result struct {
 	IP          string
 	RTT         int // 毫秒，999999 表示不可达
 	Loss        float64
-	ProbeMethod string // 探测方法：icmp, tcp443, tls, udp53, tcp80, none
+	ProbeMethod string // 探测方法：icmp（纯 ICMP 模式）
 	FastFail    bool   // 标记是否触发了快速失败（避免两重记录）
 }
 
@@ -33,22 +33,20 @@ type NetworkHealthChecker interface {
 }
 
 // Pinger DNS IP 延迟测量和排序工具
-// 提供智能混合探测、缓存和并发测试功能
+// 纯 ICMP 探测模式：只使用 ICMP echo request/reply 测试 IP 可达性
 type Pinger struct {
 	count              int
 	timeoutMs          int
 	concurrency        int
-	strategy           string // 已弃用：保留用于向后兼容。详见 PING_NOTES.md
+	strategy           string // 已弃用：保留用于向后兼容
 	maxTestIPs         int
 	rttCacheTtlSeconds int
-	enableHttpFallback bool // 是否对纯 HTTP(80) 做补充探测，默认关闭
 
 	rttCache         *shardedRttCache // 改为分片缓存，减少锁竞争
 	stopChan         chan struct{}
-	bufferPool       *sync.Pool // 新增: 复用 UDP 读取 buffer
 	failureWeightMgr *IPFailureWeightManager
-	probeFlight      *singleflight.Group  // 新增: 请求合并，避免重复探测同一 IP
-	ipPool           *IPPool              // 全局 IP 资源管理器，用于 SNI 绑定
+	probeFlight      *singleflight.Group  // 请求合并，避免重复探测同一 IP
+	ipPool           *IPPool              // 全局 IP 资源管理器，用于 IP 监控器获取 IP 列表
 	healthChecker    NetworkHealthChecker // 网络健康检查器，用于断网时防止缓存污染
 
 	// Stale-While-Revalidate 相关
@@ -67,11 +65,12 @@ type Pinger struct {
 }
 
 // PingAndSort 执行并发 ping 测试并返回排序后的结果
-// 支持缓存、智能探测和并发控制
+// 纯 ICMP 探测模式：只使用 ICMP echo request/reply 测试 IP 可达性
+// 支持缓存、并发控制和智能排序
 //
-// 第三阶段优化：测速逻辑切换
+// 优化路径：
 // - 首选路径：直接读取 IPMonitor 维护的 RTT 缓存数据
-// - 兜底方案：当缓存不存在或过期时，才触发实时探测
+// - 兜底方案：当缓存不存在或过期时，才触发实时 ICMP 探测
 // - 这样可以显著降低用户请求触发的探测频率，减少 ICMP 流量
 func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) []Result {
 	if len(ips) == 0 {
@@ -287,14 +286,16 @@ func (p *Pinger) GetMultipleIPRTTs(ips []string) map[string]Result {
 }
 
 // UpdateIPCache 更新 IP 的 RTT 缓存
-// 第三阶段优化：供 IPMonitor 在并发探测完成后调用，将结果同步到全局 RTT 缓存
+// 第一阶段优化：供 IPMonitor 在并发探测完成后调用，将结果同步到全局 RTT 缓存和 IPPool
 // 参数：
-//   - ip: IP 地址
-//   - rtt: RTT 值（毫秒），-1 表示不可达
-//   - loss: 丢包率（0-100）
-//   - probeMethod: 探测方法（icmp, tls, udp53, tcp80）
+// - ip: IP 地址
+// - rtt: RTT 值（毫秒），-1 表示不可达
+// - loss: 丢包率（0-100）
+// - probeMethod: 探测方法（icmp, tls, udp53, tcp80）
 //
-// 第三阶段修复：内部调用 RecordIPSuccess/Failure，保证权重系统同步更新
+// 第一阶段改造：IP 池"真理化"改造
+// - 探测结果不仅写入 RTT 缓存，还同步更新到全局 IPPool 的 RTT 字段
+// - 使用 EWMA 平滑 RTT 值，防止抖动
 //
 // 静默隔离改造：如果网络探测器报告离线，则拒绝更新缓存，防止缓存污染
 func (p *Pinger) UpdateIPCache(ip string, rtt int, loss float64, probeMethod string) {
@@ -308,6 +309,12 @@ func (p *Pinger) UpdateIPCache(ip string, rtt int, loss float64, probeMethod str
 	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
 		logger.Warnf("[Pinger] Network is offline, skipping cache update for %s to prevent poisoning", ip)
 		return
+	}
+
+	// 第一阶段改造：同步更新 IPPool 中的 RTT 数据
+	// 使用 EWMA 平滑系数 0.3，平衡响应速度和稳定性
+	if p.ipPool != nil {
+		p.ipPool.UpdateIPRTT(ip, rtt, loss, 0.3)
 	}
 
 	// 第三阶段修复：更新失败权重系统

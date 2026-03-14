@@ -410,18 +410,11 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 		go func() {
 			defer wg.Done()
 			for ip := range ipCh {
-				// 获取代表性域名用于 SNI
-				domain := ""
-				if m.pinger.ipPool != nil {
-					if repDomain, exists := m.pinger.ipPool.GetRepDomain(ip); exists {
-						domain = repDomain
-					}
-				}
-
+				// 纯 ICMP 探测：不需要 SNI 域名
 				// 执行测速（使用 smartPingWithMethod 获取探测方法）
-				rtt, method, _ := m.pinger.smartPingWithMethod(ctx, ip, domain)
+				rtt, method, _ := m.pinger.smartPingWithMethod(ctx, ip, "")
 
-				// 第三阶段修复：将探测结果写入全局 RTT 缓存
+				// 将探测结果写入全局 RTT 缓存
 				// 这样 PingAndSort 就可以直接使用 IPMonitor 维护的数据
 				if rtt >= 0 {
 					m.pinger.UpdateIPCache(ip, rtt, 0, method)

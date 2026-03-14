@@ -13,6 +13,7 @@ import (
 )
 
 // performPingSort 执行 ping 排序操作
+// 第三阶段改造：从 IPPool 实时获取 RTT 数据进行排序，实现"解耦"
 func (s *Server) performPingSort(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 	// Add the check for Ping.Enabled
 	if !s.cfg.Ping.Enabled {
@@ -49,7 +50,47 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	pinger := s.pinger
 	s.mu.RUnlock()
 
-	// 使用现有的 Pinger 进行 ping 测试和排序
+	// 第三阶段改造：优先从 IPPool 获取 RTT 数据（真理化改造）
+	// 这样可以避免每次都进行实时探测，提高响应速度
+	ipPool := pinger.GetIPPool()
+	if ipPool != nil {
+		// 从 IPPool 批量获取 RTT 数据
+		rttMap := ipPool.GetAllIPRTTs(ips)
+
+		// 如果所有 IP 都有 RTT 数据，直接使用 IPPool 的数据进行排序
+		if len(rttMap) == len(ips) {
+			logger.Debugf("[performPingSort] 使用 IPPool RTT 数据进行排序: %s", domain)
+			return s.sortIPsByRTT(ips, rttMap, sortDomain)
+		}
+
+		// 部分或全部 IP 没有 RTT 数据，需要探测
+		// 对于新 IP（IPPool 中没有的），不等待测速，直接返回
+		// 将新 IP 扔进异步测速队列
+		var newIPs []string
+		for _, ip := range ips {
+			if _, exists := rttMap[ip]; !exists {
+				newIPs = append(newIPs, ip)
+			}
+		}
+
+		if len(newIPs) > 0 {
+			logger.Debugf("[performPingSort] 发现 %d 个新 IP，将进行异步测速: %v", len(newIPs), newIPs)
+			// 异步测速新 IP
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cfg.Ping.TimeoutMs)*time.Millisecond)
+				defer cancel()
+				pinger.PingAndSort(ctx, newIPs, sortDomain)
+			}()
+		}
+
+		// 如果至少有一个 IP 有 RTT 数据，使用现有数据排序
+		if len(rttMap) > 0 {
+			logger.Debugf("[performPingSort] 使用部分 IPPool RTT 数据进行排序: %s", domain)
+			return s.sortIPsByRTT(ips, rttMap, sortDomain)
+		}
+	}
+
+	// 兜底方案：使用现有的 Pinger 进行 ping 测试和排序
 	// We use sortDomain here so that stats are keyed by the canonical name
 	pingResults := pinger.PingAndSort(ctx, ips, sortDomain)
 
@@ -70,6 +111,48 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	// We also report against sortDomain to centralize the knowledge base
 	s.prefetcher.ReportPingResultWithDomain(sortDomain, pingResults)
 
+	return sortedIPs, rtts, nil
+}
+
+// sortIPsByRTT 根据 RTT 数据对 IP 进行排序
+// 第三阶段新增：使用 IPPool 中的 RTT 数据进行排序
+func (s *Server) sortIPsByRTT(ips []string, rttMap map[string]int, domain string) ([]string, []int, error) {
+	// 创建 IP-RTT 对列表
+	type ipRTT struct {
+		ip  string
+		rtt int
+	}
+
+	ipRTTs := make([]ipRTT, 0, len(ips))
+	for _, ip := range ips {
+		rtt := 999999 // 默认值，表示不可达
+		if r, exists := rttMap[ip]; exists {
+			rtt = r
+		}
+		ipRTTs = append(ipRTTs, ipRTT{ip: ip, rtt: rtt})
+	}
+
+	// 按 RTT 排序（冒泡排序，简单实现）
+	for i := 0; i < len(ipRTTs); i++ {
+		for j := i + 1; j < len(ipRTTs); j++ {
+			if ipRTTs[j].rtt < ipRTTs[i].rtt {
+				ipRTTs[i], ipRTTs[j] = ipRTTs[j], ipRTTs[i]
+			}
+		}
+	}
+
+	// 提取排序后的 IP 和 RTT
+	sortedIPs := make([]string, len(ipRTTs))
+	rtts := make([]int, len(ipRTTs))
+	for i, ipRtt := range ipRTTs {
+		sortedIPs[i] = ipRtt.ip
+		rtts[i] = ipRtt.rtt
+		if ipRtt.rtt < 999999 {
+			s.stats.IncPingSuccesses()
+		}
+	}
+
+	logger.Debugf("[sortIPsByRTT] 排序完成: %s -> %v (RTT: %v)", domain, sortedIPs, rtts)
 	return sortedIPs, rtts, nil
 }
 

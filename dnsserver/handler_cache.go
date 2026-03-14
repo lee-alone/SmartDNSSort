@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"smartdnssort/stats"
@@ -102,7 +103,26 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 		}
 	}
 
-	// 5. 构造响应
+	// 6. 动态洗牌：使用 IPPool 的最新 RTT 数据重新校验顺序
+	// 遗留问题修复：确保返回给用户的顺序永远基于最新的测速数据
+	// 即使命中了"新鲜"的排序缓存，也要用 IPPool 的最新数据微调顺序
+	s.mu.RLock()
+	pinger := s.pinger
+	s.mu.RUnlock()
+
+	ipsToReturn := sorted.IPs // 默认使用缓存顺序
+	if pinger != nil {
+		if ipPool := pinger.GetIPPool(); ipPool != nil {
+			latestRttMap := ipPool.GetAllIPRTTs(sorted.IPs)
+			if len(latestRttMap) > 0 {
+				// 使用真理库（IPPool）的最新 RTT 动态覆盖缓存顺序
+				ipsToReturn, _, _ = s.sortIPsByRTT(sorted.IPs, latestRttMap, domain)
+				logger.Debugf("[handleSortedCacheHit] 使用 IPPool 实时数据对新鲜缓存进行重排: %s -> %v", domain, ipsToReturn)
+			}
+		}
+	}
+
+	// 7. 构造响应
 	msg := s.msgPool.Get()
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
@@ -114,9 +134,9 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	}
 
 	if len(cnames) > 0 {
-		s.buildDNSResponseWithCNAME(msg, domain, cnames, sorted.IPs, qtype, userTTL)
+		s.buildDNSResponseWithCNAME(msg, domain, cnames, ipsToReturn, qtype, userTTL)
 	} else {
-		s.buildDNSResponse(msg, domain, sorted.IPs, qtype, userTTL)
+		s.buildDNSResponse(msg, domain, ipsToReturn, qtype, userTTL)
 	}
 
 	w.WriteMsg(msg)
@@ -151,6 +171,7 @@ func (s *Server) calculateUserTTL(originalTTL int, elapsed time.Duration, cfg *c
 }
 
 // handleRawCacheHit 处理原始缓存（上游DNS响应缓存）命中
+// 第二阶段改造：实现 Stale-While-Revalidate "抢跑回显"机制
 // 返回 true 表示请求已处理
 func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, cfg *config.Config, stats *stats.Stats) bool {
 	raw, ok := s.cache.GetRaw(domain, qtype)
@@ -162,17 +183,45 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	s.prefetcher.RecordAccess(domain, raw.UpstreamTTL) // Prefetcher Math Model Update
 	stats.IncCacheHits()
 	stats.RecordDomainQuery(domain) // ✅ 统计有效域名查询
-	logger.Debugf("[handleQuery] 原始缓存命中: %s (type=%s) -> %v, CNAMEs=%v (过期:%v)",
-		domain, dns.TypeToString[qtype], raw.IPs, raw.CNAMEs, raw.IsExpired())
 
-	// 3. 计算用户视角下的 TTL
-	// 如果数据已过期，强制返回 fast_response_ttl
+	// 第二阶段改造：三段式过期判定
+	// GracePeriod 默认为 30 秒（可配置）
+	gracePeriod := uint32(30)
+	cacheState := raw.GetStateWithConfig(cfg.Cache.KeepExpiredEntries, gracePeriod)
+
 	elapsed := time.Since(raw.AcquisitionTime)
 	var userTTL uint32
-	if raw.IsExpired() {
-		userTTL = uint32(cfg.Cache.FastResponseTTL)
-	} else {
+	var needRefresh bool
+
+	switch cacheState {
+	case cache.FRESH:
+		// Fresh 状态：直接返回，TTL 使用 UserReturnTTL（受 EffectiveTTL 余额限制）
 		userTTL = s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, false)
+		logger.Debugf("[handleQuery] 原始缓存命中 (Fresh): %s (type=%s) -> %v, CNAMEs=%v, TTL=%d",
+			domain, dns.TypeToString[qtype], raw.IPs, raw.CNAMEs, userTTL)
+		// Fresh 状态下，只触发轻量的测速刷新，不查询上游
+		needRefresh = true
+
+	case cache.STALE:
+		// Stale 状态：立即返回陈旧数据，但强制响应中的 TTL 为 FastResponseTTL
+		// 同时触发后台异步任务去上游刷新 IP 并重新测速
+		userTTL = uint32(cfg.Cache.FastResponseTTL)
+		logger.Infof("[handleQuery] 原始缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %v, CNAMEs=%v, TTL=%d [STALE-HIT]",
+			domain, dns.TypeToString[qtype], raw.IPs, raw.CNAMEs, userTTL)
+
+		// 触发后台异步刷新
+		stats.IncCacheStaleRefresh()
+		task := RefreshTask{Domain: domain, Qtype: qtype}
+		s.refreshQueue.Submit(task)
+		needRefresh = false // 已经提交了刷新任务
+
+	case cache.EXPIRED:
+		// Expired 状态：彻底过期，需要重新查询上游
+		// 审计修复：EXPIRED 状态即便开启了 KeepExpiredEntries，也应该强制去上游查询一次
+		// 确保数据的绝对可靠性
+		logger.Debugf("[handleQuery] 原始缓存已过期 (Expired): %s (type=%s)",
+			domain, dns.TypeToString[qtype])
+		return false // 让上层去上游查询
 	}
 
 	// 优先使用排序缓存，如果不存在则使用历史数据进行兜底排序
@@ -181,7 +230,30 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	// 1. 首先尝试获取排序缓存
 	if sorted, ok := s.cache.GetSorted(domain, qtype); ok {
 		logger.Debugf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v", domain, dns.TypeToString[qtype], sorted.IPs)
-		ipsToReturn = sorted.IPs
+
+		// 审计修复：Phase 3 遗漏 - 使用 IPPool 的最新 RTT 数据重新校验顺序
+		// 即使命中排序缓存，也尝试用最新的 IPPool 数据微调顺序
+		s.mu.RLock()
+		pinger := s.pinger
+		s.mu.RUnlock()
+
+		if pinger != nil {
+			ipPool := pinger.GetIPPool()
+			if ipPool != nil {
+				latestRttMap := ipPool.GetAllIPRTTs(sorted.IPs)
+				if len(latestRttMap) > 0 {
+					// 使用最新的 RTT 数据重新排序
+					ipsToReturn, _, _ = s.sortIPsByRTT(sorted.IPs, latestRttMap, domain)
+					logger.Debugf("[handleQuery] 使用 IPPool 最新 RTT 数据重新排序: %s -> %v", domain, ipsToReturn)
+				} else {
+					ipsToReturn = sorted.IPs
+				}
+			} else {
+				ipsToReturn = sorted.IPs
+			}
+		} else {
+			ipsToReturn = sorted.IPs
+		}
 	} else {
 		// 2. 排序缓存不存在，使用历史数据进行兜底排序 (Fallback Rank)
 		// [Fix] 如果存在 CNAME，使用最终目标域名获取排序权重，因为 stats 是记在 target 上的
@@ -207,19 +279,18 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	w.WriteMsg(msg)
 	s.msgPool.Put(msg)
 
-	if raw.IsExpired() {
-		logger.Debugf("[handleQuery] 原始缓存已过期,触发异步刷新: %s (type=%s)",
-			domain, dns.TypeToString[qtype])
-		stats.IncCacheStaleRefresh() // 记录缓冲更新
-		task := RefreshTask{Domain: domain, Qtype: qtype}
-		s.refreshQueue.Submit(task)
-	} else {
+	// 审计修复：移除重复的刷新任务提交逻辑
+	// 原代码在 switch 中已经提交了刷新任务，这里不需要重复提交
+	if needRefresh {
+		// Fresh 状态下，只触发轻量的测速刷新，不查询上游
 		go s.sortIPsAsync(domain, qtype, raw.IPs, raw.UpstreamTTL, raw.AcquisitionTime)
 	}
+
 	return true
 }
 
 // handleRawCacheHitGeneric 处理通用记录的原始缓存命中
+// 审计修复：应用三段式过期判定逻辑，与 A/AAAA 记录保持一致
 // 返回 true 表示请求已处理
 func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16, cfg *config.Config, stats *stats.Stats) bool {
 	// 如果是 A/AAAA 查询，不在这里处理
@@ -236,17 +307,37 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 	s.prefetcher.RecordAccess(domain, raw.UpstreamTTL)
 	stats.IncCacheHits()
 	stats.RecordDomainQuery(domain)
-	logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存命中: %s (type=%s) -> %d 条记录, CNAMEs=%v (过期:%v)",
-		domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, raw.IsExpired())
 
-	// 计算 TTL
-	// 如果数据已过期，强制返回 fast_response_ttl
+	// 审计修复：应用三段式过期判定逻辑
+	gracePeriod := uint32(30)
+	cacheState := raw.GetStateWithConfig(cfg.Cache.KeepExpiredEntries, gracePeriod)
+
 	elapsed := time.Since(raw.AcquisitionTime)
 	var userTTL uint32
-	if raw.IsExpired() {
-		userTTL = uint32(cfg.Cache.FastResponseTTL)
-	} else {
+
+	switch cacheState {
+	case cache.FRESH:
+		// Fresh 状态：直接返回
 		userTTL = s.calculateUserTTL(int(raw.EffectiveTTL), elapsed, cfg, false)
+		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存命中 (Fresh): %s (type=%s) -> %d 条记录, CNAMEs=%v, TTL=%d",
+			domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, userTTL)
+
+	case cache.STALE:
+		// Stale 状态：立即返回陈旧数据，但强制响应中的 TTL 为 FastResponseTTL
+		userTTL = uint32(cfg.Cache.FastResponseTTL)
+		logger.Infof("[handleRawCacheHitGeneric] 通用记录缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %d 条记录, CNAMEs=%v, TTL=%d [STALE-HIT]",
+			domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, userTTL)
+
+		// 触发后台异步刷新
+		stats.IncCacheStaleRefresh()
+		task := RefreshTask{Domain: domain, Qtype: qtype}
+		s.refreshQueue.Submit(task)
+
+	case cache.EXPIRED:
+		// Expired 状态：彻底过期，需要重新查询上游
+		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存已过期 (Expired): %s (type=%s)",
+			domain, dns.TypeToString[qtype])
+		return false // 让上层去上游查询
 	}
 
 	// 构建通用响应
@@ -259,14 +350,6 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 	s.buildGenericResponse(msg, raw.CNAMEs, raw.Records, qtype, userTTL, authData)
 	w.WriteMsg(msg)
 	s.msgPool.Put(msg)
-
-	if raw.IsExpired() {
-		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存已过期,触发异步刷新: %s (type=%s)",
-			domain, dns.TypeToString[qtype])
-		stats.IncCacheStaleRefresh() // 记录缓冲更新
-		task := RefreshTask{Domain: domain, Qtype: qtype}
-		s.refreshQueue.Submit(task)
-	}
 
 	return true
 }

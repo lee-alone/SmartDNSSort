@@ -216,11 +216,8 @@ func TestNoDoubleCountingFastFail(t *testing.T) {
 
 	// 模拟 pingIP 返回的快速失败结果
 	result := &Result{
-		IP:          ip,
-		RTT:         999999,
-		Loss:        100,
-		ProbeMethod: "none",
-		FastFail:    true, // 标记为快速失败
+		Loss:     100,
+		FastFail: true, // 标记为快速失败
 	}
 
 	// 模拟 PingAndSort 中的记录逻辑

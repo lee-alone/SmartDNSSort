@@ -13,6 +13,12 @@ type IPInfo struct {
 	LastAccess    time.Time // 最后访问时间
 	RepDomain     string    // 代表性域名（用于 SNI 绑定）
 	RepDomainHeat int64     // 代表性域名的热度
+
+	// 第一阶段新增：RTT 数据（真理化改造）
+	RTT        int       // 最新 RTT 值（毫秒），999999 表示不可达
+	RTTUpdated time.Time // RTT 更新时间
+	RTTEWMA    int       // EWMA 平滑后的 RTT 值（用于排序）
+	loss       float64   // 丢包率（0-100）
 }
 
 // IPPool 全局 IP 资源管理器
@@ -365,4 +371,85 @@ func (p *IPPool) GetTopIPsByAccessHeat(n int) []*IPInfo {
 	}
 
 	return ips
+}
+
+// UpdateIPRTT 更新 IP 的 RTT 数据（第一阶段：真理化改造）
+// 参数：
+// - ip: IP 地址
+// - rtt: RTT 值（毫秒），999999 表示不可达
+// - loss: 丢包率（0-100）
+// - alpha: EWMA 平滑系数（0.0-1.0），推荐 0.3
+func (p *IPPool) UpdateIPRTT(ip string, rtt int, loss float64, alpha float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if info, exists := p.ips[ip]; exists {
+		now := time.Now()
+
+		// 更新原始 RTT 值
+		info.RTT = rtt
+		info.loss = loss
+		info.RTTUpdated = now
+
+		// 使用 EWMA 平滑 RTT 值
+		if info.RTTEWMA == 0 {
+			// 首次更新，直接使用当前值
+			info.RTTEWMA = rtt
+		} else {
+			// EWMA = alpha * current + (1 - alpha) * previous
+			info.RTTEWMA = int(float64(rtt)*alpha + (1-alpha)*float64(info.RTTEWMA))
+		}
+	}
+}
+
+// GetIPRTT 获取 IP 的 RTT 数据
+// 返回值：
+// - rtt: 最新 RTT 值（毫秒）
+// - rttEWMA: EWMA 平滑后的 RTT 值
+// - updated: RTT 是否存在
+func (p *IPPool) GetIPRTT(ip string) (rtt int, rttEWMA int, updated bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if info, exists := p.ips[ip]; exists {
+		return info.RTT, info.RTTEWMA, !info.RTTUpdated.IsZero()
+	}
+	return 999999, 999999, false
+}
+
+// GetIPRTTWithLoss 获取 IP 的 RTT 和丢包率
+func (p *IPPool) GetIPRTTWithLoss(ip string) (rtt int, rttEWMA int, loss float64, updated bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if info, exists := p.ips[ip]; exists {
+		return info.RTT, info.RTTEWMA, info.loss, !info.RTTUpdated.IsZero()
+	}
+	return 999999, 999999, 0, false
+}
+
+// GetAllIPRTTs 批量获取所有 IP 的 RTT 数据（用于排序）
+// 返回 map[ip]rttEWMA，只返回有 RTT 数据的 IP
+func (p *IPPool) GetAllIPRTTs(ips []string) map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	result := make(map[string]int)
+	for _, ip := range ips {
+		if info, exists := p.ips[ip]; exists && !info.RTTUpdated.IsZero() {
+			result[ip] = info.RTTEWMA
+		}
+	}
+	return result
+}
+
+// IsIPDead 判断 IP 是否为"死"状态（RTT=999999）
+func (p *IPPool) IsIPDead(ip string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if info, exists := p.ips[ip]; exists {
+		return info.RTT == 999999
+	}
+	return false
 }

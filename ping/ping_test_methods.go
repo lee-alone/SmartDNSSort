@@ -5,15 +5,15 @@ import (
 	"smartdnssort/logger"
 )
 
-// pingIP 单个 IP 多次测试 + 惩罚机制 + 快速失败
-// 执行多次 smartPing 测试，计算平均 RTT 和丢包率
+// pingIP 单个 IP 多次测试 + 惩罚机制 + 快速失败（纯 ICMP 模式）
+// 执行多次 ICMP ping 测试，计算平均 RTT 和丢包率
 // 对丢包进行惩罚以降低不稳定节点的优先级
 //
-// 第三阶段优化：精细化 FastFail
+// 纯 ICMP 模式优化：
 // - 区分"路不通"与"层不通"
 // - 如果 ICMP 失败是因为"权限拒绝"或"协议不支持"，严禁触发 FastFail
-// - 此时将 ICMP 权重设为最大，但允许流程继续走到 TCP（443）探测
 // - 只有真正的网络超时才应该触发 FastFail
+// - 建议增加测试次数（Count=3-5）来提高准确性
 func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 	var totalRTT int64 = 0
 	minRTT := 999999
@@ -34,9 +34,8 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 				probeMethod = method
 			}
 		} else {
-			// 第三阶段优化：检查 ICMP 是否因权限问题失败
+			// 检查 ICMP 是否因权限问题失败
 			// 如果是权限问题，不应该触发 FastFail
-			// 修复：直接使用 smartPingWithMethod 返回的 icmpErr，避免重复探测
 			if i == 0 {
 				if icmpErr != nil && (icmpErr.IsPermissionError || icmpErr.IsProtocolError) {
 					icmpPermissionError = true
@@ -49,7 +48,7 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 				p.RecordIPFastFail(ip)
 				// 直接返回完全失败的结果，不再进行后续探测
 				// FastFail=true 标记，避免在 PingAndSort 中重复记录
-				return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "none", FastFail: true}
+				return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: true}
 			}
 		}
 	}
@@ -58,9 +57,9 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 		// 如果所有探测都失败，但 ICMP 是因权限问题失败，不应该标记为 FastFail
 		if icmpPermissionError {
 			logger.Debugf("[Pinger] All probes failed for %s, but ICMP had permission error, not marking as FastFail", ip)
-			return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "none", FastFail: false}
+			return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: false}
 		}
-		return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "none", FastFail: false}
+		return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: false}
 	}
 
 	avgRTT := int(totalRTT / int64(successCount))
