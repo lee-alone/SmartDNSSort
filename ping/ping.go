@@ -104,12 +104,28 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 				if now.Before(e.staleAt) {
 					// 缓存未过期（Fresh）：直接返回
 					// 这是首选路径：IPMonitor 已经维护好了 RTT 数据
-					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "cached"})
+					rttToUse := e.rtt
+					// 优化：优先从 IPPool 获取经过 EWMA 平滑后的 RTT
+					// 防止网络抖动导致的瞬时值误导排序
+					if p.ipPool != nil {
+						if _, poolRTTEWMA, updated := p.ipPool.GetIPRTT(ip); updated {
+							// 使用 IPPool 中的 EWMA 平滑值，提供更稳定的排序依据
+							rttToUse = poolRTTEWMA
+						}
+					}
+					cached = append(cached, Result{IP: ip, RTT: rttToUse, Loss: e.loss, ProbeMethod: "cached"})
 					p.RecordIPSuccess(ip)
 				} else if now.Before(e.expiresAt) {
 					// 缓存处于软过期期间（Stale）：返回旧数据，异步更新
 					// IPMonitor 可能正在刷新，返回旧数据即可
-					cached = append(cached, Result{IP: ip, RTT: e.rtt, Loss: e.loss, ProbeMethod: "stale"})
+					rttToUse := e.rtt
+					// 优化：优先从 IPPool 获取经过 EWMA 平滑后的 RTT
+					if p.ipPool != nil {
+						if _, poolRTTEWMA, updated := p.ipPool.GetIPRTT(ip); updated {
+							rttToUse = poolRTTEWMA
+						}
+					}
+					cached = append(cached, Result{IP: ip, RTT: rttToUse, Loss: e.loss, ProbeMethod: "stale"})
 					p.RecordIPSuccess(ip)
 					// 异步触发更新（兜底方案，IPMonitor 可能已经在更新）
 					p.triggerStaleRevalidate(ip, domain)

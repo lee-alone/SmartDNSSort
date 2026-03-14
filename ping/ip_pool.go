@@ -1,6 +1,7 @@
 package ping
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -296,6 +297,7 @@ func (p *IPPool) RemoveIP(ip string) {
 }
 
 // GetTopIPsByRefCount 获取引用计数最高的 N 个 IP
+// 优化版：使用 sort.Slice 实现 O(N log N) 排序
 func (p *IPPool) GetTopIPsByRefCount(n int) []*IPInfo {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -317,14 +319,10 @@ func (p *IPPool) GetTopIPsByRefCount(n int) []*IPInfo {
 		})
 	}
 
-	// 按引用计数排序
-	for i := 0; i < len(ips) && i < n; i++ {
-		for j := i + 1; j < len(ips); j++ {
-			if ips[j].RefCount > ips[i].RefCount {
-				ips[i], ips[j] = ips[j], ips[i]
-			}
-		}
-	}
+	// 使用 sort.Slice 进行排序，时间复杂度 O(N log N)
+	sort.Slice(ips, func(i, j int) bool {
+		return ips[i].RefCount > ips[j].RefCount
+	})
 
 	// 返回前 N 个
 	if len(ips) > n {
@@ -335,6 +333,7 @@ func (p *IPPool) GetTopIPsByRefCount(n int) []*IPInfo {
 }
 
 // GetTopIPsByAccessHeat 获取访问热度最高的 N 个 IP
+// 优化版：使用 sort.Slice 实现 O(N log N) 排序
 func (p *IPPool) GetTopIPsByAccessHeat(n int) []*IPInfo {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -356,14 +355,10 @@ func (p *IPPool) GetTopIPsByAccessHeat(n int) []*IPInfo {
 		})
 	}
 
-	// 按访问热度排序
-	for i := 0; i < len(ips) && i < n; i++ {
-		for j := i + 1; j < len(ips); j++ {
-			if ips[j].AccessHeat > ips[i].AccessHeat {
-				ips[i], ips[j] = ips[j], ips[i]
-			}
-		}
-	}
+	// 使用 sort.Slice 进行排序，时间复杂度 O(N log N)
+	sort.Slice(ips, func(i, j int) bool {
+		return ips[i].AccessHeat > ips[j].AccessHeat
+	})
 
 	// 返回前 N 个
 	if len(ips) > n {
@@ -452,4 +447,34 @@ func (p *IPPool) IsIPDead(ip string) bool {
 		return info.RTT >= LogicDeadRTT
 	}
 	return false
+}
+
+// CleanStaleIPs 定期执行，清理长时间未访问且无引用的"僵尸 IP"
+// 防止内存泄露，保持 IP 池的健康状态
+// 参数：
+//   - maxIdleDuration: 最大空闲时间，超过此时间且无引用的 IP 将被清理
+//
+// 返回值：
+//   - cleanedCount: 清理的 IP 数量
+func (p *IPPool) CleanStaleIPs(maxIdleDuration time.Duration) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	cleanedCount := 0
+
+	for ip, info := range p.ips {
+		// 清理条件：引用计数为 0 且超过最大空闲时间
+		if info.RefCount <= 0 && now.Sub(info.LastAccess) > maxIdleDuration {
+			delete(p.ips, ip)
+			cleanedCount++
+		}
+	}
+
+	// 更新统计信息
+	if cleanedCount > 0 {
+		p.updateStats()
+	}
+
+	return cleanedCount
 }

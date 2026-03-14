@@ -3,6 +3,7 @@ package ping
 import (
 	"context"
 	"smartdnssort/logger"
+	"sort"
 	"sync"
 	"time"
 )
@@ -25,6 +26,8 @@ type IPMonitorConfig struct {
 	RefreshConcurrency int
 	// 是否启用监控
 	Enabled bool
+	// IP 池清理间隔（秒），默认 12 小时
+	CleanupInterval int
 }
 
 // DefaultIPMonitorConfig 默认配置
@@ -38,6 +41,7 @@ func DefaultIPMonitorConfig() IPMonitorConfig {
 		MaxRefreshPerCycle: 50,
 		RefreshConcurrency: 10, // 并发测速数量
 		Enabled:            true,
+		CleanupInterval:    43200, // 12 小时
 	}
 }
 
@@ -49,6 +53,12 @@ type IPMonitorStats struct {
 	T0PoolSize        int       // T0 核心池大小
 	T1PoolSize        int       // T1 活跃池大小
 	T2PoolSize        int       // T2 淘汰池大小
+}
+
+// weightedIP 带权重的 IP 结构体
+type weightedIP struct {
+	ip     string
+	weight float64
 }
 
 // IPMonitor IP 主动巡检调度器
@@ -84,6 +94,9 @@ func NewIPMonitor(pinger *Pinger, config IPMonitorConfig) *IPMonitor {
 	if config.RefreshConcurrency <= 0 {
 		config.RefreshConcurrency = 10
 	}
+	if config.CleanupInterval <= 0 {
+		config.CleanupInterval = 43200 // 默认 12 小时
+	}
 
 	return &IPMonitor{
 		pinger: pinger,
@@ -114,9 +127,11 @@ func (m *IPMonitor) run() {
 	t0Ticker := time.NewTicker(time.Duration(m.config.T0RefreshInterval) * time.Second)
 	t1Ticker := time.NewTicker(time.Duration(m.config.T1RefreshInterval) * time.Second)
 	t2Ticker := time.NewTicker(time.Duration(m.config.T2RefreshInterval) * time.Second)
+	cleanupTicker := time.NewTicker(time.Duration(m.config.CleanupInterval) * time.Second)
 	defer t0Ticker.Stop()
 	defer t1Ticker.Stop()
 	defer t2Ticker.Stop()
+	defer cleanupTicker.Stop()
 
 	// 启动时立即执行一次刷新
 	m.refreshAllPools()
@@ -148,6 +163,9 @@ func (m *IPMonitor) run() {
 				continue
 			}
 			m.refreshT2Pool()
+		case <-cleanupTicker.C:
+			// 定期清理 IP 池中的僵尸 IP
+			m.cleanupStaleIPs()
 		}
 	}
 }
@@ -181,9 +199,9 @@ func (m *IPMonitor) refreshT2Pool() {
 	m.refreshIPs(ips, "T2")
 }
 
-// selectT0IPs 选择 T0 核心池的 IP
-// T0 核心池：引用计数高、访问热度高的 IP
-func (m *IPMonitor) selectT0IPs() []string {
+// selectSortedIPs 单次扫描计算并排序所有 IP 权重
+// 优化版：使用 sort.Slice 实现 O(N log N) 排序，避免重复遍历
+func (m *IPMonitor) selectSortedIPs() []weightedIP {
 	if m.pinger.ipPool == nil {
 		return nil
 	}
@@ -193,27 +211,28 @@ func (m *IPMonitor) selectT0IPs() []string {
 		return nil
 	}
 
-	// 计算权重并排序
-	weighted := make([]struct {
-		ip     string
-		weight float64
-	}, 0, len(allIPs))
+	weighted := make([]weightedIP, 0, len(allIPs))
 
 	for _, info := range allIPs {
-		weight := m.calculateWeight(info)
-		weighted = append(weighted, struct {
-			ip     string
-			weight float64
-		}{ip: info.IP, weight: weight})
+		w := m.calculateWeight(info)
+		weighted = append(weighted, weightedIP{ip: info.IP, weight: w})
 	}
 
-	// 按权重降序排序
-	for i := 0; i < len(weighted); i++ {
-		for j := i + 1; j < len(weighted); j++ {
-			if weighted[j].weight > weighted[i].weight {
-				weighted[i], weighted[j] = weighted[j], weighted[i]
-			}
-		}
+	// 使用 sort.Slice 进行排序，时间复杂度 O(N log N)
+	sort.Slice(weighted, func(i, j int) bool {
+		return weighted[i].weight > weighted[j].weight
+	})
+
+	return weighted
+}
+
+// selectT0IPs 选择 T0 核心池的 IP
+// T0 核心池：引用计数高、访问热度高的 IP
+// 优化版：直接从 selectSortedIPs 的结果中分段取值
+func (m *IPMonitor) selectT0IPs() []string {
+	weighted := m.selectSortedIPs()
+	if len(weighted) == 0 {
+		return nil
 	}
 
 	// 选择前 N 个最高权重的 IP
@@ -236,37 +255,11 @@ func (m *IPMonitor) selectT0IPs() []string {
 
 // selectT1IPs 选择 T1 活跃池的 IP
 // T1 活跃池：引用计数中等、访问热度中等的 IP
+// 优化版：直接从 selectSortedIPs 的结果中分段取值
 func (m *IPMonitor) selectT1IPs() []string {
-	if m.pinger.ipPool == nil {
+	weighted := m.selectSortedIPs()
+	if len(weighted) == 0 {
 		return nil
-	}
-
-	allIPs := m.pinger.ipPool.GetAllIPs()
-	if len(allIPs) == 0 {
-		return nil
-	}
-
-	// 计算权重并排序
-	weighted := make([]struct {
-		ip     string
-		weight float64
-	}, 0, len(allIPs))
-
-	for _, info := range allIPs {
-		weight := m.calculateWeight(info)
-		weighted = append(weighted, struct {
-			ip     string
-			weight float64
-		}{ip: info.IP, weight: weight})
-	}
-
-	// 按权重降序排序
-	for i := 0; i < len(weighted); i++ {
-		for j := i + 1; j < len(weighted); j++ {
-			if weighted[j].weight > weighted[i].weight {
-				weighted[i], weighted[j] = weighted[j], weighted[i]
-			}
-		}
 	}
 
 	// 跳过 T0 池的 IP，选择中等权重的 IP
@@ -295,67 +288,32 @@ func (m *IPMonitor) selectT1IPs() []string {
 
 // selectT2IPs 选择 T2 淘汰池的 IP
 // T2 淘汰池：引用计数低、访问热度低的 IP
-// 使用采样策略避免全量排序的性能问题
+// 优化版：直接从 selectSortedIPs 的结果中分段取值，解决采样随机性问题
 func (m *IPMonitor) selectT2IPs() []string {
-	if m.pinger.ipPool == nil {
+	weighted := m.selectSortedIPs()
+	if len(weighted) == 0 {
 		return nil
 	}
 
-	allIPs := m.pinger.ipPool.GetAllIPs()
-	if len(allIPs) == 0 {
+	// 跳过 T0 和 T1 池的 IP，选择低权重的 IP
+	startIdx := m.config.MaxRefreshPerCycle * 2
+	if startIdx >= len(weighted) {
 		return nil
 	}
 
-	// 对于 T2 池，使用采样策略而不是全量排序
-	// 如果 IP 数量超过 1000，只采样 1000 个
-	sampleSize := len(allIPs)
-	if sampleSize > 1000 {
-		sampleSize = 1000
-	}
-
-	// 简单采样：从后往前取（低权重 IP）
-	startIdx := len(allIPs) - sampleSize
-	if startIdx < 0 {
-		startIdx = 0
-	}
-
-	// 计算权重并排序
-	weighted := make([]struct {
-		ip     string
-		weight float64
-	}, 0, sampleSize)
-
-	for i := startIdx; i < len(allIPs); i++ {
-		info := allIPs[i]
-		weight := m.calculateWeight(info)
-		weighted = append(weighted, struct {
-			ip     string
-			weight float64
-		}{ip: info.IP, weight: weight})
-	}
-
-	// 按权重降序排序
-	for i := 0; i < len(weighted); i++ {
-		for j := i + 1; j < len(weighted); j++ {
-			if weighted[j].weight > weighted[i].weight {
-				weighted[i], weighted[j] = weighted[j], weighted[i]
-			}
-		}
-	}
-
-	// 选择前 N 个最高权重的 IP（从采样中）
 	maxIPs := m.config.MaxRefreshPerCycle
-	if maxIPs > len(weighted) {
-		maxIPs = len(weighted)
+	endIdx := startIdx + maxIPs
+	if endIdx > len(weighted) {
+		endIdx = len(weighted)
 	}
 
-	result := make([]string, 0, maxIPs)
-	for i := 0; i < maxIPs; i++ {
+	result := make([]string, 0, endIdx-startIdx)
+	for i := startIdx; i < endIdx; i++ {
 		result = append(result, weighted[i].ip)
 	}
 
 	m.mu.Lock()
-	m.stats.T2PoolSize = maxIPs
+	m.stats.T2PoolSize = endIdx - startIdx
 	m.mu.Unlock()
 
 	return result
@@ -466,4 +424,18 @@ func (m *IPMonitor) GetIPPool() *IPPool {
 // GetPinger 获取 Pinger 实例
 func (m *IPMonitor) GetPinger() *Pinger {
 	return m.pinger
+}
+
+// cleanupStaleIPs 清理 IP 池中的僵尸 IP
+// 定期执行，清理长时间未访问且无引用的 IP，防止内存泄露
+func (m *IPMonitor) cleanupStaleIPs() {
+	if m.pinger.ipPool == nil {
+		return
+	}
+
+	// 清理 24 小时未被访问且无引用的 IP
+	cleanedCount := m.pinger.ipPool.CleanStaleIPs(24 * time.Hour)
+	if cleanedCount > 0 {
+		logger.Infof("[IPMonitor] Cleaned %d stale IPs from pool", cleanedCount)
+	}
 }
