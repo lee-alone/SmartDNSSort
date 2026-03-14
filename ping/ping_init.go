@@ -144,16 +144,19 @@ func (p *Pinger) startICMPReceiver() {
 					}
 
 					// 解析 ICMP 报文
-					// 修复：在 Linux 上使用 ip4:icmp 模式时，ReadFrom 读到的 buf 包含了 20 字节的 IPv4 首部
-					// 需要先跳过 IP 首部再解析 ICMP
+					// 软容错改造：智能判断报文格式，解决 Linux/Windows 兼容性问题
+					// 不要硬跳字节。检查 buf[0]。
+					// 如果 buf[0] == 0x45 (IPv4) 且长度 > 20，跳过 20 字节。
+					// 否则，直接解析。
 					icmpData := buf[:n]
-					if !p.v4IsUDP {
-						// ip4:icmp 模式，跳过 IPv4 首部（20字节）
-						if n > 20 {
+					if n > 0 {
+						// 检查第一个字节判断是否为 IPv4 报文
+						// 0x45 = IPv4, IHL=5 (20字节首部)
+						if buf[0] == 0x45 && n > 20 {
+							// IPv4 报文，跳过 20 字节首部
 							icmpData = buf[20:n]
-						} else {
-							continue // 数据包太短，无法解析
 						}
+						// 否则直接解析（UDP 模式或其他情况）
 					}
 					rm, err := icmp.ParseMessage(1, icmpData)
 					if err != nil {
@@ -209,16 +212,19 @@ func (p *Pinger) startICMPReceiver() {
 					}
 
 					// 解析 ICMPv6 报文
-					// 修复：在 Linux 上使用 ip6:ipv6-icmp 模式时，ReadFrom 读到的 buf 包含了 40 字节的 IPv6 首部
-					// 需要先跳过 IPv6 首部再解析 ICMPv6
+					// 软容错改造：智能判断报文格式，解决 Linux/Windows 兼容性问题
+					// 不要硬跳字节。检查 buf[0]。
+					// 如果 buf[0] == 0x60 (IPv6) 且长度 > 40，跳过 40 字节。
+					// 否则，直接解析。
 					icmpData := buf[:n]
-					if !p.v6IsUDP {
-						// ip6:ipv6-icmp 模式，跳过 IPv6 首部（40字节）
-						if n > 40 {
+					if n > 0 {
+						// 检查第一个字节判断是否为 IPv6 报文
+						// 0x60 = IPv6 (版本号 6)
+						if buf[0] == 0x60 && n > 40 {
+							// IPv6 报文，跳过 40 字节首部
 							icmpData = buf[40:n]
-						} else {
-							continue // 数据包太短，无法解析
 						}
+						// 否则直接解析（UDP 模式或其他情况）
 					}
 					rm, err := icmp.ParseMessage(58, icmpData)
 					if err != nil {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"smartdnssort/config"
 	"smartdnssort/logger"
+	"smartdnssort/ping"
 	"smartdnssort/upstream"
 	"sort"
 	"strconv"
@@ -439,7 +440,7 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// 筛选逻辑
-				if view == "all" || view == "top" || rtt >= 999999 {
+				if view == "all" || view == "top" || rtt >= ping.LogicDeadRTT {
 					result := IPPoolResult{
 						IP:         info.IP,
 						RepDomain:  info.RepDomain,

@@ -16,7 +16,7 @@ import (
 // - 建议增加测试次数（Count=3-5）来提高准确性
 func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 	var totalRTT int64 = 0
-	minRTT := 999999
+	minRTT := LogicDeadRTT
 	successCount := 0
 	probeMethod := ""
 	icmpPermissionError := false // 标记 ICMP 是否因权限问题失败
@@ -48,7 +48,7 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 				p.RecordIPFastFail(ip)
 				// 直接返回完全失败的结果，不再进行后续探测
 				// FastFail=true 标记，避免在 PingAndSort 中重复记录
-				return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: true}
+				return &Result{IP: ip, RTT: LogicDeadRTT, Loss: 100, ProbeMethod: "icmp", FastFail: true}
 			}
 		}
 	}
@@ -57,9 +57,9 @@ func (p *Pinger) pingIP(ctx context.Context, ip, domain string) *Result {
 		// 如果所有探测都失败，但 ICMP 是因权限问题失败，不应该标记为 FastFail
 		if icmpPermissionError {
 			logger.Debugf("[Pinger] All probes failed for %s, but ICMP had permission error, not marking as FastFail", ip)
-			return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: false}
+			return &Result{IP: ip, RTT: LogicDeadRTT, Loss: 100, ProbeMethod: "icmp", FastFail: false}
 		}
-		return &Result{IP: ip, RTT: 999999, Loss: 100, ProbeMethod: "icmp", FastFail: false}
+		return &Result{IP: ip, RTT: LogicDeadRTT, Loss: 100, ProbeMethod: "icmp", FastFail: false}
 	}
 
 	avgRTT := int(totalRTT / int64(successCount))

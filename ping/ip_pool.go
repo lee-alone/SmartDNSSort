@@ -15,7 +15,7 @@ type IPInfo struct {
 	RepDomainHeat int64     // 代表性域名的热度
 
 	// 第一阶段新增：RTT 数据（真理化改造）
-	RTT        int       // 最新 RTT 值（毫秒），999999 表示不可达
+	RTT        int       // 最新 RTT 值（毫秒），LogicDeadRTT 表示不可达
 	RTTUpdated time.Time // RTT 更新时间
 	RTTEWMA    int       // EWMA 平滑后的 RTT 值（用于排序）
 	loss       float64   // 丢包率（0-100）
@@ -376,7 +376,7 @@ func (p *IPPool) GetTopIPsByAccessHeat(n int) []*IPInfo {
 // UpdateIPRTT 更新 IP 的 RTT 数据（第一阶段：真理化改造）
 // 参数：
 // - ip: IP 地址
-// - rtt: RTT 值（毫秒），999999 表示不可达
+// - rtt: RTT 值（毫秒），LogicDeadRTT 表示不可达
 // - loss: 丢包率（0-100）
 // - alpha: EWMA 平滑系数（0.0-1.0），推荐 0.3
 func (p *IPPool) UpdateIPRTT(ip string, rtt int, loss float64, alpha float64) {
@@ -414,7 +414,7 @@ func (p *IPPool) GetIPRTT(ip string) (rtt int, rttEWMA int, updated bool) {
 	if info, exists := p.ips[ip]; exists {
 		return info.RTT, info.RTTEWMA, !info.RTTUpdated.IsZero()
 	}
-	return 999999, 999999, false
+	return LogicDeadRTT, LogicDeadRTT, false
 }
 
 // GetIPRTTWithLoss 获取 IP 的 RTT 和丢包率
@@ -425,7 +425,7 @@ func (p *IPPool) GetIPRTTWithLoss(ip string) (rtt int, rttEWMA int, loss float64
 	if info, exists := p.ips[ip]; exists {
 		return info.RTT, info.RTTEWMA, info.loss, !info.RTTUpdated.IsZero()
 	}
-	return 999999, 999999, 0, false
+	return LogicDeadRTT, LogicDeadRTT, 0, false
 }
 
 // GetAllIPRTTs 批量获取所有 IP 的 RTT 数据（用于排序）
@@ -443,13 +443,13 @@ func (p *IPPool) GetAllIPRTTs(ips []string) map[string]int {
 	return result
 }
 
-// IsIPDead 判断 IP 是否为"死"状态（RTT=999999）
+// IsIPDead 判断 IP 是否为"死"状态（RTT >= LogicDeadRTT）
 func (p *IPPool) IsIPDead(ip string) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	if info, exists := p.ips[ip]; exists {
-		return info.RTT == 999999
+		return info.RTT >= LogicDeadRTT
 	}
 	return false
 }

@@ -73,14 +73,12 @@ func (s *Server) handleAdBlockCheck(w dns.ResponseWriter, r *dns.Msg, domain str
 // sendAdBlockResponse 根据配置发送拦截响应
 func (s *Server) sendAdBlockResponse(w dns.ResponseWriter, r *dns.Msg, blockMode string, ttl int, responseIP string) {
 	switch blockMode {
-	case "nxdomain":
+	case "nxdomain", "default":
 		buildNXDomainResponse(w, r, s.msgPool, s, ttl)
 	case "zero_ip":
 		buildZeroIPResponse(w, r, responseIP, ttl, s.msgPool)
 	case "refuse":
 		buildRefuseResponse(w, r, s.msgPool, s, ttl)
-	default:
-		buildNXDomainResponse(w, r, s.msgPool, s, ttl)
 	}
 }
 
@@ -100,7 +98,8 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 	for _, cnameToCheck := range cnames {
 		cnameDomain := strings.TrimRight(cnameToCheck, ".")
 		matchResult, rule := adblockMgr.CheckHost(cnameDomain)
-		if matchResult == adblock.MatchBlocked {
+		switch matchResult {
+		case adblock.MatchBlocked:
 			logger.Debugf("[AdBlock] CNAME Blocked: %s found in chain for %s (rule: %s)", cnameDomain, domain, rule)
 			adblockMgr.RecordBlock(domain, rule) // 记录主域名被拦截
 			s.stats.RecordBlockedDomain(domain)
@@ -118,7 +117,7 @@ func (s *Server) handleCNAMEChainValidation(w dns.ResponseWriter, r *dns.Msg, do
 			// 返回拦截响应
 			s.sendAdBlockResponse(w, r, cfg.AdBlock.BlockMode, cfg.AdBlock.BlockedTTL, cfg.AdBlock.BlockedResponseIP)
 			return true
-		} else if matchResult == adblock.MatchAllowed {
+		case adblock.MatchAllowed:
 			// 如果 CNAME 链中的某个域名被明确允许，我们可以选择停止检查或者仅针对此 CNAME 允许
 			// 通常 AdGuard 逻辑是如果链中任何一个被拦截，则拦截主域名
 			// 但是如果主域名被允许，已经在上面处理了

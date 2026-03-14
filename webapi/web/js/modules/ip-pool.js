@@ -108,7 +108,7 @@ function renderIPPoolTable() {
 
 			// RTT color coding
 			let rttClass = 'text-red-600 dark:text-red-400 font-bold';
-			if (ip.rtt < 999999) {
+			if (ip.rtt < 9000) {
 				rttClass = 'text-green-600 dark:text-green-400';
 				if (ip.rtt > 100) rttClass = 'text-yellow-600 dark:text-yellow-400';
 				if (ip.rtt > 300) rttClass = 'text-orange-600 dark:text-orange-400';
@@ -121,7 +121,7 @@ function renderIPPoolTable() {
 				<td class="px-6 py-3 truncate max-w-xs" title="${ip.rep_domain || ''}">${ip.rep_domain || '-'}</td>
 				<td class="px-6 py-3">${ip.ref_count || 0}</td>
 				<td class="px-6 py-3">${ip.access_heat || 0}</td>
-				<td class="px-6 py-3 font-mono ${rttClass}">${ip.rtt >= 999999 ? 'DEAD' : (ip.rtt >= 0 ? ip.rtt : '-')}</td>
+				<td class="px-6 py-3 font-mono ${rttClass}">${ip.rtt >= 9000 ? 'DEAD' : (ip.rtt >= 0 ? ip.rtt : '-')}</td>
 				<td class="px-6 py-3 text-xs opacity-80">${lastAccessStr}</td>
 			`;
 			tbody.appendChild(row);

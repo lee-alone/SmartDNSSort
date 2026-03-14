@@ -424,7 +424,7 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 				} else {
 					// 不可达的 IP 也需要缓存，避免频繁探测
 					// 使用 100% 丢包率标记
-					m.pinger.UpdateIPCache(ip, 999999, 100, method)
+					m.pinger.UpdateIPCache(ip, LogicDeadRTT, 100, method)
 				}
 			}
 		}()

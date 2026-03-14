@@ -73,6 +73,7 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, _ string) []R
 // - 移除探测方法权重（所有 IP 都使用 ICMP 探测）
 // - 保持 2000ms 强力惩罚：每次失败加 2000ms，确保丢包 IP 排在后面
 // - 建议增加测试次数（Count=3-5）来替代多协议兜底
+// - 绝对 RTT 竞争：直接基于积分原始值排序，无分箱，实现最灵敏的速度优先
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
 		// 计算实际失效次数（从百分比还原，用于阶梯式惩罚）
@@ -90,16 +91,13 @@ func (p *Pinger) sortResults(results []Result) {
 			scoreJ += p.failureWeightMgr.GetWeight(results[j].IP)
 		}
 
-		// 3. 5ms 分箱（Binning）去噪：消除 1ms 级别的随机波动
-		roundedScoreI := (scoreI / 5) * 5
-		roundedScoreJ := (scoreJ / 5) * 5
-
-		if roundedScoreI != roundedScoreJ {
-			return roundedScoreI < roundedScoreJ
+		// 3. 绝对 RTT 竞争：直接比对积分原始值，无分箱
+		if scoreI != scoreJ {
+			return scoreI < scoreJ
 		}
 
-		// 4. 最终稳定性保障：如果分箱得分相同，按 IP 字符串字典序排
-		// 这保证了只要网络质量微差，结果绝对不会上下跳变
+		// 4. 平局决胜：只有 RTT 完全相等时，才使用 IP 字符串字典序兜底
+		// 确保响应的确定性，防止顺序在多次请求间跳变
 		return results[i].IP < results[j].IP
 	})
 }

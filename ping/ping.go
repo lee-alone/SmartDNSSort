@@ -10,10 +10,15 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// LogicDeadRTT 逻辑失效阈值（毫秒）
+// 用于统一全系统的"判死标准"
+// 当 RTT >= LogicDeadRTT 时，认为 IP 不可达或极不稳定
+const LogicDeadRTT = 9000
+
 // Result 表示单个 IP 的 ping 结果
 type Result struct {
 	IP          string
-	RTT         int // 毫秒，999999 表示不可达
+	RTT         int // 毫秒，LogicDeadRTT 表示不可达
 	Loss        float64
 	ProbeMethod string // 探测方法：icmp（纯 ICMP 模式）
 	FastFail    bool   // 标记是否触发了快速失败（避免两重记录）
@@ -319,10 +324,11 @@ func (p *Pinger) UpdateIPCache(ip string, rtt int, loss float64, probeMethod str
 
 	// 第三阶段修复：更新失败权重系统
 	// 这样无论是后台监控还是用户请求，只要更新了缓存，权重系统就会同步更新
-	if loss >= 100 {
-		p.RecordIPFailure(ip)
-	} else {
+	// 软容错改造：当 RTT < LogicDeadRTT 时，意味着至少有一次探测成功，立即重置失败惩罚
+	if rtt < LogicDeadRTT {
 		p.RecordIPSuccess(ip)
+	} else {
+		p.RecordIPFailure(ip)
 	}
 
 	// 构造 Result 用于计算动态 TTL

@@ -206,15 +206,49 @@ func (p *Pinger) icmpPing(ip string) int {
 // - 不受应用层（TLS、DNS）影响
 // - 避免 CDN 证书校验导致的"特定域名成块 DEAD"问题
 // - 在 Debian 环境下配合 setcap cap_net_raw+ep 权限，识别率 100%
+//
+// 软容错改造：3次探测均值逻辑
+// - 运行 p.count 次循环（默认 3 次）
+// - 如果成功，累加真实 RTT；如果失败，累加 LogicDeadRTT
+// - 取平均值作为最终 RTT
+// - 只要有任意一次成功，就标记 icmpErr 为 nil，用于后续触发"权重平反"
 func (p *Pinger) smartPingWithMethod(_ context.Context, ip, _ string) (int, string, *ICMPError) {
-	// 纯 ICMP 探测：直接调用 icmpPingWithError
-	rtt, icmpErr := p.icmpPingWithError(ip)
-	if rtt >= 0 {
-		// ICMP 成功，返回 RTT 和探测方法
-		return rtt, "icmp", nil
+	// 确定探测次数，默认为 3 次
+	probeCount := p.count
+	if probeCount <= 0 {
+		probeCount = 3
 	}
 
-	// ICMP 失败：直接返回 -1，不再尝试其他探测方式
-	// domain 参数保留用于未来可能的扩展，但当前不使用
-	return -1, "icmp", icmpErr
+	totalRTT := 0
+	var icmpErr *ICMPError
+	hasSuccess := false
+
+	// 执行多次探测
+	for i := 0; i < probeCount; i++ {
+		rtt, err := p.icmpPingWithError(ip)
+		if rtt >= 0 {
+			// 探测成功，累加真实 RTT
+			totalRTT += rtt
+			hasSuccess = true
+			// 只要有任意一次成功，就清除错误标记
+			icmpErr = nil
+		} else {
+			// 探测失败，累加惩罚值
+			totalRTT += LogicDeadRTT
+			// 保留第一次的错误信息（如果有）
+			if icmpErr == nil && err != nil {
+				icmpErr = err
+			}
+		}
+	}
+
+	// 计算平均值
+	avgRTT := totalRTT / probeCount
+
+	// 如果至少有一次成功，清除错误标记，用于触发"权重平反"
+	if hasSuccess {
+		icmpErr = nil
+	}
+
+	return avgRTT, "icmp", icmpErr
 }

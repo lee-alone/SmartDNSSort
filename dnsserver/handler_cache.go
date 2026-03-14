@@ -4,6 +4,7 @@ import (
 	"smartdnssort/cache"
 	"smartdnssort/config"
 	"smartdnssort/logger"
+	"smartdnssort/ping"
 	"smartdnssort/stats"
 	"strings"
 	"time"
@@ -65,10 +66,10 @@ func (s *Server) handleSortedCacheHit(w dns.ResponseWriter, r *dns.Msg, domain s
 	raw, hasRaw := s.cache.GetRaw(domain, qtype)
 	dnsExpired := !hasRaw || raw.IsExpired()
 
-	// 3. 【故障检测】检查所有 IP 是否均为失效状态 (RTT=999999)
+	// 3. 【故障检测】检查所有 IP 是否均为失效状态 (RTT >= LogicDeadRTT)
 	isDeadPool := true
 	for _, rtt := range sorted.RTTs {
-		if rtt < 999999 { // 只要有一个能通，就不算死局
+		if rtt < ping.LogicDeadRTT { // 只要有一个能通，就不算死局
 			isDeadPool = false
 			break
 		}

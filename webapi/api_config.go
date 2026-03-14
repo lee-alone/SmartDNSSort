@@ -49,7 +49,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleExportConfig 导出当前配置
-func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleExportConfig(w http.ResponseWriter, _ *http.Request) {
 	currentConfig := s.dnsServer.GetConfig()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=smartdnssort-config.json")
@@ -152,7 +152,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleResetConfig 恢复默认配置
-func (s *Server) handleResetConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleResetConfig(w http.ResponseWriter, _ *http.Request) {
 	s.cfgMutex.Lock()
 	defer s.cfgMutex.Unlock()
 

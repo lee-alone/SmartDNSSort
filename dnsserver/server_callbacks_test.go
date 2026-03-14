@@ -134,7 +134,7 @@ func TestCacheUpdateCallback_IPPoolChangeDetection(t *testing.T) {
 }
 
 // 辅助函数：创建A记录
-func createARecord(domain, ip string) *dns.A {
+func createARecord(domain, _ string) *dns.A {
 	return &dns.A{
 		Hdr: dns.RR_Header{
 			Name:   dns.Fqdn(domain),

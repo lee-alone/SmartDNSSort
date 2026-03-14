@@ -6,6 +6,7 @@ import (
 	"net"
 	"smartdnssort/cache"
 	"smartdnssort/logger"
+	"smartdnssort/ping"
 	"strings"
 	"time"
 
@@ -125,7 +126,7 @@ func (s *Server) sortIPsByRTT(ips []string, rttMap map[string]int, domain string
 
 	ipRTTs := make([]ipRTT, 0, len(ips))
 	for _, ip := range ips {
-		rtt := 999999 // 默认值，表示不可达
+		rtt := ping.LogicDeadRTT // 默认值，表示不可达
 		if r, exists := rttMap[ip]; exists {
 			rtt = r
 		}
@@ -147,7 +148,7 @@ func (s *Server) sortIPsByRTT(ips []string, rttMap map[string]int, domain string
 	for i, ipRtt := range ipRTTs {
 		sortedIPs[i] = ipRtt.ip
 		rtts[i] = ipRtt.rtt
-		if ipRtt.rtt < 999999 {
+		if ipRtt.rtt < ping.LogicDeadRTT {
 			s.stats.IncPingSuccesses()
 		}
 	}
