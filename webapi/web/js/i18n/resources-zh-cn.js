@@ -14,7 +14,8 @@ const resourcesZhCn = {
         "clearCache": "清除 DNS 缓存",
         "clearStats": "清除所有统计",
         "refresh": "刷新",
-        "restart": "重启服务"
+        "restart": "重启服务",
+        "showLess": "收起内容"
     },
     "status": {
         "connecting": "连接中...",
@@ -97,8 +98,9 @@ const resourcesZhCn = {
         "deadIPs": "失效 IP",
         "topIPs": "热门 IP",
         "enableMonitor": "监控巡检",
-        "ipCountInfo": "共有 {{count}} 个 IP，仅显示前 10 个"
-       },
+        "ipCountInfo": "共有 {{count}} 个 IP，仅显示前 10 个",
+        "showAllTopIPs": "显示全部 IP"
+    },
     "config": {
         "sections": "配置分类",
         "nav": {

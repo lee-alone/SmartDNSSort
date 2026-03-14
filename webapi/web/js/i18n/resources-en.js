@@ -14,7 +14,8 @@ const resourcesEn = {
         "clearCache": "Clear DNS Cache",
         "clearStats": "Clear All Stats",
         "refresh": "Refresh",
-        "restart": "Restart Service"
+        "restart": "Restart Service",
+        "showLess": "Show Less"
     },
     "status": {
         "connecting": "Connecting...",
@@ -97,7 +98,8 @@ const resourcesEn = {
         "deadIPs": "Dead IPs",
         "topIPs": "Top IPs",
         "enableMonitor": "IP Monitor",
-        "ipCountInfo": "Showing 10 of {{count}} IPs"
+        "ipCountInfo": "Showing 10 of {{count}} IPs",
+        "showAllTopIPs": "Show All Top IPs"
        },
     "config": {
         "sections": "Sections",

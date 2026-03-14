@@ -52,10 +52,7 @@ async function loadIPPoolData() {
 				allHealthyIPs = data.top_ips || [];
 			}
 			
-			// Reset expand state on new data load
-			isExpanded = false;
-			
-			// Render table based on current mode
+			// Render table based on current state
 			renderIPPoolTable();
 		} else {
 			throw new Error(result.message || 'Failed to parse IP pool data');
@@ -85,6 +82,7 @@ function renderIPPoolTable() {
 	const tbody = document.getElementById('ip_pool_table_body');
 	const expandContainer = document.getElementById('expand-container');
 	const countInfo = document.getElementById('dead-ip-count-info');
+	const expandBtn = document.getElementById('btn-expand-ips');
 	
 	if (!tbody) return;
 	
@@ -117,12 +115,12 @@ function renderIPPoolTable() {
 			if (ip.rtt <= 0) rttClass = 'text-gray-400';
 
 			row.innerHTML = `
-				<td class="px-6 py-3 font-mono">${ip.ip || '-'}</td>
-				<td class="px-6 py-3 truncate max-w-xs" title="${ip.rep_domain || ''}">${ip.rep_domain || '-'}</td>
-				<td class="px-6 py-3">${ip.ref_count || 0}</td>
-				<td class="px-6 py-3">${ip.access_heat || 0}</td>
+				<td class="px-6 py-3 font-mono text-xs md:text-sm">${ip.ip || '-'}</td>
+				<td class="px-6 py-3 truncate max-w-[120px] md:max-w-xs" title="${ip.rep_domain || ''}">${ip.rep_domain || '-'}</td>
+				<td class="px-6 py-3 text-center md:text-left">${ip.ref_count || 0}</td>
+				<td class="px-6 py-3 text-center md:text-left">${ip.access_heat || 0}</td>
 				<td class="px-6 py-3 font-mono ${rttClass}">${ip.rtt >= 9000 ? 'DEAD' : (ip.rtt >= 0 ? ip.rtt : '-')}</td>
-				<td class="px-6 py-3 text-xs opacity-80">${lastAccessStr}</td>
+				<td class="px-6 py-3 text-xs opacity-80 hidden md:table-cell">${lastAccessStr}</td>
 			`;
 			tbody.appendChild(row);
 		});
@@ -158,15 +156,29 @@ function renderIPPoolTable() {
 		}
 	}
 	
-	// Handle expand button visibility
-	if (expandContainer && countInfo) {
-		if (displayCount > 10 && !isExpanded) {
+	// Handle expand button visibility and labels
+	if (expandContainer && countInfo && expandBtn) {
+		if (displayCount > 10) {
 			expandContainer.classList.remove('hidden');
-			// Update count info text
+			
+			// Update info text
+			const infoKey = showDeadIPsMode ? 'dashboard.deadIPCountInfo' : 'dashboard.ipCountInfo';
 			const countText = window.i18n
-				? window.i18n.t('dashboard.ipCountInfo', { count: displayCount })
-				: `Showing 10 of ${displayCount} IPs`;
+				? window.i18n.t(infoKey, { count: displayCount })
+				: `Showing ${itemsToShow.length} of ${displayCount} IPs`;
 			countInfo.textContent = countText;
+			
+			// Update button text and class
+			if (isExpanded) {
+				expandBtn.textContent = window.i18n ? window.i18n.t('actions.showLess') || 'Show Less' : 'Show Less';
+				expandBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+				expandBtn.classList.add('bg-gray-500', 'hover:bg-gray-600');
+			} else {
+				const btnKey = showDeadIPsMode ? 'dashboard.showAllDeadIPs' : 'dashboard.showAllTopIPs';
+				expandBtn.textContent = window.i18n ? window.i18n.t(btnKey) : 'Show All';
+				expandBtn.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+				expandBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+			}
 		} else {
 			expandContainer.classList.add('hidden');
 		}
@@ -197,7 +209,7 @@ function initializeIPPoolMonitor() {
 	const expandBtn = document.getElementById('btn-expand-ips');
 	if (expandBtn) {
 		expandBtn.addEventListener('click', () => {
-			isExpanded = true;
+			isExpanded = !isExpanded;
 			renderIPPoolTable();
 		});
 	}
