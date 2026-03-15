@@ -28,6 +28,26 @@ type IPMonitorConfig struct {
 	Enabled bool
 	// IP 池清理间隔（秒），默认 12 小时
 	CleanupInterval int
+
+	// === 优化配置：探测冷却时间（Cooldown / TTL Padding） ===
+	// 启用探测冷却时间：如果缓存剩余 TTL 超过刷新周期的此比例，则跳过探测
+	// 例如：T0 周期 120s，比例 0.5，则剩余 TTL > 60s 时跳过探测
+	EnableCooldown bool
+	CooldownRatio  float64 // 默认 0.5（50%）
+
+	// === 优化配置：稳定性退避策略（Stability Backoff） ===
+	// 启用稳定性退避：连续稳定的 IP 降级到低频池
+	EnableStabilityBackoff bool
+	StabilityThreshold     int     // 连续稳定次数阈值，默认 10
+	StabilityRTTVariance   float64 // RTT 波动阈值（百分比），默认 0.05（5%）
+
+	// === 优化配置：滑动窗口式巡检 ===
+	// 启用滑动窗口：使用 "权重 + 时间" 单调增量逻辑选择 IP
+	EnableSlidingWindow bool
+
+	// === 优化配置：全局熔断与配额（Global Quota） ===
+	// 每小时最大探测次数限制
+	MaxPingsPerHour int
 }
 
 // DefaultIPMonitorConfig 默认配置
@@ -42,6 +62,15 @@ func DefaultIPMonitorConfig() IPMonitorConfig {
 		RefreshConcurrency: 10, // 并发测速数量
 		Enabled:            true,
 		CleanupInterval:    43200, // 12 小时
+
+		// 优化配置默认值
+		EnableCooldown:         true, // 启用探测冷却时间
+		CooldownRatio:          0.5,  // 50% 剩余 TTL 时跳过
+		EnableStabilityBackoff: true, // 启用稳定性退避
+		StabilityThreshold:     10,   // 连续 10 次稳定
+		StabilityRTTVariance:   0.05, // 5% RTT 波动阈值
+		EnableSlidingWindow:    true, // 启用滑动窗口
+		MaxPingsPerHour:        5000, // 每小时最大 5000 次探测
 	}
 }
 
@@ -61,6 +90,14 @@ type weightedIP struct {
 	weight float64
 }
 
+// IPStabilityRecord IP 稳定性记录（用于稳定性退避策略）
+type IPStabilityRecord struct {
+	StableCount  int       // 连续稳定次数
+	LastCheck    time.Time // 最后检查时间
+	LastRTT      int       // 最后一次 RTT 值
+	IsDowngraded bool      // 是否已降级到低频池
+}
+
 // IPMonitor IP 主动巡检调度器
 // 实现三级分步刷新机制，根据权重优先级调度 IP 测速
 type IPMonitor struct {
@@ -69,6 +106,11 @@ type IPMonitor struct {
 	stats  IPMonitorStats
 	mu     sync.RWMutex
 	stopCh chan struct{}
+
+	// 优化功能相关字段
+	stabilityRecords map[string]*IPStabilityRecord // IP 稳定性记录
+	hourlyPingCount  int64                         // 本小时探测次数
+	hourlyResetTime  time.Time                     // 小时重置时间
 }
 
 // NewIPMonitor 创建新的 IP 监控器
@@ -97,11 +139,25 @@ func NewIPMonitor(pinger *Pinger, config IPMonitorConfig) *IPMonitor {
 	if config.CleanupInterval <= 0 {
 		config.CleanupInterval = 43200 // 默认 12 小时
 	}
+	if config.CooldownRatio <= 0 {
+		config.CooldownRatio = 0.5
+	}
+	if config.StabilityThreshold <= 0 {
+		config.StabilityThreshold = 10
+	}
+	if config.StabilityRTTVariance <= 0 {
+		config.StabilityRTTVariance = 0.05
+	}
+	if config.MaxPingsPerHour <= 0 {
+		config.MaxPingsPerHour = 5000
+	}
 
 	return &IPMonitor{
-		pinger: pinger,
-		config: config,
-		stopCh: make(chan struct{}),
+		pinger:           pinger,
+		config:           config,
+		stopCh:           make(chan struct{}),
+		stabilityRecords: make(map[string]*IPStabilityRecord),
+		hourlyResetTime:  time.Now(),
 	}
 }
 
@@ -201,6 +257,7 @@ func (m *IPMonitor) refreshT2Pool() {
 
 // selectSortedIPs 单次扫描计算并排序所有 IP 权重
 // 优化版：使用 sort.Slice 实现 O(N log N) 排序，避免重复遍历
+// 第四阶段优化：支持滑动窗口式巡检（权重 + 时间单调增量逻辑）
 func (m *IPMonitor) selectSortedIPs() []weightedIP {
 	if m.pinger.ipPool == nil {
 		return nil
@@ -212,9 +269,44 @@ func (m *IPMonitor) selectSortedIPs() []weightedIP {
 	}
 
 	weighted := make([]weightedIP, 0, len(allIPs))
+	now := time.Now()
 
 	for _, info := range allIPs {
 		w := m.calculateWeight(info)
+
+		// === 稳定性退避策略：对极度稳定的 IP 进行降级 ===
+		if m.config.EnableStabilityBackoff {
+			m.mu.RLock()
+			if record, ok := m.stabilityRecords[info.IP]; ok && record.StableCount >= m.config.StabilityThreshold {
+				// 对于已经极度稳定的 IP，将其原始权重减半，从而挤出 T0 核心池
+				w = w * 0.5
+			}
+			m.mu.RUnlock()
+		}
+
+		// === 滑动窗口式巡检：权重 + 时间单调增量逻辑 ===
+		if m.config.EnableSlidingWindow {
+			// 计算时间因子：距离上次监控的时间越长，时间因子越大
+			// 使用 T0 周期作为基准时间间隔
+			baseInterval := time.Duration(m.config.T0RefreshInterval) * time.Second
+
+			var timeSinceLastMonitor time.Duration
+			if info.LastMonitorTime.IsZero() {
+				// 如果从未监控过，使用最大时间因子
+				timeSinceLastMonitor = baseInterval * 10
+			} else {
+				timeSinceLastMonitor = now.Sub(info.LastMonitorTime)
+			}
+
+			// 时间因子 = 距离上次监控的时间 / 基准间隔
+			// 这样刚测过的 IP 时间因子接近 0，很久没测的 IP 时间因子较大
+			timeFactor := float64(timeSinceLastMonitor) / float64(baseInterval)
+
+			// 最终权重 = 原始权重 * (1 + 时间因子)
+			// 这样权重高但刚测过的 IP 优先级会降低
+			w = w * (1.0 + timeFactor)
+		}
+
 		weighted = append(weighted, weightedIP{ip: info.IP, weight: w})
 	}
 
@@ -343,14 +435,29 @@ func (m *IPMonitor) calculateWeight(info *IPInfo) float64 {
 
 // refreshIPs 刷新指定的 IP 列表（并发版本）
 // 第三阶段优化：探测结果会写入全局 RTT 缓存，供 PingAndSort 使用
+// 第四阶段优化：添加探测冷却时间、稳定性退避、滑动窗口、全局配额
 func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 	if len(ips) == 0 {
 		logger.Infof("[IPMonitor] %s pool: No IPs to refresh", poolName)
 		return
 	}
 
+	// === 全局熔断与配额检查 ===
+	if m.config.MaxPingsPerHour > 0 {
+		m.checkHourlyQuota()
+		m.mu.Lock()
+		if m.hourlyPingCount >= int64(m.config.MaxPingsPerHour) {
+			m.mu.Unlock()
+			logger.Warnf("[IPMonitor] Hourly quota exceeded (%d/%d), skipping %s refresh",
+				m.hourlyPingCount, m.config.MaxPingsPerHour, poolName)
+			return
+		}
+		m.mu.Unlock()
+	}
+
 	ctx := context.Background()
 	successCount := 0
+	skippedCount := 0
 	var mu sync.Mutex
 
 	// 使用 worker pool 模式进行并发测速
@@ -368,6 +475,34 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 		go func() {
 			defer wg.Done()
 			for ip := range ipCh {
+				// === 探测冷却时间检查（Cooldown / TTL Padding） ===
+				if m.config.EnableCooldown {
+					remainingMs, isFresh := m.pinger.GetCacheTTLRemaining(ip)
+					if isFresh {
+						// 计算当前刷新周期的阈值（毫秒）
+						var intervalMs int64
+						switch poolName {
+						case "T0":
+							intervalMs = int64(m.config.T0RefreshInterval) * 1000
+						case "T1":
+							intervalMs = int64(m.config.T1RefreshInterval) * 1000
+						case "T2":
+							intervalMs = int64(m.config.T2RefreshInterval) * 1000
+						default:
+							intervalMs = 120000 // 默认 2 分钟
+						}
+
+						// 如果剩余 TTL 超过刷新周期的 CooldownRatio，跳过探测
+						thresholdMs := int64(float64(intervalMs) * m.config.CooldownRatio)
+						if remainingMs > thresholdMs {
+							mu.Lock()
+							skippedCount++
+							mu.Unlock()
+							continue
+						}
+					}
+				}
+
 				// 纯 ICMP 探测：不需要 SNI 域名
 				// 执行测速（使用 smartPingWithMethod 获取探测方法）
 				rtt, method, _ := m.pinger.smartPingWithMethod(ctx, ip, "")
@@ -379,10 +514,30 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 					mu.Lock()
 					successCount++
 					mu.Unlock()
+
+					// === 稳定性退避策略（Stability Backoff） ===
+					if m.config.EnableStabilityBackoff {
+						m.updateStabilityRecord(ip, rtt, poolName)
+					}
 				} else {
 					// 不可达的 IP 也需要缓存，避免频繁探测
 					// 使用 100% 丢包率标记
 					m.pinger.UpdateIPCache(ip, LogicDeadRTT, 100, method)
+
+					// 失败时重置稳定性记录
+					m.resetStabilityRecord(ip)
+				}
+
+				// === 更新最后监控时间（用于滑动窗口式巡检） ===
+				if m.pinger.ipPool != nil {
+					m.pinger.ipPool.UpdateMonitorTime(ip)
+				}
+
+				// === 更新全局配额计数 ===
+				if m.config.MaxPingsPerHour > 0 {
+					m.mu.Lock()
+					m.hourlyPingCount++
+					m.mu.Unlock()
 				}
 			}
 		}()
@@ -403,7 +558,8 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 	m.stats.LastRefreshTime = time.Now()
 	m.mu.Unlock()
 
-	logger.Infof("[IPMonitor] %s pool: Refreshed %d IPs, %d successful", poolName, len(ips), successCount)
+	logger.Infof("[IPMonitor] %s pool: Refreshed %d IPs, %d successful, %d skipped (cooldown)",
+		poolName, len(ips), successCount, skippedCount)
 }
 
 // GetStats 获取监控器统计信息
@@ -438,4 +594,76 @@ func (m *IPMonitor) cleanupStaleIPs() {
 	if cleanedCount > 0 {
 		logger.Infof("[IPMonitor] Cleaned %d stale IPs from pool", cleanedCount)
 	}
+}
+
+// checkHourlyQuota 检查并重置每小时配额
+func (m *IPMonitor) checkHourlyQuota() {
+	now := time.Now()
+	if now.Sub(m.hourlyResetTime) >= time.Hour {
+		m.mu.Lock()
+		m.hourlyPingCount = 0
+		m.hourlyResetTime = now
+		m.mu.Unlock()
+		logger.Infof("[IPMonitor] Hourly quota reset, starting new hour")
+	}
+}
+
+// updateStabilityRecord 更新 IP 稳定性记录
+// 用于稳定性退避策略：连续稳定的 IP 可以降级到低频池
+func (m *IPMonitor) updateStabilityRecord(ip string, rtt int, poolName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, exists := m.stabilityRecords[ip]
+	if !exists {
+		record = &IPStabilityRecord{
+			LastCheck: time.Now(),
+			LastRTT:   rtt,
+		}
+		m.stabilityRecords[ip] = record
+		return
+	}
+
+	// 检查 RTT 波动是否在阈值范围内
+	rttVariance := float64(abs(rtt-record.LastRTT)) / float64(record.LastRTT)
+	if rttVariance <= m.config.StabilityRTTVariance {
+		// RTT 稳定，增加稳定计数
+		record.StableCount++
+		record.LastCheck = time.Now()
+		record.LastRTT = rtt
+
+		// 如果达到稳定阈值且未降级，记录日志
+		if record.StableCount >= m.config.StabilityThreshold && !record.IsDowngraded {
+			logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), consider downgrading",
+				ip, poolName, record.StableCount)
+			// 注意：实际的降级逻辑需要在 selectT0IPs 中实现
+			// 这里只是标记，具体的降级由滑动窗口逻辑处理
+		}
+	} else {
+		// RTT 波动过大，重置稳定计数
+		record.StableCount = 0
+		record.LastCheck = time.Now()
+		record.LastRTT = rtt
+		record.IsDowngraded = false
+	}
+}
+
+// resetStabilityRecord 重置 IP 稳定性记录
+// 当 IP 探测失败时调用
+func (m *IPMonitor) resetStabilityRecord(ip string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if record, exists := m.stabilityRecords[ip]; exists {
+		record.StableCount = 0
+		record.IsDowngraded = false
+	}
+}
+
+// abs 返回整数的绝对值
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

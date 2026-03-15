@@ -20,6 +20,9 @@ type IPInfo struct {
 	RTTUpdated time.Time // RTT 更新时间
 	RTTEWMA    int       // EWMA 平滑后的 RTT 值（用于排序）
 	loss       float64   // 丢包率（0-100）
+
+	// 第四阶段新增：滑动窗口式巡检
+	LastMonitorTime time.Time // 最后监控时间（用于滑动窗口优先级计算）
 }
 
 // IPPool 全局 IP 资源管理器
@@ -174,12 +177,13 @@ func (p *IPPool) GetAllIPs() []*IPInfo {
 	result := make([]*IPInfo, 0, len(p.ips))
 	for _, info := range p.ips {
 		result = append(result, &IPInfo{
-			IP:            info.IP,
-			RefCount:      info.RefCount,
-			AccessHeat:    info.AccessHeat,
-			LastAccess:    info.LastAccess,
-			RepDomain:     info.RepDomain,
-			RepDomainHeat: info.RepDomainHeat,
+			IP:              info.IP,
+			RefCount:        info.RefCount,
+			AccessHeat:      info.AccessHeat,
+			LastAccess:      info.LastAccess,
+			RepDomain:       info.RepDomain,
+			RepDomainHeat:   info.RepDomainHeat,
+			LastMonitorTime: info.LastMonitorTime, // 必须补上这一行！
 		})
 	}
 	return result
@@ -477,4 +481,15 @@ func (p *IPPool) CleanStaleIPs(maxIdleDuration time.Duration) int {
 	}
 
 	return cleanedCount
+}
+
+// UpdateMonitorTime 更新 IP 的最后监控时间
+// 用于滑动窗口式巡检：记录 IP 上次被监控的时间
+func (p *IPPool) UpdateMonitorTime(ip string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if info, exists := p.ips[ip]; exists {
+		info.LastMonitorTime = time.Now()
+	}
 }

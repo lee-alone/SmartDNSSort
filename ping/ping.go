@@ -272,6 +272,40 @@ func (p *Pinger) GetIPRTT(ip string) (rtt int, loss float64, exists bool, isStal
 	return entry.rtt, entry.loss, true, isStale
 }
 
+// GetCacheTTLRemaining 获取 IP 缓存的剩余 TTL（毫秒）
+// 用于探测冷却时间判断：如果剩余 TTL 足够长，可以跳过本次探测
+// 返回值：
+// - remainingMs: 剩余 TTL（毫秒），-1 表示缓存不存在或已过期
+// - isFresh: 缓存是否处于新鲜状态（未到 staleAt）
+func (p *Pinger) GetCacheTTLRemaining(ip string) (remainingMs int64, isFresh bool) {
+	if p.rttCacheTtlSeconds <= 0 {
+		return -1, false
+	}
+
+	entry, ok := p.rttCache.get(ip)
+	if !ok {
+		return -1, false
+	}
+
+	now := time.Now()
+	
+	// 检查是否已完全过期
+	if now.After(entry.expiresAt) {
+		return -1, false
+	}
+
+	// 计算到 staleAt 的剩余时间
+	remaining := entry.staleAt.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	// 判断是否新鲜
+	isFresh = now.Before(entry.staleAt)
+
+	return remaining.Milliseconds(), isFresh
+}
+
 // GetMultipleIPRTTs 批量获取多个 IP 的 RTT 数据
 // 第三阶段优化：用于批量查询，减少锁竞争
 // 返回值：map[ip]Result，只包含缓存中存在的 IP
