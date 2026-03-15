@@ -4,7 +4,17 @@
 let allDeadIPs = [];
 let allHealthyIPs = [];
 let isExpanded = false;
-let showDeadIPsMode = true; // true: show dead IPs, false: show healthy IPs
+let showDeadIPsMode = false; // true: show dead IPs, false: show healthy IPs
+
+// Format number with K/M suffix for large numbers
+function formatNumber(num) {
+	if (num >= 1000000) {
+		return (num / 1000000).toFixed(1) + 'M';
+	} else if (num >= 1000) {
+		return (num / 1000).toFixed(1) + 'K';
+	}
+	return num.toString();
+}
 
 async function loadIPPoolData() {
 	try {
@@ -21,19 +31,120 @@ async function loadIPPoolData() {
 			// Ensure monitor_stats is not null
 			const monitorStats = data.monitor_stats || {
 				total_refreshes: 0,
-				total_ips_refreshed: 0,
+				total_planned_pings: 0,
+				total_actual_pings: 0,
+				total_skipped_pings: 0,
 				t0_pool_size: 0,
 				t1_pool_size: 0,
-				t2_pool_size: 0
+				t2_pool_size: 0,
+				downgraded_ips: 0,
+				hourly_quota_used: 0,
+				hourly_quota_limit: 5000
 			};
 
-			// Update stats
-			document.getElementById('ip_pool_total_ips').textContent = data.total_ips || 0;
-			document.getElementById('ip_pool_total_refreshes').textContent = monitorStats.total_refreshes || 0;
-			document.getElementById('ip_pool_total_ips_refreshed').textContent = monitorStats.total_ips_refreshed || 0;
-			document.getElementById('ip_pool_t0_size').textContent = monitorStats.t0_pool_size || 0;
-			document.getElementById('ip_pool_t1_size').textContent = monitorStats.t1_pool_size || 0;
-			document.getElementById('ip_pool_t2_size').textContent = monitorStats.t2_pool_size || 0;
+			// Update stats - Resource Efficiency
+			const plannedPings = monitorStats.total_planned_pings || 0;
+			const actualPings = monitorStats.total_actual_pings || 0;
+			const skippedPings = monitorStats.total_skipped_pings || 0;
+			const efficiencyRate = plannedPings > 0 ? ((skippedPings / plannedPings) * 100).toFixed(1) : 0;
+
+			// Update with number pulse animation for skipped pings
+			const skippedElement = document.getElementById('ip_pool_skipped_pings');
+			const previousSkipped = skippedElement ? parseInt(skippedElement.textContent.replace(/[^0-9]/g, '')) || 0 : 0;
+			
+			const plannedElement = document.getElementById('ip_pool_planned_pings');
+			const actualElement = document.getElementById('ip_pool_actual_pings');
+			const efficiencyElement = document.getElementById('ip_pool_efficiency_rate');
+			
+			if (plannedElement) plannedElement.textContent = formatNumber(plannedPings);
+			if (actualElement) actualElement.textContent = formatNumber(actualPings);
+			if (skippedElement) skippedElement.textContent = formatNumber(skippedPings);
+			if (efficiencyElement) efficiencyElement.textContent = `${efficiencyRate}%`;
+			
+			// Add pulse animation if skipped pings increased
+			if (skippedElement && skippedPings > previousSkipped) {
+				skippedElement.classList.remove('number-pulse');
+				void skippedElement.offsetWidth; // Trigger reflow
+				skippedElement.classList.add('number-pulse');
+			}
+
+			// Update progress bar: Actual vs Planned
+			const ratioText = document.getElementById('ip_pool_ratio_text');
+			const ratioBar = document.getElementById('ip_pool_ratio_bar');
+			if (ratioText && ratioBar) {
+				ratioText.textContent = `${formatNumber(actualPings)}/${formatNumber(plannedPings)}`;
+				const ratioPercent = plannedPings > 0 ? (actualPings / plannedPings) * 100 : 0;
+				ratioBar.style.width = `${ratioPercent}%`;
+				// Color based on efficiency
+				if (ratioPercent < 20) {
+					ratioBar.className = 'bg-green-600 dark:bg-green-400 h-2.5 rounded-full transition-all duration-300';
+				} else if (ratioPercent < 50) {
+					ratioBar.className = 'bg-yellow-600 dark:bg-yellow-400 h-2.5 rounded-full transition-all duration-300';
+				} else {
+					ratioBar.className = 'bg-orange-600 dark:bg-orange-400 h-2.5 rounded-full transition-all duration-300';
+				}
+			}
+
+			// Update stats - Pool Dynamics
+			const t0SizeElement = document.getElementById('ip_pool_t0_size');
+			const t1SizeElement = document.getElementById('ip_pool_t1_size');
+			const t2SizeElement = document.getElementById('ip_pool_t2_size');
+			const downgradedElement = document.getElementById('ip_pool_downgraded_ips');
+			
+			if (t0SizeElement) t0SizeElement.textContent = monitorStats.t0_pool_size || 0;
+			if (t1SizeElement) t1SizeElement.textContent = monitorStats.t1_pool_size || 0;
+			if (t2SizeElement) t2SizeElement.textContent = monitorStats.t2_pool_size || 0;
+			if (downgradedElement) downgradedElement.textContent = monitorStats.downgraded_ips || 0;
+
+			// Update T0 note
+			const t0Note = document.getElementById('ip_pool_t0_note');
+			if (t0Note) {
+				const t0Size = monitorStats.t0_pool_size || 0;
+				if (t0Size > 0) {
+					t0Note.textContent = window.i18n
+						? window.i18n.t('dashboard.t0PoolNote', { size: t0Size })
+						: `Core pool with ${t0Size} active IPs`;
+				} else {
+					t0Note.textContent = '';
+				}
+			}
+
+			// Update stats - Quota Monitoring
+			const quotaUsed = monitorStats.hourly_quota_used || 0;
+			const quotaLimit = monitorStats.hourly_quota_limit || 5000;
+			const quotaPercent = quotaLimit > 0 ? (quotaUsed / quotaLimit) * 100 : 0;
+
+			const quotaUsedElement = document.getElementById('ip_pool_quota_used');
+			const quotaLimitElement = document.getElementById('ip_pool_quota_limit');
+			
+			if (quotaUsedElement) quotaUsedElement.textContent = formatNumber(quotaUsed);
+			if (quotaLimitElement) quotaLimitElement.textContent = formatNumber(quotaLimit);
+
+			const quotaBar = document.getElementById('ip_pool_quota_bar');
+			const quotaStatus = document.getElementById('ip_pool_quota_status');
+			if (quotaBar && quotaStatus) {
+				quotaBar.style.width = `${quotaPercent}%`;
+				
+				// Update status and color based on quota usage with gradient bar
+				quotaBar.className = 'quota-gradient-bar h-2.5 rounded-full transition-all duration-300 progress-bar-enhanced';
+				
+				// Remove all gradient classes first
+				quotaBar.classList.remove('low', 'medium', 'high', 'critical');
+				
+				if (quotaPercent < 70) {
+					quotaBar.classList.add('low');
+					quotaStatus.textContent = window.i18n ? window.i18n.t('dashboard.statusHealthy') : 'Status: Healthy';
+					quotaStatus.className = 'text-xs font-medium text-green-600 dark:text-green-400';
+				} else if (quotaPercent < 90) {
+					quotaBar.classList.add('medium');
+					quotaStatus.textContent = window.i18n ? window.i18n.t('dashboard.statusWarning') : 'Status: Warning';
+					quotaStatus.className = 'text-xs font-medium text-yellow-600 dark:text-yellow-400';
+				} else {
+					quotaBar.classList.add('critical');
+					quotaStatus.textContent = window.i18n ? window.i18n.t('dashboard.statusLimitReached') : 'Status: Limit Reached';
+					quotaStatus.className = 'text-xs font-medium text-red-600 dark:text-red-400';
+				}
+			}
 
 			// Update monitor status badge/switch (if we add it)
 			const statusBadge = document.getElementById('ipPoolPausedBadge');

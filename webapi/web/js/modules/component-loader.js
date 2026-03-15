@@ -66,6 +66,12 @@ const ComponentLoader = {
 
         await this.loadComponents(configComponents);
 
+        // Load dashboard sub-components
+        const dashboardSubComponents = [
+            { path: 'components/ip-pool-monitor.html', containerId: 'ip-pool-monitor-container' }
+        ];
+        await this.loadComponents(dashboardSubComponents);
+
         // Emit custom event to signal components are ready
         document.dispatchEvent(new CustomEvent('componentsLoaded'));
     }

@@ -1,5 +1,5 @@
 <!-- IP Pool Monitor Component -->
-<div class="col-span-1 md:col-span-2 xl:col-span-4 bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
+<div class="bg-card-light dark:bg-card-dark rounded-xl border border-[#e9e8ce] dark:border-[#3a3922] shadow-sm flex flex-col overflow-hidden">
     <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922] flex justify-between items-center">
         <div class="flex items-center gap-4">
             <h2 class="font-bold text-lg" data-i18n="dashboard.ipPoolMonitor">IP Pool Monitor</h2>
@@ -22,31 +22,98 @@
         </div>
     </div>
     
-    <!-- IP Monitor Stats -->
-    <div class="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
-        <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalIPs">Total IPs</p>
-            <h3 id="ip_pool_total_ips" class="text-xl font-bold">0</h3>
+    <!-- IP Monitor Stats - Core Dashboard -->
+    <div class="p-4 border-b border-[#e9e8ce] dark:border-[#3a3922]">
+        <!-- Resource Efficiency Section -->
+        <div class="mb-4 efficiency-card rounded-lg p-4">
+            <h4 class="text-sm font-semibold mb-3 text-text-main-light dark:text-text-main-dark flex items-center gap-2">
+                <span class="material-symbols-outlined text-blue-500">speed</span>
+                <span data-i18n="dashboard.resourceEfficiency">Resource Efficiency</span>
+            </h4>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="efficiency-card rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.plannedPings">Planned Pings</p>
+                    <h3 id="ip_pool_planned_pings" class="text-xl font-bold">0</h3>
+                </div>
+                <div class="efficiency-card rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.actualPings">Actual Pings</p>
+                    <h3 id="ip_pool_actual_pings" class="text-xl font-bold text-green-600 dark:text-green-400">0</h3>
+                </div>
+                <div class="efficiency-card rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.skippedPings">Skipped Pings</p>
+                    <h3 id="ip_pool_skipped_pings" class="text-xl font-bold text-blue-600 dark:text-blue-400">0</h3>
+                </div>
+                <div class="efficiency-card rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.efficiencyRate">Efficiency Rate</p>
+                    <h3 id="ip_pool_efficiency_rate" class="text-xl font-bold text-purple-600 dark:text-purple-400 saving-rate-highlight">0%</h3>
+                </div>
+            </div>
+            <!-- Progress Bar: Actual vs Planned -->
+            <div class="mt-4">
+                <div class="flex justify-between text-xs text-text-sub-light dark:text-text-sub-dark mb-1">
+                    <span data-i18n="dashboard.pingRatio">Ping Ratio (Actual/Planned)</span>
+                    <span id="ip_pool_ratio_text">0/0</span>
+                </div>
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                    <div id="ip_pool_ratio_bar" class="bg-green-600 dark:bg-green-400 h-2.5 rounded-full transition-all duration-300 progress-bar-enhanced" style="width: 0%"></div>
+                </div>
+            </div>
         </div>
-        <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalRefreshes">Total Refreshes</p>
-            <h3 id="ip_pool_total_refreshes" class="text-xl font-bold">0</h3>
+
+        <!-- Pool Dynamics Section -->
+        <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-3 text-text-main-light dark:text-text-main-dark flex items-center gap-2">
+                <span class="material-symbols-outlined text-purple-500">layers</span>
+                <span data-i18n="dashboard.poolDynamics">Pool Dynamics</span>
+            </h4>
+            <div class="grid grid-cols-3 gap-4">
+                <div class="pool-card-t0 rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t0PoolSize">T0 Core Pool</p>
+                    <h3 id="ip_pool_t0_size" class="text-xl font-bold text-blue-600 dark:text-blue-400">0</h3>
+                    <p id="ip_pool_t0_note" class="text-xs text-text-sub-light dark:text-text-sub-dark mt-1"></p>
+                </div>
+                <div class="pool-card-t1 rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t1PoolSize">T1 Active Pool</p>
+                    <h3 id="ip_pool_t1_size" class="text-xl font-bold text-yellow-600 dark:text-yellow-400">0</h3>
+                </div>
+                <div class="pool-card-t2 rounded-lg p-3">
+                    <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t2PoolSize">T2淘汰池</p>
+                    <h3 id="ip_pool_t2_size" class="text-xl font-bold text-gray-600 dark:text-gray-400">0</h3>
+                </div>
+            </div>
+            <!-- Downgraded IPs -->
+            <div class="mt-3 downgraded-card rounded-lg p-3 stability-badge">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.downgradedIPs">Downgraded IPs (Stability Backoff)</p>
+                        <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.downgradedIPsDesc">IPs in silent monitoring mode</p>
+                    </div>
+                    <h3 id="ip_pool_downgraded_ips" class="text-xl font-bold text-orange-600 dark:text-orange-400">0</h3>
+                </div>
+            </div>
         </div>
+
+        <!-- Quota Monitoring Section -->
         <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.totalIpsRefreshed">Total IPs Refreshed</p>
-            <h3 id="ip_pool_total_ips_refreshed" class="text-xl font-bold">0</h3>
-        </div>
-        <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t0PoolSize">T0 Pool</p>
-            <h3 id="ip_pool_t0_size" class="text-xl font-bold">0</h3>
-        </div>
-        <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t1PoolSize">T1 Pool</p>
-            <h3 id="ip_pool_t1_size" class="text-xl font-bold">0</h3>
-        </div>
-        <div>
-            <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.t2PoolSize">T2 Pool</p>
-            <h3 id="ip_pool_t2_size" class="text-xl font-bold">0</h3>
+            <h4 class="text-sm font-semibold mb-3 text-text-main-light dark:text-text-main-dark flex items-center gap-2">
+                <span class="material-symbols-outlined text-green-500">data_usage</span>
+                <span data-i18n="dashboard.quotaMonitoring">Quota Monitoring</span>
+            </h4>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 efficiency-card">
+                <div class="flex justify-between items-center mb-2">
+                    <div>
+                        <p class="text-xs text-text-sub-light dark:text-text-sub-dark" data-i18n="dashboard.hourlyQuota">Hourly Quota</p>
+                        <p id="ip_pool_quota_status" class="text-xs font-medium text-green-600 dark:text-green-400" data-i18n="dashboard.statusHealthy">Status: Healthy</p>
+                    </div>
+                    <div class="text-right">
+                        <h3 id="ip_pool_quota_used" class="text-xl font-bold">0</h3>
+                        <p class="text-xs text-text-sub-light dark:text-text-sub-dark">/ <span id="ip_pool_quota_limit">5000</span></p>
+                    </div>
+                </div>
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                    <div id="ip_pool_quota_bar" class="quota-gradient-bar h-2.5 rounded-full transition-all duration-300 progress-bar-enhanced" style="width: 0%"></div>
+                </div>
+            </div>
         </div>
     </div>
 

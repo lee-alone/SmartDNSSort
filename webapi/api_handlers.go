@@ -360,6 +360,20 @@ func (s *Server) handleIPPoolStatus(w http.ResponseWriter, r *http.Request) {
 
 	response := IPPoolStatusResponse{
 		TopIPs: []IPPoolResult{},
+		// 初始化默认值，确保即使 ipMonitor 为 nil 也能返回有效数据
+		MonitorStats: map[string]interface{}{
+			"total_refreshes":     int64(0),
+			"total_planned_pings": int64(0),
+			"total_actual_pings":  int64(0),
+			"total_skipped_pings": int64(0),
+			"last_refresh_time":   time.Time{},
+			"t0_pool_size":        0,
+			"t1_pool_size":        0,
+			"t2_pool_size":        0,
+			"downgraded_ips":      0,
+			"hourly_quota_used":   0,
+			"hourly_quota_limit":  5000,
+		},
 	}
 
 	// 获取 IP 池信息
@@ -369,11 +383,16 @@ func (s *Server) handleIPPoolStatus(w http.ResponseWriter, r *http.Request) {
 		stats := ipMonitor.GetStats()
 		response.MonitorStats = map[string]interface{}{
 			"total_refreshes":     stats.TotalRefreshes,
-			"total_ips_refreshed": stats.TotalIPsRefreshed,
+			"total_planned_pings": stats.TotalPlannedPings,
+			"total_actual_pings":  stats.TotalActualPings,
+			"total_skipped_pings": stats.TotalSkippedPings,
 			"last_refresh_time":   stats.LastRefreshTime,
 			"t0_pool_size":        stats.T0PoolSize,
 			"t1_pool_size":        stats.T1PoolSize,
 			"t2_pool_size":        stats.T2PoolSize,
+			"downgraded_ips":      stats.DowngradedIPs,
+			"hourly_quota_used":   stats.HourlyQuotaUsed,
+			"hourly_quota_limit":  stats.HourlyQuotaLimit,
 		}
 	}
 
@@ -407,11 +426,16 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 		stats := ipMonitor.GetStats()
 		response["monitor_stats"] = map[string]interface{}{
 			"total_refreshes":     stats.TotalRefreshes,
-			"total_ips_refreshed": stats.TotalIPsRefreshed,
+			"total_planned_pings": stats.TotalPlannedPings,
+			"total_actual_pings":  stats.TotalActualPings,
+			"total_skipped_pings": stats.TotalSkippedPings,
 			"last_refresh_time":   stats.LastRefreshTime.Format(time.RFC3339),
 			"t0_pool_size":        stats.T0PoolSize,
 			"t1_pool_size":        stats.T1PoolSize,
 			"t2_pool_size":        stats.T2PoolSize,
+			"downgraded_ips":      stats.DowngradedIPs,
+			"hourly_quota_used":   stats.HourlyQuotaUsed,
+			"hourly_quota_limit":  stats.HourlyQuotaLimit,
 		}
 		// 获取配置中的 Enabled 状态 (需要加锁或者通过方法获取)
 		// 这里暂且从 dnsServer 配置中读，更准确

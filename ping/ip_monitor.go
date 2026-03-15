@@ -76,12 +76,20 @@ func DefaultIPMonitorConfig() IPMonitorConfig {
 
 // IPMonitorStats 监控器统计信息
 type IPMonitorStats struct {
-	TotalRefreshes    int64     // 总刷新次数
-	TotalIPsRefreshed int64     // 总刷新 IP 数
-	LastRefreshTime   time.Time // 最后刷新时间
-	T0PoolSize        int       // T0 核心池大小
-	T1PoolSize        int       // T1 活跃池大小
-	T2PoolSize        int       // T2 淘汰池大小
+	TotalRefreshes    int64 // 扫描周期数（原来的）
+	TotalPlannedPings int64 // 计划测速总数（原来的 TotalIPsRefreshed）
+	TotalActualPings  int64 // 真正发出的 ICMP 包数量（新）
+	TotalSkippedPings int64 // 被探测冷却/策略拦截的数量（新）
+	LastRefreshTime   time.Time
+
+	T0PoolSize int
+	T1PoolSize int
+	T2PoolSize int
+
+	// 动态指标
+	DowngradedIPs    int // 当前处于"稳定性降级"状态的 IP 总数（新）
+	HourlyQuotaUsed  int // 本小时配额已使用量（新）
+	HourlyQuotaLimit int // 本小时配额上限（新）
 }
 
 // weightedIP 带权重的 IP 结构体
@@ -271,17 +279,23 @@ func (m *IPMonitor) selectSortedIPs() []weightedIP {
 	weighted := make([]weightedIP, 0, len(allIPs))
 	now := time.Now()
 
+	// === 稳定性退避策略：对极度稳定的 IP 进行降级 ===
+	// 在整个循环外部统一加锁，避免频繁的锁竞争
+	// stabilityRecords 在这个过程中不应发生突变
+	if m.config.EnableStabilityBackoff {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+	}
+
 	for _, info := range allIPs {
 		w := m.calculateWeight(info)
 
 		// === 稳定性退避策略：对极度稳定的 IP 进行降级 ===
 		if m.config.EnableStabilityBackoff {
-			m.mu.RLock()
 			if record, ok := m.stabilityRecords[info.IP]; ok && record.StableCount >= m.config.StabilityThreshold {
 				// 对于已经极度稳定的 IP，将其原始权重减半，从而挤出 T0 核心池
 				w = w * 0.5
 			}
-			m.mu.RUnlock()
 		}
 
 		// === 滑动窗口式巡检：权重 + 时间单调增量逻辑 ===
@@ -554,7 +568,12 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 
 	m.mu.Lock()
 	m.stats.TotalRefreshes++
-	m.stats.TotalIPsRefreshed += int64(len(ips))
+	// 真正的效率逻辑：
+	m.stats.TotalPlannedPings += int64(len(ips))
+	m.stats.TotalActualPings += int64(len(ips) - skippedCount) // 物理真实发包（含失败）
+	m.stats.TotalSkippedPings += int64(skippedCount)           // 策略拦截（省下的负担）
+	m.stats.HourlyQuotaUsed = int(m.hourlyPingCount)
+	m.stats.HourlyQuotaLimit = m.config.MaxPingsPerHour
 	m.stats.LastRefreshTime = time.Now()
 	m.mu.Unlock()
 
@@ -566,7 +585,18 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 func (m *IPMonitor) GetStats() IPMonitorStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.stats
+
+	// 计算降级 IP 数量
+	downgradedCount := 0
+	for _, record := range m.stabilityRecords {
+		if record.IsDowngraded || record.StableCount >= m.config.StabilityThreshold {
+			downgradedCount++
+		}
+	}
+
+	stats := m.stats
+	stats.DowngradedIPs = downgradedCount
+	return stats
 }
 
 // GetIPPool 获取 IP 池实例
@@ -632,12 +662,11 @@ func (m *IPMonitor) updateStabilityRecord(ip string, rtt int, poolName string) {
 		record.LastCheck = time.Now()
 		record.LastRTT = rtt
 
-		// 如果达到稳定阈值且未降级，记录日志
+		// 如果达到稳定阈值且未降级，记录日志并标记为已降级
 		if record.StableCount >= m.config.StabilityThreshold && !record.IsDowngraded {
-			logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), consider downgrading",
+			logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), marking as downgraded",
 				ip, poolName, record.StableCount)
-			// 注意：实际的降级逻辑需要在 selectT0IPs 中实现
-			// 这里只是标记，具体的降级由滑动窗口逻辑处理
+			record.IsDowngraded = true // 标记为已降级，防止日志刷屏并闭合逻辑
 		}
 	} else {
 		// RTT 波动过大，重置稳定计数
