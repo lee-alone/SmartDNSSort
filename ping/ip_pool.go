@@ -76,14 +76,15 @@ func (p *IPPool) UpdateDomainIPs(oldIPs, newIPs []string, domain string) {
 			// IP 被移除
 			if info, exists := p.ips[ip]; exists {
 				info.RefCount--
-				if info.RefCount <= 0 {
-					// 引用计数为 0，删除该 IP
-					delete(p.ips, ip)
-				} else {
-					// 如果代表性域名是当前域名，需要重新选择
-					if info.RepDomain == domain {
-						p.selectRepDomain(info)
-					}
+				// 取消即时删除：即使引用计数为 0 也不立即删除，
+				// 而是等待 CleanStaleIPs 后台任务根据空闲时间进行清理。
+				// 这样可以让用户在 WebUI 上还能看到近期失效的 IP。
+				if info.RefCount < 0 {
+					info.RefCount = 0
+				}
+				// 如果代表性域名是当前域名，需要重新选择
+				if info.RepDomain == domain {
+					p.selectRepDomain(info)
 				}
 			}
 		}
@@ -183,7 +184,11 @@ func (p *IPPool) GetAllIPs() []*IPInfo {
 			LastAccess:      info.LastAccess,
 			RepDomain:       info.RepDomain,
 			RepDomainHeat:   info.RepDomainHeat,
-			LastMonitorTime: info.LastMonitorTime, // 必须补上这一行！
+			LastMonitorTime: info.LastMonitorTime,
+			RTT:             info.RTT,        // 补全：拷贝 RTT 状态
+			RTTEWMA:         info.RTTEWMA,    // 补全：拷贝平滑 RTT
+			loss:            info.loss,       // 补全：拷贝丢包率
+			RTTUpdated:      info.RTTUpdated, // 补全：拷贝更新时间
 		})
 	}
 	return result

@@ -455,15 +455,19 @@ func (s *Server) handleIPPoolTop(w http.ResponseWriter, r *http.Request) {
 			topIPs := []IPPoolResult{}
 
 			for _, info := range allIPs {
+				// 优先使用 IPPool 内部维护的 RTT（真理化数据）
 				rtt := -1
-				if pinger != nil {
+				if !info.RTTUpdated.IsZero() {
+					rtt = info.RTT
+				} else if pinger != nil {
+					// 只有当 IPPool 还没测过速时，才去查 Pinger 的实时缓存作为补充
 					rttVal, _, exists, _ := pinger.GetIPRTT(info.IP)
 					if exists {
 						rtt = rttVal
 					}
 				}
 
-				// 筛选逻辑
+				// 筛选逻辑：如果是 'dead' 视图，则只显示 RTT >= LogicDeadRTT 的 IP
 				if view == "all" || view == "top" || rtt >= ping.LogicDeadRTT {
 					result := IPPoolResult{
 						IP:         info.IP,
