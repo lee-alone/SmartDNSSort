@@ -11,6 +11,12 @@ import (
 	"smartdnssort/stats"
 )
 
+// NetworkHealthChecker 网络健康检查器接口
+// 用于断网时熔断预取行为
+type NetworkHealthChecker interface {
+	IsNetworkHealthy() bool
+}
+
 // Constants for math model
 const (
 	MaxScoreTableSize = 60000
@@ -87,6 +93,9 @@ type Prefetcher struct {
 		SkippedLowScore    uint64 // 因低分跳过
 		SkippedSimilarHash uint64 // 因哈希相似跳过
 	}
+
+	// 网络健康检查器（用于断网时熔断预取行为）
+	networkChecker NetworkHealthChecker
 }
 
 // NewPrefetcher creates a new Prefetcher.
@@ -152,6 +161,19 @@ func (p *Prefetcher) prefetchLoop() {
 	time.Sleep(30 * time.Second)
 
 	for {
+		// 熔断：断网时跳过预取，避免无效的上游请求
+		if p.networkChecker != nil && !p.networkChecker.IsNetworkHealthy() {
+			logger.Debug("[Prefetcher] Network offline, skipping prefetch cycle")
+			// 等待下一个周期再检查
+			sleepDuration := 300*time.Second + time.Duration(time.Now().UnixNano()%600)*time.Second
+			select {
+			case <-time.After(sleepDuration):
+				continue
+			case <-p.stopChan:
+				return
+			}
+		}
+
 		// Run Sampling
 		p.runSampling()
 
@@ -165,6 +187,11 @@ func (p *Prefetcher) prefetchLoop() {
 			return
 		}
 	}
+}
+
+// SetNetworkChecker 设置网络健康检查器
+func (p *Prefetcher) SetNetworkChecker(checker NetworkHealthChecker) {
+	p.networkChecker = checker
 }
 
 // RecordAccess is called when a domain is queried by a real client.

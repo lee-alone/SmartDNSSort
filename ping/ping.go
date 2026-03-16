@@ -82,6 +82,32 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 		return nil
 	}
 
+	// 熔断：断网时只返回缓存数据，不进行实际探测
+	// 这样可以避免无效的 ICMP/TCP 探测，减少 CPU 和 IO 开销
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		// 尝试从缓存获取数据
+		if p.rttCacheTtlSeconds > 0 {
+			cached := make([]Result, 0, len(ips))
+			for _, ip := range ips {
+				if e, ok := p.rttCache.get(ip); ok {
+					rttToUse := e.rtt
+					if p.ipPool != nil {
+						if _, poolRTTEWMA, updated := p.ipPool.GetIPRTT(ip); updated {
+							rttToUse = poolRTTEWMA
+						}
+					}
+					cached = append(cached, Result{IP: ip, RTT: rttToUse, Loss: e.loss, ProbeMethod: "cached-offline"})
+				}
+			}
+			if len(cached) > 0 {
+				p.sortResults(cached)
+				return cached
+			}
+		}
+		// 无缓存数据，返回空结果
+		return nil
+	}
+
 	// 智能探测
 	testIPs := ips
 	if p.maxTestIPs > 0 && len(ips) > p.maxTestIPs {
@@ -200,21 +226,36 @@ func (p *Pinger) Stop() {
 }
 
 // RecordIPFailure 记录IP失效（应用层调用）
+// 熔断：断网时不记录，避免权重污染
 func (p *Pinger) RecordIPFailure(ip string) {
+	// 断网时不记录失效权重，防止误判
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		return
+	}
 	if p.failureWeightMgr != nil {
 		p.failureWeightMgr.RecordFailure(ip)
 	}
 }
 
 // RecordIPSuccess 记录IP成功（应用层调用）
+// 熔断：断网时不记录，避免权重污染
 func (p *Pinger) RecordIPSuccess(ip string) {
+	// 断网时不记录成功权重，保持一致性
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		return
+	}
 	if p.failureWeightMgr != nil {
 		p.failureWeightMgr.RecordSuccess(ip)
 	}
 }
 
 // RecordIPFastFail 记录IP快速失败（第一次探测就超时）
+// 熔断：断网时不记录，避免权重污染
 func (p *Pinger) RecordIPFastFail(ip string) {
+	// 断网时不记录快速失败，防止绕过 RecordIPFailure 保护
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		return
+	}
 	if p.failureWeightMgr != nil {
 		p.failureWeightMgr.RecordFastFail(ip)
 	}
@@ -288,7 +329,7 @@ func (p *Pinger) GetCacheTTLRemaining(ip string) (remainingMs int64, isFresh boo
 	}
 
 	now := time.Now()
-	
+
 	// 检查是否已完全过期
 	if now.After(entry.expiresAt) {
 		return -1, false

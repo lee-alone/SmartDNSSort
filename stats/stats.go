@@ -12,6 +12,12 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+// NetworkHealthChecker 网络健康检查器接口
+// 用于断网时熔断外部行为相关的统计
+type NetworkHealthChecker interface {
+	IsNetworkHealthy() bool
+}
+
 // Stats 运行统计
 type Stats struct {
 	mu                sync.RWMutex
@@ -41,6 +47,9 @@ type Stats struct {
 
 	// 启动时间
 	startTime time.Time
+
+	// 网络健康检查器（用于断网时熔断外部行为统计）
+	networkChecker NetworkHealthChecker
 }
 
 // NewStats 创建新的统计实例
@@ -106,31 +115,61 @@ func (s *Stats) IncCacheStaleRefresh() {
 }
 
 // IncUpstreamFailures 增加上游失败计数 (总计)
+// 熔断：断网时不记录，避免统计污染
 func (s *Stats) IncUpstreamFailures() {
+	// 断网时不记录上游失败，因为这是外部行为
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		return
+	}
 	atomic.AddInt64(&s.upstreamFailures, 1)
 	s.generalStatsTracker.RecordUpstreamFailure()
 }
 
 // IncPingSuccesses 增加 ping 成功计数
+// 熔断：断网时不记录，保持统计一致性
 func (s *Stats) IncPingSuccesses() {
+	// 断网时不记录 ping 成功，保持与 IncPingFailures 一致
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		return
+	}
 	atomic.AddInt64(&s.pingSuccesses, 1)
 }
 
 // IncPingFailures 增加 ping 失败计数
+// 熔断：断网时不记录，避免统计污染
 func (s *Stats) IncPingFailures() {
+	// 断网时不记录 ping 失败，因为这是外部行为
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		return
+	}
 	atomic.AddInt64(&s.pingFailures, 1)
 }
 
 // AddRTT 增加总 RTT
+// 熔断：断网时不记录，避免统计污染
 func (s *Stats) AddRTT(rtt int64) {
+	// 断网时不记录 RTT，因为这是外部行为
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		return
+	}
 	atomic.AddInt64(&s.totalRTT, rtt)
 }
 
 // RecordFailedNode 记录失败的节点
+// 熔断：断网时不记录，避免统计污染
 func (s *Stats) RecordFailedNode(node string) {
+	// 断网时不记录失败节点，因为这是外部行为
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failedNodes[node]++
+}
+
+// SetNetworkChecker 设置网络健康检查器
+func (s *Stats) SetNetworkChecker(checker NetworkHealthChecker) {
+	s.networkChecker = checker
 }
 
 // GetStatsWithTimeRange 获取指定时间范围的统计数据

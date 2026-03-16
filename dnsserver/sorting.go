@@ -96,7 +96,10 @@ func (s *Server) performPingSort(ctx context.Context, domain string, ips []strin
 	pingResults := pinger.PingAndSort(ctx, ips, sortDomain)
 
 	if len(pingResults) == 0 {
-		return nil, nil, fmt.Errorf("ping sort returned no results")
+		// 断网且无缓存时，返回原始 IP 列表（尽力而为）
+		// 这样系统能够继续提供有限的解析服务，而不是返回 SERVFAIL
+		logger.Debugf("[performPingSort] 断网且无缓存，返回原始 IP 列表: %s", domain)
+		return ips, nil, nil
 	}
 
 	// 提取排序后的 IP 和 RTT

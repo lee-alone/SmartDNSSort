@@ -185,7 +185,13 @@ func (h *ServerHealth) MarkFailure() {
 }
 
 // MarkTimeout 标记查询超时，增加延迟惩罚但不触发熔断计数
+// 熔断：断网时不记录，避免 EWMA 算法被污染
 func (h *ServerHealth) MarkTimeout(d time.Duration) {
+	// 断网时不记录超时，防止 EWMA 算法被污染
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -342,7 +348,13 @@ func (h *ServerHealth) ClearStats() {
 }
 
 // RecordLatency 记录一次成功的查询延迟，并更新 EWMA 值
+// 熔断：断网时不记录，避免 EWMA 算法被污染
 func (h *ServerHealth) RecordLatency(d time.Duration) {
+	// 断网时不记录延迟，防止 EWMA 算法被污染
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

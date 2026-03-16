@@ -69,8 +69,14 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 静默隔离改造：将全局网络健康检查器注入给 pinger 实例
 	// 这样 pinger 就可以在断网时拒绝更新缓存，防止缓存污染
-	server.pinger.SetHealthChecker(upstream.GetGlobalNetworkChecker())
+	checker := upstream.GetGlobalNetworkChecker()
+	server.pinger.SetHealthChecker(checker)
 	logger.Info("[Server] Network health checker injected to Pinger for silent isolation.")
+
+	// 静默隔离改造：将全局网络健康检查器注入给 stats 实例
+	// 这样 stats 就可以在断网时熔断外部行为统计，避免统计污染
+	s.SetNetworkChecker(checker)
+	logger.Info("[Server] Network health checker injected to Stats for silent isolation.")
 
 	// 尝试加载持久化缓存
 	logger.Info("[Cache] Loading cache from disk...")
@@ -114,6 +120,11 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// Create the prefetcher and link it with the cache
 	server.prefetcher = prefetch.NewPrefetcher(&cfg.Prefetch, s, server.cache, server)
 	server.cache.SetPrefetcher(server.prefetcher)
+
+	// 静默隔离改造：将全局网络健康检查器注入给 prefetcher 实例
+	// 这样 prefetcher 就可以在断网时跳过预取，避免无效的上游请求
+	server.prefetcher.SetNetworkChecker(checker)
+	logger.Info("[Server] Network health checker injected to Prefetcher for silent isolation.")
 
 	// 设置 IP 池更新器，用于维护全局 IP 资源
 	server.cache.SetIPPoolUpdater(server.pinger.GetIPPool())

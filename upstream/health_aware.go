@@ -2,10 +2,15 @@ package upstream
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/miekg/dns"
 )
+
+// ErrNetworkOffline 网络离线错误
+// 用于 Fast Fail 机制，当网络不可用时直接返回此错误
+var ErrNetworkOffline = errors.New("network offline")
 
 // HealthAwareUpstream 带健康检查的上游服务器包装器
 type HealthAwareUpstream struct {
@@ -14,6 +19,9 @@ type HealthAwareUpstream struct {
 
 	// 健康状态管理器
 	health *ServerHealth
+
+	// 网络健康检查器（用于 Fast Fail）
+	networkChecker NetworkHealthChecker
 }
 
 // NewHealthAwareUpstream 创建带健康检查的上游服务器
@@ -21,13 +29,20 @@ type HealthAwareUpstream struct {
 // networkChecker: 网络健康检查器（可选）
 func NewHealthAwareUpstream(upstream Upstream, healthConfig *HealthCheckConfig, statsConfig *StatsConfig, networkChecker NetworkHealthChecker) *HealthAwareUpstream {
 	return &HealthAwareUpstream{
-		upstream: upstream,
-		health:   NewServerHealth(upstream.Address(), healthConfig, statsConfig, networkChecker),
+		upstream:       upstream,
+		health:         NewServerHealth(upstream.Address(), healthConfig, statsConfig, networkChecker),
+		networkChecker: networkChecker,
 	}
 }
 
 // Exchange 执行 DNS 查询，并记录延迟
+// Fast Fail: 断网时直接返回错误，避免无效的 UDP/TCP 握手尝试
 func (h *HealthAwareUpstream) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	// Fast Fail: 断网时直接返回错误，避免无效的网络 IO
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return nil, ErrNetworkOffline
+	}
+
 	startTime := time.Now()
 	reply, err := h.upstream.Exchange(ctx, msg)
 	latency := time.Since(startTime)
@@ -96,7 +111,12 @@ func (h *HealthAwareUpstream) Name() string {
 }
 
 // Query 执行 DNS 查询并返回结果
+// Fast Fail: 断网时直接返回错误，避免无效的网络 IO
 func (h *HealthAwareUpstream) Query(ctx context.Context) (interface{}, error) {
+	// Fast Fail: 断网时直接返回错误，避免无效的网络 IO
+	if h.networkChecker != nil && !h.networkChecker.IsNetworkHealthy() {
+		return nil, ErrNetworkOffline
+	}
 	// 这个方法用于 sequential 和 racing 策略
 	// 返回 *dns.Msg 作为查询结果
 	return h.upstream.Exchange(ctx, &dns.Msg{})
