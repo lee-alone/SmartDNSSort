@@ -76,7 +76,7 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 
 	return &Stats{
 		failedNodes:         make(map[string]int64),
-		hotDomains:          NewHotDomainsTracker(cfg),
+		hotDomains:          NewHotDomainsTrackerWithNetworkChecker(cfg, nil), // 初始为 nil，后续通过 SetNetworkChecker 设置
 		blockedDomains:      NewBlockedDomainsTracker(cfg),
 		generalStatsTracker: generalStatsTracker,
 		startTime:           time.Now(),
@@ -170,6 +170,10 @@ func (s *Stats) RecordFailedNode(node string) {
 // SetNetworkChecker 设置网络健康检查器
 func (s *Stats) SetNetworkChecker(checker NetworkHealthChecker) {
 	s.networkChecker = checker
+	// 同时设置热门域名追踪器的网络检查器
+	if s.hotDomains != nil {
+		s.hotDomains.networkChecker = checker
+	}
 }
 
 // GetStatsWithTimeRange 获取指定时间范围的统计数据

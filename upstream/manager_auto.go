@@ -231,9 +231,19 @@ func (u *Manager) GetDynamicParamStats() map[string]any {
 }
 
 // RecordStrategyResult 记录查询结果用于策略评估
+// 熔断：断网时不记录，防止策略自适应算法被污染
 func (u *Manager) RecordStrategyResult(strategy string, latency time.Duration, success bool) {
 	if u.strategyMetrics == nil {
 		return
+	}
+
+	// 网络异常期，冻结策略统计
+	// 防止网络中断导致的查询失败被误认为是某种策略的性能不佳
+	if len(u.servers) > 0 {
+		networkChecker := u.servers[0].GetHealth().networkChecker
+		if networkChecker != nil && !networkChecker.IsNetworkHealthy() {
+			return // 直接返回，不更新策略统计
+		}
 	}
 
 	u.strategyMetrics.mu.Lock()

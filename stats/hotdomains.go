@@ -10,11 +10,12 @@ import (
 )
 
 type HotDomainsTracker struct {
-	cfg      *config.StatsConfig
-	mu       sync.RWMutex
-	buckets  []*TimeBucket
-	current  int
-	stopChan chan struct{}
+	cfg            *config.StatsConfig
+	mu             sync.RWMutex
+	buckets        []*TimeBucket
+	current        int
+	stopChan       chan struct{}
+	networkChecker NetworkHealthChecker
 }
 
 type TimeBucket struct {
@@ -29,6 +30,11 @@ type DomainShard struct {
 }
 
 func NewHotDomainsTracker(cfg *config.StatsConfig) *HotDomainsTracker {
+	return NewHotDomainsTrackerWithNetworkChecker(cfg, nil)
+}
+
+// NewHotDomainsTrackerWithNetworkChecker 创建带网络健康检查器的热门域名追踪器
+func NewHotDomainsTrackerWithNetworkChecker(cfg *config.StatsConfig, networkChecker NetworkHealthChecker) *HotDomainsTracker {
 	// Calculate number of buckets
 	numBuckets := (cfg.HotDomainsWindowHours * 60) / cfg.HotDomainsBucketMinutes
 	if numBuckets < 1 {
@@ -36,9 +42,10 @@ func NewHotDomainsTracker(cfg *config.StatsConfig) *HotDomainsTracker {
 	}
 
 	tracker := &HotDomainsTracker{
-		cfg:      cfg,
-		buckets:  make([]*TimeBucket, numBuckets),
-		stopChan: make(chan struct{}),
+		cfg:            cfg,
+		buckets:        make([]*TimeBucket, numBuckets),
+		stopChan:       make(chan struct{}),
+		networkChecker: networkChecker,
 	}
 
 	// Initialize buckets
@@ -70,6 +77,12 @@ func (t *HotDomainsTracker) Stop() {
 }
 
 func (t *HotDomainsTracker) RecordQuery(domain string) {
+	// 网络异常期，冻结热门域名统计
+	// 防止断网期间的查询记录污染热门域名统计
+	if t.networkChecker != nil && !t.networkChecker.IsNetworkHealthy() {
+		return
+	}
+
 	t.mu.RLock()
 	currentBucket := t.buckets[t.current]
 	t.mu.RUnlock()
@@ -169,6 +182,12 @@ func (t *HotDomainsTracker) startRotation() {
 	for {
 		select {
 		case <-ticker.C:
+			// 网络异常期，冻结滑动窗口
+			// 如果网络断开长达 1 小时，而系统依然在不断旋转桶并清理旧数据，
+			// 那么统计窗口最终会变空或被极少量离线请求充斥
+			if t.networkChecker != nil && !t.networkChecker.IsNetworkHealthy() {
+				continue // 跳过本次旋转，让"热门域名"的时间窗口处于锁定状态
+			}
 			t.rotateBucket()
 		case <-t.stopChan:
 			return

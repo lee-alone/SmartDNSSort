@@ -228,6 +228,12 @@ func (m *IPMonitor) run() {
 			}
 			m.refreshT2Pool()
 		case <-cleanupTicker.C:
+			// 网络异常期，暂停清理僵尸 IP
+			// 防止在长时间断网期间，原本健康的 IP 因为没有访问热度更新而被判定为"僵尸 IP"并从池中删除
+			if !m.pinger.IsNetworkOnline() {
+				logger.Warn("[IPMonitor] Network abnormality detected, skipping stale IP cleanup cycle.")
+				continue
+			}
 			// 定期清理 IP 池中的僵尸 IP
 			m.cleanupStaleIPs()
 		}

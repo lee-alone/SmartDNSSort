@@ -218,10 +218,21 @@ func (u *Manager) GetTotalServerCount() int {
 }
 
 // rawQuery 内部实际执行查询逻辑（不带去重）
+// Fast Fail: 断网时直接返回错误，避免进入 racing 或 parallel 的复杂内部逻辑
 func (u *Manager) rawQuery(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {
 	if len(r.Question) == 0 {
 		return nil, errors.New("query message has no questions")
 	}
+
+	// Manager 层前置拦截：断网时直接返回错误
+	// 这样在断网时，甚至不需要进入 racing 或 parallel 的复杂内部逻辑，就可以直接返回 ErrNetworkOffline
+	if len(u.servers) > 0 {
+		networkChecker := u.servers[0].GetHealth().networkChecker
+		if networkChecker != nil && !networkChecker.IsNetworkHealthy() {
+			return nil, ErrNetworkOffline
+		}
+	}
+
 	question := r.Question[0]
 	domain := strings.TrimRight(question.Name, ".")
 	qtype := question.Qtype

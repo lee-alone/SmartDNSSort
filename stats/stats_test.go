@@ -9,10 +9,12 @@ import (
 
 func TestGetTopDomains(t *testing.T) {
 	cfg := &config.StatsConfig{
-		HotDomainsWindowHours:   24,
-		HotDomainsBucketMinutes: 60,
-		HotDomainsShardCount:    16,
-		HotDomainsMaxPerBucket:  5000,
+		HotDomainsWindowHours:     24,
+		HotDomainsBucketMinutes:   60,
+		HotDomainsShardCount:      16,
+		HotDomainsMaxPerBucket:    5000,
+		GeneralStatsRetentionDays: 7,
+		GeneralStatsBucketMinutes: 10,
 	}
 	s := NewStats(cfg)
 

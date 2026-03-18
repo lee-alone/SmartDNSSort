@@ -504,7 +504,14 @@ func (p *Pinger) calculateDynamicTTL(r Result) time.Duration {
 // triggerStaleRevalidate 触发异步软过期更新
 // 当缓存处于软过期期间时，返回旧数据给用户，同时在后台异步更新
 // 使用 staleRevalidating 记录来避免重复触发
+// 熔断：断网时不触发异步探测，避免无效的后台探测请求
 func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
+	// 网络异常期，不触发异步探测
+	// 避免断网时发起无效的后台探测请求
+	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
+		return
+	}
+
 	p.staleRevalidateMu.Lock()
 	// 检查是否已经在更新中
 	if p.staleRevalidating[ip] {
