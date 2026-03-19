@@ -8,7 +8,7 @@ import (
 // Start 启动监控器
 func (m *IPMonitor) Start() {
 	if !m.config.Enabled {
-		logger.Info("[IPMonitor] IP Monitor is disabled")
+		logger.Debug("[IPMonitor] IP Monitor is disabled")
 		return
 	}
 
@@ -78,7 +78,7 @@ func (m *IPMonitor) run() {
 
 // refreshAllPools 刷新所有池
 func (m *IPMonitor) refreshAllPools() {
-	logger.Info("[IPMonitor] Initial refresh of all IP pools")
+	logger.Debug("[IPMonitor] Initial refresh of all IP pools")
 	m.refreshT0Pool()
 	m.refreshT1Pool()
 	m.refreshT2Pool()
@@ -86,21 +86,21 @@ func (m *IPMonitor) refreshAllPools() {
 
 // refreshT0Pool 刷新 T0 核心池（最高优先级）
 func (m *IPMonitor) refreshT0Pool() {
-	logger.Info("[IPMonitor] Refreshing T0 core pool...")
+	logger.Debug("[IPMonitor] Refreshing T0 core pool...")
 	ips := m.selectT0IPs()
 	m.refreshIPs(ips, "T0")
 }
 
 // refreshT1Pool 刷新 T1 活跃池
 func (m *IPMonitor) refreshT1Pool() {
-	logger.Info("[IPMonitor] Refreshing T1 active pool...")
+	logger.Debug("[IPMonitor] Refreshing T1 active pool...")
 	ips := m.selectT1IPs()
 	m.refreshIPs(ips, "T1")
 }
 
 // refreshT2Pool 刷新 T2 淘汰池
 func (m *IPMonitor) refreshT2Pool() {
-	logger.Info("[IPMonitor] Refreshing T2 淘汰池...")
+	logger.Debug("[IPMonitor] Refreshing T2 淘汰池...")
 	ips := m.selectT2IPs()
 	m.refreshIPs(ips, "T2")
 }
@@ -138,6 +138,7 @@ func (m *IPMonitor) GetPinger() *Pinger {
 
 // cleanupStaleIPs 清理 IP 池中的僵尸 IP
 // 定期执行，清理长时间未访问且无引用的 IP，防止内存泄露
+// 同时清理 stabilityRecords 中的孤立记录，防止内存泄露
 func (m *IPMonitor) cleanupStaleIPs() {
 	if m.pinger.ipPool == nil {
 		return
@@ -147,5 +148,30 @@ func (m *IPMonitor) cleanupStaleIPs() {
 	cleanedCount := m.pinger.ipPool.CleanStaleIPs(24 * time.Hour)
 	if cleanedCount > 0 {
 		logger.Infof("[IPMonitor] Cleaned %d stale IPs from pool", cleanedCount)
+	}
+
+	// === 修复内存泄露：同步清理 stabilityRecords 中的孤立记录 ===
+	// 获取 IP 池中所有有效的 IP
+	validIPs := make(map[string]bool)
+	if m.pinger.ipPool != nil {
+		allIPs := m.pinger.ipPool.GetAllIPs()
+		for _, info := range allIPs {
+			validIPs[info.IP] = true
+		}
+	}
+
+	// 遍历 stabilityRecords，删除不在 IP 池中的孤立记录
+	m.mu.Lock()
+	orphanCount := 0
+	for ip := range m.stabilityRecords {
+		if !validIPs[ip] {
+			delete(m.stabilityRecords, ip)
+			orphanCount++
+		}
+	}
+	m.mu.Unlock()
+
+	if orphanCount > 0 {
+		logger.Debugf("[IPMonitor] Cleaned %d orphan stability records", orphanCount)
 	}
 }

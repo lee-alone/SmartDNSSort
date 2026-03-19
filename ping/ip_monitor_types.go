@@ -58,7 +58,7 @@ func DefaultIPMonitorConfig() IPMonitorConfig {
 		MaxRefreshPerCycle: 50,
 		RefreshConcurrency: 10, // 并发测速数量
 		Enabled:            true,
-		CleanupInterval:    43200, // 12 小时
+		CleanupInterval:    3600, // 1 小时（优化：从 12 小时缩短为 1 小时）
 
 		// 优化配置默认值
 		EnableCooldown:         true, // 启用探测冷却时间

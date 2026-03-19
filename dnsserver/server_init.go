@@ -143,11 +143,34 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 初始化 IP 主动巡检调度器
 	logger.Info("[IPMonitor] Initializing IP Monitor...")
 	monitorConfig := ping.DefaultIPMonitorConfig()
-	// 可以从配置文件读取自定义配置
-	// monitorConfig.Enabled = cfg.IPMonitor.Enabled
-	// monitorConfig.T0RefreshInterval = cfg.IPMonitor.T0RefreshInterval
-	// monitorConfig.T1RefreshInterval = cfg.IPMonitor.T1RefreshInterval
-	// monitorConfig.T2RefreshInterval = cfg.IPMonitor.T2RefreshInterval
+	// 从配置文件读取自定义配置
+	if cfg.IPMonitor.Enabled {
+		monitorConfig.Enabled = cfg.IPMonitor.Enabled
+	}
+	if cfg.IPMonitor.T0RefreshInterval > 0 {
+		monitorConfig.T0RefreshInterval = cfg.IPMonitor.T0RefreshInterval
+	}
+	if cfg.IPMonitor.T1RefreshInterval > 0 {
+		monitorConfig.T1RefreshInterval = cfg.IPMonitor.T1RefreshInterval
+	}
+	if cfg.IPMonitor.T2RefreshInterval > 0 {
+		monitorConfig.T2RefreshInterval = cfg.IPMonitor.T2RefreshInterval
+	}
+	if cfg.IPMonitor.CleanupInterval > 0 {
+		monitorConfig.CleanupInterval = cfg.IPMonitor.CleanupInterval
+	}
+	if cfg.IPMonitor.RefCountWeight > 0 {
+		monitorConfig.RefCountWeight = cfg.IPMonitor.RefCountWeight
+	}
+	if cfg.IPMonitor.AccessHeatWeight > 0 {
+		monitorConfig.AccessHeatWeight = cfg.IPMonitor.AccessHeatWeight
+	}
+	if cfg.IPMonitor.MaxRefreshPerCycle > 0 {
+		monitorConfig.MaxRefreshPerCycle = cfg.IPMonitor.MaxRefreshPerCycle
+	}
+	if cfg.IPMonitor.RefreshConcurrency > 0 {
+		monitorConfig.RefreshConcurrency = cfg.IPMonitor.RefreshConcurrency
+	}
 	server.ipMonitor = ping.NewIPMonitor(server.pinger, monitorConfig)
 	logger.Info("[IPMonitor] IP Monitor initialized.")
 

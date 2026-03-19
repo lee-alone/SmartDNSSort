@@ -19,6 +19,10 @@ const (
 	// MaxStaleHeapCleanupSize 单次清理幽灵索引的最大数量
 	// 幽灵索引：堆中存在但缓存中不存在的索引
 	MaxStaleHeapCleanupSize = 500
+
+	// AncientLimitSeconds 古老数据的界限（秒）
+	// 优化：从 24 小时缩短为 2 小时，减少内存占用
+	AncientLimitSeconds = 7200 // 2 小时 = 7200 秒
 )
 
 // CleanupStats 清理统计信息
@@ -56,8 +60,8 @@ func (c *Cache) CleanExpired() {
 	}
 	isHighPressure := usage >= pressureThreshold
 
-	// 古老数据的界限：24 小时（86400 秒）
-	const ancientLimit = 86400
+	// 古老数据的界限：使用常量定义（2 小时）
+	const ancientLimit = AncientLimitSeconds
 
 	// 批量清理限制
 	startTime := timeNow()

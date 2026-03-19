@@ -201,4 +201,6 @@ type IPPoolConfig struct {
 	MaxRefreshPerCycle int `yaml:"max_refresh_per_cycle,omitempty" json:"max_refresh_per_cycle"`
 	// 并发测速数量
 	RefreshConcurrency int `yaml:"refresh_concurrency,omitempty" json:"refresh_concurrency"`
+	// IP 池清理间隔（秒），默认 3600 秒（1 小时）
+	CleanupInterval int `yaml:"cleanup_interval,omitempty" json:"cleanup_interval"`
 }

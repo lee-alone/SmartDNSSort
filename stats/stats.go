@@ -26,6 +26,7 @@ type Stats struct {
 	pingFailures      int64
 	totalRTT          int64
 	failedNodes       map[string]int64
+	failedNodesTime   map[string]time.Time // 失败节点的时间戳，用于自动失效
 
 	// 新增：Hot Domains 追踪器
 	hotDomains *HotDomainsTracker
@@ -45,6 +46,9 @@ type Stats struct {
 
 	// 网络健康检查器（用于断网时熔断外部行为统计）
 	networkChecker connectivity.NetworkHealthChecker
+
+	// 失败节点自动失效时间窗口（默认 24 小时）
+	failedNodesTTL time.Duration
 }
 
 // NewStats 创建新的统计实例
@@ -71,11 +75,13 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 
 	return &Stats{
 		failedNodes:         make(map[string]int64),
+		failedNodesTime:     make(map[string]time.Time), // 初始化时间戳 map
 		hotDomains:          NewHotDomainsTrackerWithNetworkChecker(cfg, nil), // 初始为 nil，后续通过 SetNetworkChecker 设置
 		blockedDomains:      NewBlockedDomainsTracker(cfg),
 		generalStatsTracker: generalStatsTracker,
 		startTime:           time.Now(),
 		lastCheckTime:       time.Now(),
+		failedNodesTTL:      24 * time.Hour, // 默认 24 小时自动失效
 	}
 }
 
@@ -159,7 +165,18 @@ func (s *Stats) RecordFailedNode(node string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 自动清理过期的失败节点记录（惰性清理）
+	now := time.Now()
+	for ip, t := range s.failedNodesTime {
+		if now.Sub(t) > s.failedNodesTTL {
+			delete(s.failedNodes, ip)
+			delete(s.failedNodesTime, ip)
+		}
+	}
+
 	s.failedNodes[node]++
+	s.failedNodesTime[node] = now
 }
 
 // SetNetworkChecker 设置网络健康检查器
@@ -205,9 +222,14 @@ func (s *Stats) GetStatsWithTimeRange(days int) map[string]interface{} {
 func (s *Stats) GetStats() map[string]interface{} {
 	// 1. 快速获取所有需要锁定的数据
 	s.mu.RLock()
-	failedNodesCopy := make(map[string]int64, len(s.failedNodes))
+	
+	// 只复制未过期的失败节点
+	now := time.Now()
+	failedNodesCopy := make(map[string]int64)
 	for k, v := range s.failedNodes {
-		failedNodesCopy[k] = v
+		if t, exists := s.failedNodesTime[k]; exists && now.Sub(t) <= s.failedNodesTTL {
+			failedNodesCopy[k] = v
+		}
 	}
 	s.mu.RUnlock() // 尽快释放锁
 
