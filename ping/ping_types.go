@@ -61,4 +61,9 @@ type Pinger struct {
 	icmpReady     chan struct{}    // ICMP 监听器就绪信号
 	v4IsUDP       bool             // IPv4 是否使用 UDP 模式
 	v6IsUDP       bool             // IPv6 是否使用 UDP 模式
+
+	// TCP 回退探测配置（用于解决 ICMP 被限速/丢弃环境）
+	enableTCPFallback bool   // 是否启用 TCP 补全
+	tcpFallbackPorts  []int  // 补全探测端口，默认 [443, 80]
+	tcpThresholdMs    int    // 触发补全的 ICMP 延迟阈值（毫秒），默认 1000ms
 }

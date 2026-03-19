@@ -6,6 +6,8 @@ import (
 	"net"
 	"smartdnssort/logger"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -128,7 +130,7 @@ func (p *Pinger) icmpPingWithError(ip string) (int, *ICMPError) {
 }
 
 // getDestAddr 根据连接类型动态构造目标地址
-// 修复：地址类型必须与 ListenPacket 的协议严格对应
+// 修复：地址类型必须与连接协议严格对应
 // - UDP 模式：使用 net.UDPAddr
 // - RAW 模式：使用 net.IPAddr
 // - 自动处理 IPv6 Link-Local 地址的 zone ID
@@ -196,59 +198,121 @@ func (p *Pinger) icmpPing(ip string) int {
 	return rtt
 }
 
-// smartPingWithMethod 纯 ICMP 探测
-// 简化逻辑：只使用 ICMP echo request/reply 测试 IP 可达性
-// 一旦 ICMP 返回 -1（超时），直接将该 IP 判定为不可达
-// 不再尝试 TCP/TLS/UDP 探测
+// tcpPing 使用 TCP 连接测试 IP 的可达性（ICMP 回退方案）
+// 当 ICMP 被限速/丢弃时，通过 TCP 握手延迟来评估网络质量
 //
-// 纯 ICMP 模式优势：
-// - 逻辑极简且透明
-// - 不受应用层（TLS、DNS）影响
-// - 避免 CDN 证书校验导致的"特定域名成块 DEAD"问题
-// - 在 Debian 环境下配合 setcap cap_net_raw+ep 权限，识别率 100%
+// 参数：
+//   - ip: 目标 IP 地址
+//   - ports: 要探测的端口列表，并行探测，取最快响应
 //
-// 软容错改造：3次探测均值逻辑
-// - 运行 p.count 次循环（默认 3 次）
-// - 如果成功，累加真实 RTT；如果失败，累加 LogicDeadRTT
-// - 取平均值作为最终 RTT
-// - 只要有任意一次成功，就标记 icmpErr 为 nil，用于后续触发"权重平反"
-func (p *Pinger) smartPingWithMethod(_ context.Context, ip, _ string) (int, string, *ICMPError) {
-	// 确定探测次数，默认为 3 次
-	probeCount := p.count
-	if probeCount <= 0 {
-		probeCount = 3
+// 返回值：
+//   - rtt: TCP 握手延迟（毫秒），-1 表示所有端口都失败
+//   - port: 成功连接的端口号，0 表示失败
+func (p *Pinger) tcpPing(ip string, ports []int) (int, int) {
+	if len(ports) == 0 {
+		return -1, 0
 	}
 
-	totalRTT := 0
-	var icmpErr *ICMPError
-	hasSuccess := false
+	// 并发探测所有端口
+	type tcpResult struct {
+		rtt  int
+		port int
+	}
+	resultCh := make(chan tcpResult, len(ports))
+	var wg sync.WaitGroup
 
-	// 执行多次探测
-	for i := 0; i < probeCount; i++ {
-		rtt, err := p.icmpPingWithError(ip)
-		if rtt >= 0 {
-			// 探测成功，累加真实 RTT
-			totalRTT += rtt
-			hasSuccess = true
-			// 只要有任意一次成功，就清除错误标记
-			icmpErr = nil
-		} else {
-			// 探测失败，累加惩罚值
-			totalRTT += LogicDeadRTT
-			// 保留第一次的错误信息（如果有）
-			if icmpErr == nil && err != nil {
-				icmpErr = err
+	// 快速返回标记：一旦有结果成功，后续结果直接忽略
+	var firstSuccess atomic.Bool
+
+	for _, port := range ports {
+		wg.Add(1)
+		go func(port int) {
+			defer wg.Done()
+
+			// 如果已经有成功结果，跳过探测（节省资源）
+			if firstSuccess.Load() {
+				return
 			}
+
+			address := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
+			start := time.Now()
+
+			// 尝试建立 TCP 连接
+			conn, err := net.DialTimeout("tcp", address, time.Duration(p.timeoutMs)*time.Millisecond)
+			if err != nil {
+				logger.Debugf("[Pinger] TCP connection to %s failed: %v", address, err)
+				return
+			}
+			defer conn.Close()
+
+			// 连接成功，计算 RTT
+			rtt := int(time.Since(start).Milliseconds())
+			logger.Debugf("[Pinger] TCP probe to %s successful, RTT: %dms", address, rtt)
+
+			// 标记已有成功结果（后续 goroutine 会跳过）
+			firstSuccess.Store(true)
+
+			select {
+			case resultCh <- tcpResult{rtt: rtt, port: port}:
+			default:
+				// channel 已满，忽略
+			}
+		}(port)
+	}
+
+	// 等待所有 goroutine 完成
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// 收集结果，取最快的
+	// 注意：由于有 firstSuccess 优化，通常只有一个结果
+	var bestResult tcpResult
+	bestResult.rtt = -1
+
+	for result := range resultCh {
+		if bestResult.rtt < 0 || result.rtt < bestResult.rtt {
+			bestResult = result
 		}
 	}
 
-	// 计算平均值
-	avgRTT := totalRTT / probeCount
+	return bestResult.rtt, bestResult.port
+}
 
-	// 如果至少有一次成功，清除错误标记，用于触发"权重平反"
-	if hasSuccess {
-		icmpErr = nil
+// smartPingWithMethod 执行单次阶梯式探测（首选 ICMP，失败/劣化时触发 TCP 回退）
+// 双重验证模式：
+//   - 第一阶 (Primary)：进行 1 次 ICMP 探测
+//   - 触发条件：如果 ICMP 超时 或 RTT > TCPThresholdMs
+//   - 第二阶 (Fallback)：启动 TCP 探测（如果启用）
+//
+// 注意：此函数只执行单次探测，外层循环由 pingIP 负责（用于计算平均 RTT 和丢包率）
+// 返回值说明：
+//   - rtt: 最终 RTT（毫秒），-1 表示不可达（外层 pingIP 依靠 rtt >= 0 判断成功）
+//   - method: 探测方法 (icmp, tcp:443, tcp:80 等)
+//   - icmpErr: ICMP 错误信息（用于判断是否为权限/协议错误）
+func (p *Pinger) smartPingWithMethod(_ context.Context, ip, _ string) (int, string, *ICMPError) {
+	// 1. 执行 1 次 ICMP 探测
+	rtt, icmpErr := p.icmpPingWithError(ip)
+
+	// 2. 判断是否需要 TCP 补全（单次失败或延迟高）
+	needTCPFallback := false
+	if rtt < 0 || rtt >= p.tcpThresholdMs {
+		// ICMP 超时或延迟过高，需要 TCP 补全
+		needTCPFallback = true
 	}
 
-	return avgRTT, "icmp", icmpErr
+	if needTCPFallback && p.enableTCPFallback && len(p.tcpFallbackPorts) > 0 {
+		// 执行 TCP 探测
+		tcpRTT, tcpPort := p.tcpPing(ip, p.tcpFallbackPorts)
+
+		// 如果 TCP 探测成功，返回 TCP 结果
+		if tcpRTT >= 0 {
+			return tcpRTT, fmt.Sprintf("tcp:%d", tcpPort), nil
+		}
+	}
+
+	// 3. 返回 ICMP 结果（如果 TCP 补全也失败，rtt 保持 -1）
+	// 注意：不要将 -1 转换为 LogicDeadRTT，否则外层 pingIP 会误判为成功
+	return rtt, "icmp", icmpErr
 }

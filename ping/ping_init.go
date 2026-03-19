@@ -51,6 +51,10 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		staleRevalidating:  make(map[string]bool),
 		staleGracePeriod:   30 * time.Second, // 默认 30 秒软过期容忍期
 		icmpReady:          make(chan struct{}),
+		// TCP 回退探测默认配置
+		enableTCPFallback: true,            // 默认启用 TCP 回退
+		tcpFallbackPorts:  []int{443, 80}, // 默认探测 443 (HTTPS) 和 80 (HTTP)
+		tcpThresholdMs:    1000,            // 默认 ICMP 延迟超过 1000ms 时触发 TCP 回退
 	}
 
 	// 初始化全局 ICMP 调度器
