@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/sync/singleflight"
+	"smartdnssort/connectivity"
 )
 
 // LogicDeadRTT 逻辑失效阈值（毫秒）
@@ -32,11 +33,6 @@ type rttCacheEntry struct {
 	expiresAt time.Time // 硬过期时间：超过此时间，缓存完全失效并被清理
 }
 
-// NetworkHealthChecker 网络健康检查器接口
-type NetworkHealthChecker interface {
-	IsNetworkHealthy() bool
-}
-
 // Pinger DNS IP 延迟测量和排序工具
 // 纯 ICMP 探测模式：只使用 ICMP echo request/reply 测试 IP 可达性
 type Pinger struct {
@@ -52,7 +48,7 @@ type Pinger struct {
 	failureWeightMgr *IPFailureWeightManager
 	probeFlight      *singleflight.Group  // 请求合并，避免重复探测同一 IP
 	ipPool           *IPPool              // 全局 IP 资源管理器，用于 IP 监控器获取 IP 列表
-	healthChecker    NetworkHealthChecker // 网络健康检查器，用于断网时防止缓存污染
+	healthChecker    connectivity.NetworkHealthChecker // 网络健康检查器，用于断网时防止缓存污染
 
 	// Stale-While-Revalidate 相关
 	staleRevalidateMu sync.Mutex
@@ -575,7 +571,7 @@ func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
 
 // SetHealthChecker 设置网络健康检查器
 // 用于断网时防止缓存污染
-func (p *Pinger) SetHealthChecker(checker NetworkHealthChecker) {
+func (p *Pinger) SetHealthChecker(checker connectivity.NetworkHealthChecker) {
 	p.healthChecker = checker
 }
 

@@ -1,4 +1,4 @@
-package upstream
+package connectivity
 
 import (
 	"fmt"
@@ -26,13 +26,13 @@ type NetworkHealthChecker interface {
 
 // NetworkHealthConfig 网络健康检查配置
 type NetworkHealthConfig struct {
-	ProbeInterval          time.Duration // 探测间隔（已废弃，使用NormalProbeInterval）
+	ProbeInterval          time.Duration // 探测间隔（已废弃，使用 NormalProbeInterval）
 	NormalProbeInterval    time.Duration // 健康状态下的探测间隔
 	UnhealthyProbeInterval time.Duration // 故障状态下的探测间隔
 	FailureThreshold       int           // 失败阈值（判定故障）
 	ProbeTimeout           time.Duration // 单次探测超时
-	ProbeIPs               []string      // 探测IP列表
-	ProbePorts             []int         // TCP探测端口列表（备选方案）
+	ProbeIPs               []string      // 探测 IP 列表
+	ProbePorts             []int         // TCP 探测端口列表（备选方案）
 }
 
 // networkHealthChecker 网络健康检查器实现
@@ -75,14 +75,14 @@ func NewNetworkHealthCheckerWithConfig(config NetworkHealthConfig) NetworkHealth
 // DefaultNetworkHealthConfig 返回默认配置
 func DefaultNetworkHealthConfig() NetworkHealthConfig {
 	return NetworkHealthConfig{
-		// 梯度探测间隔：健康状态1分钟，故障状态20秒
+		// 梯度探测间隔：健康状态 1 分钟，故障状态 20 秒
 		NormalProbeInterval:    1 * time.Minute,
 		UnhealthyProbeInterval: 20 * time.Second,
 		// 向后兼容：保留旧字段
 		ProbeInterval: 1 * time.Minute,
-		// 故障判定：3次失败（约30-60秒）
+		// 故障判定：3 次失败（约 30-60 秒）
 		FailureThreshold: 3,
-		// 恢复判定：1次成功即可恢复（快恢复）
+		// 恢复判定：1 次成功即可恢复（快恢复）
 		ProbeTimeout: 2 * time.Second,
 		ProbeIPs: []string{
 			"8.8.8.8",   // Google DNS
@@ -90,8 +90,8 @@ func DefaultNetworkHealthConfig() NetworkHealthConfig {
 			"223.5.5.5", // Alibaba DNS (China)
 			"223.6.6.6", // Alibaba DNS (China)
 		},
-		// TCP探测端口（备选方案）
-		ProbePorts: []int{53, 443}, // DNS TCP端口和HTTPS端口
+		// TCP 探测端口（备选方案）
+		ProbePorts: []int{53, 443}, // DNS TCP 端口和 HTTPS 端口
 	}
 }
 
@@ -124,7 +124,7 @@ func (c *networkHealthChecker) probeLoop() {
 	var tickerCh <-chan time.Time
 	var lastInterval time.Duration
 
-	// 创建初始ticker
+	// 创建初始 ticker
 	lastInterval = c.getCurrentProbeInterval()
 	ticker = time.NewTicker(lastInterval)
 	defer ticker.Stop()
@@ -139,7 +139,7 @@ func (c *networkHealthChecker) probeLoop() {
 
 			// 根据当前状态动态调整探测间隔
 			newInterval := c.getCurrentProbeInterval()
-			// 仅在间隔变化时重建ticker，避免不必要的开销
+			// 仅在间隔变化时重建 ticker，避免不必要的开销
 			if newInterval != lastInterval {
 				if ticker != nil {
 					ticker.Stop()
@@ -196,12 +196,12 @@ func (c *networkHealthChecker) performProbe() {
 	}
 }
 
-// probe 使用混合协议探测所有IP，只有全部失败才返回false
-// 优先使用ICMP ping，失败时尝试TCP连接作为备选
-// 返回true表示至少有一个IP探测成功（网络正常）
-// 返回false表示所有IP都探测失败（网络掉线）
+// probe 使用混合协议探测所有 IP，只有全部失败才返回 false
+// 优先使用 ICMP ping，失败时尝试 TCP 连接作为备选
+// 返回 true 表示至少有一个 IP 探测成功（网络正常）
+// 返回 false 表示所有 IP 都探测失败（网络掉线）
 func (c *networkHealthChecker) probe() bool {
-	// 并发探测所有IP
+	// 并发探测所有 IP
 	resultCh := make(chan bool, len(c.config.ProbeIPs))
 	var wg sync.WaitGroup
 
@@ -209,13 +209,13 @@ func (c *networkHealthChecker) probe() bool {
 		wg.Add(1)
 		go func(ip string) {
 			defer wg.Done()
-			// 优先尝试ICMP探测
+			// 优先尝试 ICMP 探测
 			if c.probeIP(ip) {
 				resultCh <- true
 				return
 			}
 
-			// ICMP失败，尝试TCP连接作为备选
+			// ICMP 失败，尝试 TCP 连接作为备选
 			if c.probeIPWithTCP(ip) {
 				resultCh <- true
 				return
@@ -225,7 +225,7 @@ func (c *networkHealthChecker) probe() bool {
 		}(ip)
 	}
 
-	// 在goroutine完成时关闭channel
+	// 在 goroutine 完成时关闭 channel
 	go func() {
 		wg.Wait()
 		close(resultCh)
@@ -235,18 +235,18 @@ func (c *networkHealthChecker) probe() bool {
 	for result := range resultCh {
 		if result {
 			// 已经至少一个成功，立即返回
-			// 其他goroutine继续运行但结果被忽略
+			// 其他 goroutine 继续运行但结果被忽略
 			return true
 		}
 	}
 
-	// 所有IP都失败
+	// 所有 IP 都失败
 	return false
 }
 
-// probeIP 使用ICMP ping测试单个IP
+// probeIP 使用 ICMP ping 测试单个 IP
 func (c *networkHealthChecker) probeIP(ip string) bool {
-	// 创建ICMP连接
+	// 创建 ICMP 连接
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		logger.Debugf("Failed to create ICMP connection for %s: %v", ip, err)
@@ -257,10 +257,10 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 	// 设置读超时
 	conn.SetDeadline(time.Now().Add(c.config.ProbeTimeout))
 
-	// 记录开始时间用于RTT统计
+	// 记录开始时间用于 RTT 统计
 	start := time.Now()
 
-	// 创建ICMP echo请求
+	// 创建 ICMP echo 请求
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
@@ -277,14 +277,14 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 		return false
 	}
 
-	// 发送ICMP echo请求
+	// 发送 ICMP echo 请求
 	_, err = conn.WriteTo(b, &net.IPAddr{IP: net.ParseIP(ip)})
 	if err != nil {
 		logger.Debugf("Failed to send ICMP echo to %s: %v", ip, err)
 		return false
 	}
 
-	// 接收ICMP echo回复（缓冲区大小优化为256字节）
+	// 接收 ICMP echo 回复（缓冲区大小优化为 256 字节）
 	reply := make([]byte, 256)
 	_, _, err = conn.ReadFrom(reply)
 	if err != nil {
@@ -299,7 +299,7 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 		return false
 	}
 
-	// 检查是否是echo回复，并验证ID和Seq
+	// 检查是否是 echo 回复，并验证 ID 和 Seq
 	if rm.Type == ipv4.ICMPTypeEchoReply {
 		if echoReply, ok := rm.Body.(*icmp.Echo); ok {
 			if echoReply.ID == 1 && echoReply.Seq == 1 {
@@ -314,8 +314,8 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 	return false
 }
 
-// probeIPWithTCP 使用TCP连接测试单个IP（ICMP的备选方案）
-// 尝试连接配置的端口（如53, 443），只要有一个端口连接成功就返回true
+// probeIPWithTCP 使用 TCP 连接测试单个 IP（ICMP 的备选方案）
+// 尝试连接配置的端口（如 53, 443），只要有一个端口连接成功就返回 true
 func (c *networkHealthChecker) probeIPWithTCP(ip string) bool {
 	if len(c.config.ProbePorts) == 0 {
 		return false
@@ -332,7 +332,7 @@ func (c *networkHealthChecker) probeIPWithTCP(ip string) bool {
 	return false
 }
 
-// probeIPWithPort 使用TCP连接测试指定IP和端口
+// probeIPWithPort 使用 TCP 连接测试指定 IP 和端口
 func (c *networkHealthChecker) probeIPWithPort(ip string, port int) bool {
 	address := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
 

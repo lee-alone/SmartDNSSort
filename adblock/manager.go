@@ -6,7 +6,7 @@ import (
 	"os"
 	"smartdnssort/config"
 	"smartdnssort/logger"
-	"smartdnssort/upstream"
+	"smartdnssort/connectivity"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +20,10 @@ type AdBlockManager struct {
 	stats          *Stats
 	mu             sync.RWMutex
 	lastUpdate     time.Time
-	networkChecker upstream.NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 }
 
-func NewManager(cfg *config.AdBlockConfig, networkChecker upstream.NetworkHealthChecker) (*AdBlockManager, error) {
+func NewManager(cfg *config.AdBlockConfig, networkChecker connectivity.NetworkHealthChecker) (*AdBlockManager, error) {
 	var engine FilterEngine
 	var err error
 

@@ -6,7 +6,7 @@ import (
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
-	"smartdnssort/upstream"
+	"smartdnssort/connectivity"
 	"sort"
 	"strconv"
 	"strings"
@@ -140,7 +140,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 添加网络在线状态
-	stats["network_online"] = upstream.GetGlobalNetworkChecker().IsNetworkHealthy()
+	stats["network_online"] = connectivity.GetGlobalNetworkChecker().IsNetworkHealthy()
 
 	// 保持与原有格式兼容：直接返回统计 map，不包装 success/data (由 dashboard.js 决定)
 	w.Header().Set("Content-Type", "application/json")

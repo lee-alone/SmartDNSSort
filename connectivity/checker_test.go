@@ -1,4 +1,4 @@
-package upstream
+package connectivity
 
 import (
 	"testing"
@@ -32,7 +32,7 @@ func TestNetworkHealthCheckerWithCustomConfig(t *testing.T) {
 	}
 }
 
-// TestNetworkHealthCheckerProbeDomainSuccess 测试成功的IP探测
+// TestNetworkHealthCheckerProbeDomainSuccess 测试成功的 IP 探测
 func TestNetworkHealthCheckerProbeIPSuccess(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 5 * time.Second
@@ -43,7 +43,7 @@ func TestNetworkHealthCheckerProbeIPSuccess(t *testing.T) {
 	// 初始状态：健康
 	checker.(*networkHealthChecker).networkHealthy.Store(true)
 
-	// 执行探测 - 8.8.8.8应该可以ping通（如果网络连接正常）
+	// 执行探测 - 8.8.8.8 应该可以 ping 通（如果网络连接正常）
 	result := checker.(*networkHealthChecker).probeIP("8.8.8.8")
 	// 注意：这个测试可能因为网络环境而失败，这是预期的
 	_ = result
@@ -64,7 +64,7 @@ func TestNetworkHealthCheckerProbeFail(t *testing.T) {
 	}
 }
 
-// TestNetworkHealthCheckerProbeAllFail 测试所有IP都失败
+// TestNetworkHealthCheckerProbeAllFail 测试所有 IP 都失败
 func TestNetworkHealthCheckerProbeAllFail(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 1 * time.Second
@@ -78,7 +78,7 @@ func TestNetworkHealthCheckerProbeAllFail(t *testing.T) {
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 
-	// 执行探测 - 所有IP都应该失败
+	// 执行探测 - 所有 IP 都应该失败
 	result := checker.(*networkHealthChecker).probe()
 	if result {
 		t.Error("Expected probe to fail when all IPs are unreachable")
@@ -137,7 +137,7 @@ func TestNetworkHealthCheckerRecovery(t *testing.T) {
 		t.Error("Network should be marked as abnormal")
 	}
 
-	// 现在更改为可以ping通的IP
+	// 现在更改为可以 ping 通的 IP
 	c.config.ProbeIPs = []string{"8.8.8.8"}
 
 	// 执行探测，应该恢复（如果网络连接正常）
@@ -180,23 +180,23 @@ func TestNetworkHealthCheckerTimeout(t *testing.T) {
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)
 
-	// 尝试ping一个不可达的IP地址（应该超时）
+	// 尝试 ping 一个不可达的 IP 地址（应该超时）
 	result := c.probeIP("192.0.2.1")
 	if result {
 		t.Error("Expected ping to unreachable IP to fail")
 	}
 }
 
-// TestNetworkHealthCheckerDomainResolution 测试IP配置
-func TestNetworkHealthCheckerIPConfig(t *testing.T) {
-	// 测试默认配置中的IP
+// TestNetworkHealthCheckerDomainResolution 测试 IP 配置
+func TestNetworkHealthCheckerDomainResolution(t *testing.T) {
+	// 测试默认配置中的 IP
 	config := DefaultNetworkHealthConfig()
 
 	if len(config.ProbeIPs) == 0 {
 		t.Error("Expected ProbeIPs to be configured")
 	}
 
-	// 验证包含Google和Alibaba DNS
+	// 验证包含 Google 和 Alibaba DNS
 	hasGoogle := false
 	hasAlibaba := false
 	for _, ip := range config.ProbeIPs {
@@ -216,14 +216,14 @@ func TestNetworkHealthCheckerIPConfig(t *testing.T) {
 	}
 }
 
-// TestNetworkHealthCheckerIPv4Priority 测试IP配置
+// TestNetworkHealthCheckerIPv4Priority 测试 IP 配置
 func TestNetworkHealthCheckerIPConfiguration(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 5 * time.Second
 
 	_ = NewNetworkHealthCheckerWithConfig(config)
 
-	// 验证配置中有有效的IP地址
+	// 验证配置中有有效的 IP 地址
 	if len(config.ProbeIPs) == 0 {
 		t.Error("Expected ProbeIPs to be configured")
 	}

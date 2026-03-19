@@ -10,13 +10,8 @@ import (
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"smartdnssort/connectivity"
 )
-
-// NetworkHealthChecker 网络健康检查器接口
-// 用于断网时熔断外部行为相关的统计
-type NetworkHealthChecker interface {
-	IsNetworkHealthy() bool
-}
 
 // Stats 运行统计
 type Stats struct {
@@ -49,7 +44,7 @@ type Stats struct {
 	startTime time.Time
 
 	// 网络健康检查器（用于断网时熔断外部行为统计）
-	networkChecker NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 }
 
 // NewStats 创建新的统计实例
@@ -168,7 +163,7 @@ func (s *Stats) RecordFailedNode(node string) {
 }
 
 // SetNetworkChecker 设置网络健康检查器
-func (s *Stats) SetNetworkChecker(checker NetworkHealthChecker) {
+func (s *Stats) SetNetworkChecker(checker connectivity.NetworkHealthChecker) {
 	s.networkChecker = checker
 	// 同时设置热门域名追踪器的网络检查器
 	if s.hotDomains != nil {

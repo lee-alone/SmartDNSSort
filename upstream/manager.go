@@ -12,6 +12,7 @@ import (
 
 	"github.com/miekg/dns"
 	"golang.org/x/sync/singleflight"
+	"smartdnssort/connectivity"
 )
 
 // QueryResult 查询结果
@@ -107,7 +108,7 @@ func NewManager(cfg *config.UpstreamConfig, servers []Upstream, s *stats.Stats, 
 
 	// 将普通 Upstream 包装为 HealthAwareUpstream
 	healthAwareServers := make([]*HealthAwareUpstream, len(servers))
-	networkChecker := GetGlobalNetworkChecker()
+	networkChecker := connectivity.GetGlobalNetworkChecker()
 	for i, server := range servers {
 		healthAwareServers[i] = NewHealthAwareUpstream(server, convertConfigHealthCheck(&cfg.HealthCheck), statsConfig, networkChecker)
 	}
@@ -229,7 +230,7 @@ func (u *Manager) rawQuery(ctx context.Context, r *dns.Msg, dnssec bool) (*Query
 	if len(u.servers) > 0 {
 		networkChecker := u.servers[0].GetHealth().networkChecker
 		if networkChecker != nil && !networkChecker.IsNetworkHealthy() {
-			return nil, ErrNetworkOffline
+			return nil, connectivity.ErrNetworkOffline
 		}
 	}
 

@@ -9,13 +9,8 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/stats"
+	"smartdnssort/connectivity"
 )
-
-// NetworkHealthChecker 网络健康检查器接口
-// 用于断网时熔断预取行为
-type NetworkHealthChecker interface {
-	IsNetworkHealthy() bool
-}
 
 // Constants for math model
 const (
@@ -95,7 +90,7 @@ type Prefetcher struct {
 	}
 
 	// 网络健康检查器（用于断网时熔断预取行为）
-	networkChecker NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 }
 
 // NewPrefetcher creates a new Prefetcher.
@@ -190,7 +185,7 @@ func (p *Prefetcher) prefetchLoop() {
 }
 
 // SetNetworkChecker 设置网络健康检查器
-func (p *Prefetcher) SetNetworkChecker(checker NetworkHealthChecker) {
+func (p *Prefetcher) SetNetworkChecker(checker connectivity.NetworkHealthChecker) {
 	p.networkChecker = checker
 }
 

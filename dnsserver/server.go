@@ -12,6 +12,7 @@ import (
 	"smartdnssort/recursor"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
+	"smartdnssort/connectivity"
 
 	"github.com/miekg/dns"
 )
@@ -41,7 +42,7 @@ type Server struct {
 	ipMonitor          *ping.IPMonitor               // IP 主动巡检调度器
 	stopCh             chan struct{}                 // 用于优雅关闭后台 goroutine
 	sortSemaphore      chan struct{}                 // 限制并发排序任务数量（最多 50 个）
-	networkChecker     upstream.NetworkHealthChecker // 网络健康检查器（用于静默隔离）
+	networkChecker     connectivity.NetworkHealthChecker // 网络健康检查器（用于静默隔离）
 }
 
 // GetCustomResponseManager returns the custom response manager instance

@@ -10,20 +10,23 @@ import (
 	"smartdnssort/logger"
 
 	"github.com/miekg/dns"
+	"smartdnssort/connectivity"
 )
 
 type Resolver struct {
 	servers        []string
 	cache          sync.Map // map[string]*cacheEntry
-	networkChecker NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 	circuitOpen    bool
 	circuitMu      sync.RWMutex
 	lastFailure    time.Time
 }
 
-// NetworkHealthChecker 网络健康检查器接口
-type NetworkHealthChecker interface {
-	IsNetworkHealthy() bool
+// SetNetworkHealthChecker 设置网络健康检查器
+func (r *Resolver) SetNetworkHealthChecker(checker connectivity.NetworkHealthChecker) {
+	r.circuitMu.Lock()
+	defer r.circuitMu.Unlock()
+	r.networkChecker = checker
 }
 
 type cacheEntry struct {
@@ -35,13 +38,6 @@ func NewResolver(servers []string) *Resolver {
 	return &Resolver{
 		servers: servers,
 	}
-}
-
-// SetNetworkHealthChecker 设置网络健康检查器
-func (r *Resolver) SetNetworkHealthChecker(checker NetworkHealthChecker) {
-	r.circuitMu.Lock()
-	defer r.circuitMu.Unlock()
-	r.networkChecker = checker
 }
 
 // Resolve 解析域名为 IP

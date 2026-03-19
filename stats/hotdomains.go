@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"smartdnssort/connectivity"
 )
 
 type HotDomainsTracker struct {
@@ -15,7 +17,7 @@ type HotDomainsTracker struct {
 	buckets        []*TimeBucket
 	current        int
 	stopChan       chan struct{}
-	networkChecker NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 }
 
 type TimeBucket struct {
@@ -34,7 +36,7 @@ func NewHotDomainsTracker(cfg *config.StatsConfig) *HotDomainsTracker {
 }
 
 // NewHotDomainsTrackerWithNetworkChecker 创建带网络健康检查器的热门域名追踪器
-func NewHotDomainsTrackerWithNetworkChecker(cfg *config.StatsConfig, networkChecker NetworkHealthChecker) *HotDomainsTracker {
+func NewHotDomainsTrackerWithNetworkChecker(cfg *config.StatsConfig, networkChecker connectivity.NetworkHealthChecker) *HotDomainsTracker {
 	// Calculate number of buckets
 	numBuckets := (cfg.HotDomainsWindowHours * 60) / cfg.HotDomainsBucketMinutes
 	if numBuckets < 1 {

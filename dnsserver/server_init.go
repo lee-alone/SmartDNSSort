@@ -15,6 +15,7 @@ import (
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 	"smartdnssort/upstream/bootstrap"
+	"smartdnssort/connectivity"
 )
 
 // NewServer 创建新的 DNS 服务器
@@ -30,7 +31,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 静默隔离改造：将全局网络健康检查器注入给 bootstrap resolver
 	// 这样 bootstrap resolver 就可以在断网时熔断引导解析，避免无效的 DNS 请求
-	checker := upstream.GetGlobalNetworkChecker()
+	checker := connectivity.GetGlobalNetworkChecker()
 	boot.SetNetworkHealthChecker(checker)
 	logger.Info("[Server] Network health checker injected to Bootstrap Resolver for silent isolation.")
 

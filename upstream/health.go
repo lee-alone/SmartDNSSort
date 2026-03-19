@@ -3,6 +3,8 @@ package upstream
 import (
 	"sync"
 	"time"
+
+	"smartdnssort/connectivity"
 )
 
 // StatsConfig 统计配置（用于上游统计时间桶）
@@ -89,13 +91,13 @@ type ServerHealth struct {
 	statsTracker *UpstreamStatsTracker
 
 	// 网络健康检查器
-	networkChecker NetworkHealthChecker
+	networkChecker connectivity.NetworkHealthChecker
 }
 
 // NewServerHealth 创建服务器健康状态管理器
 // statsConfig: 统计配置，用于动态计算桶数量
 // networkChecker: 网络健康检查器（可选）
-func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *StatsConfig, networkChecker NetworkHealthChecker) *ServerHealth {
+func NewServerHealth(address string, config *HealthCheckConfig, statsConfig *StatsConfig, networkChecker connectivity.NetworkHealthChecker) *ServerHealth {
 	if config == nil {
 		config = DefaultHealthCheckConfig()
 	}
