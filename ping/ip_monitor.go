@@ -544,8 +544,12 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 					// 使用 100% 丢包率标记
 					m.pinger.UpdateIPCache(ip, LogicDeadRTT, 100, method)
 
-					// 失败时重置稳定性记录
-					m.resetStabilityRecord(ip)
+					// 失败时重置稳定性记录（仅在网络在线时）
+					// 静默隔离：如果网络离线，不应该重置稳定性记录
+					// 原因：断网期间的探测失败不是 IP 本身的问题，不应该惩罚 IP
+					if m.pinger.IsNetworkOnline() {
+						m.resetStabilityRecord(ip)
+					}
 				}
 
 				// === 更新最后监控时间（用于滑动窗口式巡检） ===
@@ -684,7 +688,8 @@ func (m *IPMonitor) updateStabilityRecord(ip string, rtt int, poolName string) {
 }
 
 // resetStabilityRecord 重置 IP 稳定性记录
-// 当 IP 探测失败时调用
+// 当 IP 探测失败时调用（仅在网络在线时）
+// 注意：调用者应确保在网络在线时才调用此方法
 func (m *IPMonitor) resetStabilityRecord(ip string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

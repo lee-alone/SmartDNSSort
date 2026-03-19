@@ -14,6 +14,13 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 	domain := task.Domain
 	qtype := task.Qtype
 
+	// 静默隔离：在执行刷新之前检查网络状态
+	// 目的："队列资源保护"。断网时刷新必然失败，没必要让任务在队列中排队占用资源。
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		logger.Debugf("[refreshCacheAsync] Network unhealthy, skipping cache refresh for %s (circuit breaker active)", domain)
+		return
+	}
+
 	logger.Debugf("[refreshCacheAsync] 开始异步刷新缓存: %s (type=%s)", domain, dns.TypeToString[qtype])
 
 	// For refreshes, use a slightly longer, fixed timeout as it runs in the background.
@@ -99,6 +106,13 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 // RefreshDomain is the public method to trigger a cache refresh for a domain.
 // It satisfies the prefetch.Refresher interface.
 func (s *Server) RefreshDomain(domain string, qtype uint16) {
+	// 静默隔离：在提交任务到队列之前检查网络状态
+	// 目的："队列资源保护"。断网时刷新必然失败，没必要让任务在队列中排队占用资源。
+	if s.networkChecker != nil && !s.networkChecker.IsNetworkHealthy() {
+		logger.Debugf("[RefreshDomain] Network unhealthy, skipping cache refresh for %s (circuit breaker active)", domain)
+		return
+	}
+
 	// Run in a goroutine to avoid blocking the caller (e.g., the prefetcher loop)
 	task := RefreshTask{Domain: domain, Qtype: qtype}
 	s.refreshQueue.Submit(task)

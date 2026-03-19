@@ -28,6 +28,12 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// Initialize Bootstrap Resolver
 	boot := bootstrap.NewResolver(cfg.Upstream.BootstrapDNS)
 
+	// 静默隔离改造：将全局网络健康检查器注入给 bootstrap resolver
+	// 这样 bootstrap resolver 就可以在断网时熔断引导解析，避免无效的 DNS 请求
+	checker := upstream.GetGlobalNetworkChecker()
+	boot.SetNetworkHealthChecker(checker)
+	logger.Info("[Server] Network health checker injected to Bootstrap Resolver for silent isolation.")
+
 	// Initialize Upstream Interfaces
 	var upstreams []upstream.Upstream
 	for _, serverUrl := range cfg.Upstream.Servers {
@@ -69,9 +75,13 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 静默隔离改造：将全局网络健康检查器注入给 pinger 实例
 	// 这样 pinger 就可以在断网时拒绝更新缓存，防止缓存污染
-	checker := upstream.GetGlobalNetworkChecker()
 	server.pinger.SetHealthChecker(checker)
 	logger.Info("[Server] Network health checker injected to Pinger for silent isolation.")
+
+	// 静默隔离改造：将全局网络健康检查器注入给 server 实例
+	// 这样 refresh queue 就可以在断网时跳过背景更新任务，避免无效的队列占用
+	server.networkChecker = checker
+	logger.Info("[Server] Network health checker injected to Server for silent isolation.")
 
 	// 静默隔离改造：将全局网络健康检查器注入给 stats 实例
 	// 这样 stats 就可以在断网时熔断外部行为统计，避免统计污染
@@ -88,7 +98,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 初始化 AdBlock 管理器
 	logger.Info("[AdBlock] Initializing AdBlock Manager...")
-	adblockMgr, err := adblock.NewManager(&cfg.AdBlock)
+	adblockMgr, err := adblock.NewManager(&cfg.AdBlock, checker)
 	if err != nil {
 		logger.Errorf("[AdBlock] Failed to initialize manager: %v", err)
 		// If initialization fails, we must ensure it's disabled in config

@@ -6,22 +6,24 @@ import (
 	"os"
 	"smartdnssort/config"
 	"smartdnssort/logger"
+	"smartdnssort/upstream"
 	"strings"
 	"sync"
 	"time"
 )
 
 type AdBlockManager struct {
-	cfg        *config.AdBlockConfig
-	engine     FilterEngine
-	sourcesMgr *SourceManager
-	loader     *RuleLoader
-	stats      *Stats
-	mu         sync.RWMutex
-	lastUpdate time.Time
+	cfg            *config.AdBlockConfig
+	engine         FilterEngine
+	sourcesMgr     *SourceManager
+	loader         *RuleLoader
+	stats          *Stats
+	mu             sync.RWMutex
+	lastUpdate     time.Time
+	networkChecker upstream.NetworkHealthChecker
 }
 
-func NewManager(cfg *config.AdBlockConfig) (*AdBlockManager, error) {
+func NewManager(cfg *config.AdBlockConfig, networkChecker upstream.NetworkHealthChecker) (*AdBlockManager, error) {
 	var engine FilterEngine
 	var err error
 
@@ -46,11 +48,12 @@ func NewManager(cfg *config.AdBlockConfig) (*AdBlockManager, error) {
 	stats := NewStats()
 
 	return &AdBlockManager{
-		cfg:        cfg,
-		engine:     engine,
-		sourcesMgr: sourcesMgr,
-		loader:     loader,
-		stats:      stats,
+		cfg:            cfg,
+		engine:         engine,
+		sourcesMgr:     sourcesMgr,
+		loader:         loader,
+		stats:          stats,
+		networkChecker: networkChecker,
 	}, nil
 }
 
@@ -99,6 +102,12 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 
 func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 	startTime := time.Now()
+
+	// Network health check: skip update if network is unhealthy (circuit breaker)
+	if m.networkChecker != nil && !m.networkChecker.IsNetworkHealthy() {
+		logger.Warn("[AdBlock] Network unhealthy, skipping rules update (circuit breaker active)")
+		return UpdateResult{}, fmt.Errorf("network unhealthy, rules update skipped")
+	}
 
 	// Phase 1: Prepare - Download and parse rules WITHOUT holding the lock
 	sources := m.sourcesMgr.GetAllSources()

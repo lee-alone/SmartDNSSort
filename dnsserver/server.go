@@ -33,14 +33,15 @@ type Server struct {
 	recentQueries      [20]string           // Circular buffer for recent queries
 	recentQueriesIndex int
 	recentQueriesMu    sync.Mutex
-	udpServer          *dns.Server             // Used in: server_lifecycle.go
-	tcpServer          *dns.Server             // Used in: server_lifecycle.go
-	adblockManager     *adblock.AdBlockManager // 广告拦截管理器
-	customRespManager  *CustomResponseManager  // 自定义回复管理器
-	recursorMgr        *recursor.Manager       // 嵌入式递归解析器管理器
-	ipMonitor          *ping.IPMonitor         // IP 主动巡检调度器
-	stopCh             chan struct{}           // 用于优雅关闭后台 goroutine
-	sortSemaphore      chan struct{}           // 限制并发排序任务数量（最多 50 个）
+	udpServer          *dns.Server                   // Used in: server_lifecycle.go
+	tcpServer          *dns.Server                   // Used in: server_lifecycle.go
+	adblockManager     *adblock.AdBlockManager       // 广告拦截管理器
+	customRespManager  *CustomResponseManager        // 自定义回复管理器
+	recursorMgr        *recursor.Manager             // 嵌入式递归解析器管理器
+	ipMonitor          *ping.IPMonitor               // IP 主动巡检调度器
+	stopCh             chan struct{}                 // 用于优雅关闭后台 goroutine
+	sortSemaphore      chan struct{}                 // 限制并发排序任务数量（最多 50 个）
+	networkChecker     upstream.NetworkHealthChecker // 网络健康检查器（用于静默隔离）
 }
 
 // GetCustomResponseManager returns the custom response manager instance
