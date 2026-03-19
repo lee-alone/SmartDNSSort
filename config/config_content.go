@@ -102,39 +102,7 @@ ping:
   # 缓存 IP 的 RTT (延迟) 结果的时间（秒）
   rtt_cache_ttl_seconds: 300
 
-# DNS 缓存配置
-cache:
-  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 5
-  fast_response_ttl: 5
-  # 正常返回给客户端的 TTL，默认值 600
-  user_return_ttl: 600
-  # 最小 TTL（秒）
-  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 min > 0 时只增加过小的 TTL
-  min_ttl_seconds: 3600
-  # 最大 TTL（秒）
-  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 max > 0 时只减小过大的 TTL
-  max_ttl_seconds: 84600
-  # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 30
-  negative_ttl_seconds: 300
-  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒），默认值 30
-  error_cache_ttl_seconds: 30
 
-  # 内存缓存管理 (高级)
-  # 最大内存使用量 (MB)。超过此限制将触发LRU淘汰。0表示不限制。
-  max_memory_mb: 128
-  # 是否保留已过期的缓存条目。当内存充足时，可设为 true 以加速后续查询。
-  keep_expired_entries: true
-  # 内存使用达到此百分比阈值时，触发淘汰机制 (0.7-0.95)。
-  eviction_threshold: 0.9
-  # 每次淘汰时，清理缓存总量的百分比 (0.05-0.2)。
-  eviction_batch_percent: 0.1
-  # 在LRU淘汰期间，是否保护预取列表中的域名不被清除。
-  protect_prefetch_domains: true
-  # 缓存持久化落盘间隔（分钟），默认 60 分钟
-  save_to_disk_interval_minutes: 60
-  # DNSSEC 消息缓存容量 (MB)，用于存储完整的 DNS 响应消息（包含 RRSIG 等）
-  # 独立于主缓存，默认为主缓存的 1/10（即 128MB 主缓存对应 12.8MB 消息缓存）
-  msg_cache_size_mb: 12
 
 # 预取配置（提前刷新缓存）
 prefetch:
@@ -185,4 +153,63 @@ system:
   refresh_workers: 0
   # 日志级别: debug, info, warn, error. 默认 info
   log_level: "info"
+
+# IP 监控配置
+ip_monitor:
+  # 是否启用 IP 池监控，默认 true
+  enabled: true
+  # IP 池最大容量
+  max_size: 1000
+  # IP 池清理间隔（秒），默认 3600 秒（1 小时）
+  cleanup_interval: 3600
+  # T0 核心池刷新间隔（秒），默认 120 秒（2 分钟）
+  t0_refresh_interval: 120
+  # T1 活跃池刷新间隔（秒），默认 900 秒（15 分钟）
+  t1_refresh_interval: 900
+  # T2 淘汰池刷新间隔（秒），默认 3600 秒（1 小时）
+  t2_refresh_interval: 3600
+  # 权重计算参数：引用计数权重，默认 1.0
+  ref_count_weight: 1.0
+  # 权重计算参数：访问热度权重，默认 0.5
+  access_heat_weight: 0.5
+  # 每次刷新的最大 IP 数量，默认 50
+  max_refresh_per_cycle: 50
+  # 并发测速数量，默认 10
+  refresh_concurrency: 10
+
+# DNS 缓存配置
+cache:
+  # 首次查询或未在缓存中时使用的 TTL（快速响应），默认值 5
+  fast_response_ttl: 5
+  # 正常返回给客户端的 TTL，默认值 600
+  user_return_ttl: 600
+  # 最小 TTL（秒）
+  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 min > 0 时只增加过小的 TTL
+  min_ttl_seconds: 3600
+  # 最大 TTL（秒）
+  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 max > 0 时只减小过大的 TTL
+  max_ttl_seconds: 84600
+  # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 30
+  negative_ttl_seconds: 300
+  # 错误响应缓存（SERVFAIL/REFUSED等）的 TTL（秒），默认值 30
+  error_cache_ttl_seconds: 30
+
+  # 内存缓存管理 (高级)
+  # 最大内存使用量 (MB)。超过此限制将触发LRU淘汰。0表示不限制。
+  max_memory_mb: 128
+  # 是否保留已过期的缓存条目。当内存充足时，可设为 true 以加速后续查询。
+  # 内存敏感环境建议关闭（设置为 false）
+  keep_expired_entries: false
+  # 内存使用达到此百分比阈值时，触发淘汰机制 (0.7-0.95)。
+  # 内存敏感环境建议设置为 0.8
+  eviction_threshold: 0.8
+  # 每次淘汰时，清理缓存总量的百分比 (0.05-0.2)。
+  eviction_batch_percent: 0.1
+  # 在LRU淘汰期间，是否保护预取列表中的域名不被清除。
+  protect_prefetch_domains: true
+  # 缓存持久化落盘间隔（分钟），默认 60 分钟
+  save_to_disk_interval_minutes: 60
+  # DNSSEC 消息缓存容量 (MB)，用于存储完整的 DNS 响应消息（包含 RRSIG 等）
+  # 独立于主缓存，默认为主缓存的 1/10（即 128MB 主缓存对应 12.8MB 消息缓存）
+  msg_cache_size_mb: 12
 `

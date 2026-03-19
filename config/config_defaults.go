@@ -168,8 +168,14 @@ func setCacheDefaults(cfg *Config) {
 	if cfg.Cache.MaxMemoryMB == 0 {
 		cfg.Cache.MaxMemoryMB = 128
 	}
+	// 内存敏感环境建议关闭已过期条目的保留
+	// 默认值为 false，以节省内存
+	if !cfg.Cache.KeepExpiredEntries {
+		cfg.Cache.KeepExpiredEntries = false
+	}
+	// 内存敏感环境建议设置为 0.8
 	if cfg.Cache.EvictionThreshold == 0 {
-		cfg.Cache.EvictionThreshold = 0.9
+		cfg.Cache.EvictionThreshold = 0.8
 	}
 	if cfg.Cache.EvictionBatchPercent == 0 {
 		cfg.Cache.EvictionBatchPercent = 0.1
@@ -302,6 +308,9 @@ func setPrefetchDefaults(cfg *Config) {
 func setIPMonitorDefaults(cfg *Config, rawData []byte) {
 	if cfg.IPMonitor.MaxSize == 0 {
 		cfg.IPMonitor.MaxSize = 1000
+	}
+	if cfg.IPMonitor.CleanupInterval == 0 {
+		cfg.IPMonitor.CleanupInterval = 3600 // 1 小时
 	}
 	if cfg.IPMonitor.T0RefreshInterval == 0 {
 		cfg.IPMonitor.T0RefreshInterval = 120 // 2 分钟
