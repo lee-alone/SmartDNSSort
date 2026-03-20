@@ -21,8 +21,10 @@ const (
 	MaxStaleHeapCleanupSize = 500
 
 	// AncientLimitSeconds 古老数据的界限（秒）
-	// 优化：从 24 小时缩短为 2 小时，减少内存占用
-	AncientLimitSeconds = 7200 // 2 小时 = 7200 秒
+	// 改为动态策略：低压力 ( usage < 0.5 ) 下延长至 24 小时，中压力 ( 0.5-0.8 ) 下保持 2 小时
+	AncientLimitLowPressure  = 86400 // 24 小时
+	AncientLimitMidPressure  = 7200  // 2 小时
+	AncientLimitHighPressure = 0     // 立即清理
 )
 
 // CleanupStats 清理统计信息
@@ -60,8 +62,16 @@ func (c *Cache) CleanExpired() {
 	}
 	isHighPressure := usage >= pressureThreshold
 
-	// 古老数据的界限：使用常量定义（2 小时）
-	const ancientLimit = AncientLimitSeconds
+	// 动态调整过期界限 (Dynamic Ancient Limit)
+	// 根据压力设置保留策略，实现在内存富余时“能留尽留”，在压力大时“断舍离”
+	var ancientLimit int64
+	if usage < 0.5 {
+		ancientLimit = AncientLimitLowPressure
+	} else if usage < pressureThreshold {
+		ancientLimit = AncientLimitMidPressure
+	} else {
+		ancientLimit = AncientLimitHighPressure
+	}
 
 	// 批量清理限制
 	startTime := timeNow()
