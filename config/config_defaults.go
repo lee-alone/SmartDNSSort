@@ -166,7 +166,7 @@ func setCacheDefaults(cfg *Config) {
 
 	// 新增内存管理配置的默认值
 	if cfg.Cache.MaxMemoryMB == 0 {
-		cfg.Cache.MaxMemoryMB = 128
+		cfg.Cache.MaxMemoryMB = 32 // 优化：从 128 降至 32，可存储约 40,000 条域名
 	}
 	// 内存敏感环境建议关闭已过期条目的保留
 	// 默认值为 false，以节省内存
@@ -214,7 +214,7 @@ func setAdBlockDefaults(cfg *Config) {
 		cfg.AdBlock.MaxCacheAgeHours = 168
 	}
 	if cfg.AdBlock.MaxCacheSizeMB == 0 {
-		cfg.AdBlock.MaxCacheSizeMB = 30
+		cfg.AdBlock.MaxCacheSizeMB = 10 // 优化：从 30 降至 10，一般广告域名列表足够使用
 	}
 	if cfg.AdBlock.BlockMode == "" {
 		cfg.AdBlock.BlockMode = "zero_ip"

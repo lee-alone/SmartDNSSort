@@ -139,7 +139,7 @@ adblock:
   cache_dir: ./adblock_cache
   update_interval_hours: 168
   max_cache_age_hours: 168
-  max_cache_size_mb: 30
+  max_cache_size_mb: 10
   block_mode: zero_ip
   blocked_ttl: 3600
 
@@ -196,7 +196,7 @@ cache:
 
   # 内存缓存管理 (高级)
   # 最大内存使用量 (MB)。超过此限制将触发LRU淘汰。0表示不限制。
-  max_memory_mb: 128
+  max_memory_mb: 32
   # 是否保留已过期的缓存条目。当内存充足时，可设为 true 以加速后续查询。
   # 内存敏感环境建议关闭（设置为 false）
   keep_expired_entries: false
@@ -210,6 +210,6 @@ cache:
   # 缓存持久化落盘间隔（分钟），默认 60 分钟
   save_to_disk_interval_minutes: 60
   # DNSSEC 消息缓存容量 (MB)，用于存储完整的 DNS 响应消息（包含 RRSIG 等）
-  # 独立于主缓存，默认为主缓存的 1/10（即 128MB 主缓存对应 12.8MB 消息缓存）
-  msg_cache_size_mb: 12
+  # 独立于主缓存，默认为主缓存的 1/10（即 32MB 主缓存对应 3.2MB 消息缓存）
+  msg_cache_size_mb: 3
 `
