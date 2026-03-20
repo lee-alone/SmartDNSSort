@@ -230,9 +230,9 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	// 优先使用排序缓存，如果不存在则使用历史数据进行兜底排序
 	var ipsToReturn []string
 
-	// 1. 首先尝试获取排序缓存
-	if sorted, ok := s.cache.GetSorted(domain, qtype); ok {
-		logger.Debugf("[handleQuery] 排序缓存命中: %s (type=%s) -> %v", domain, dns.TypeToString[qtype], sorted.IPs)
+	// 1. 首先尝试获取排序缓存（允许获取 Stale 数据，因为此时 Raw 缓存本身就是 Stale 的）
+	if sorted, ok := s.cache.GetSortedWithStale(domain, qtype, true); ok {
+		logger.Debugf("[handleQuery] 排序缓存命中 (可能为 Stale): %s (type=%s) -> %v", domain, dns.TypeToString[qtype], sorted.IPs)
 
 		// 审计修复：Phase 3 遗漏 - 使用 IPPool 的最新 RTT 数据重新校验顺序
 		// 即使命中排序缓存，也尝试用最新的 IPPool 数据微调顺序

@@ -211,7 +211,7 @@ func (c *Cache) CleanExpired() {
 	c.lastCleanupDuration = timeNow().Sub(startTime)
 
 	// 清理辅助缓存（排序、错误等）
-	c.cleanAuxiliaryCaches()
+	c.cleanAuxiliaryCaches(ancientLimit)
 }
 
 // recalculateActualExpiredCount 重新计算实际过期条目计数
@@ -254,9 +254,9 @@ func (c *Cache) GetCleanupStats() CleanupStats {
 
 // cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
 // 由于排序缓存和错误缓存现在由 LRUCache 管理，我们只需清理过期条目
-func (c *Cache) cleanAuxiliaryCaches() {
+func (c *Cache) cleanAuxiliaryCaches(ancientLimit int64) {
 	// 清理过期的排序缓存
-	c.cleanExpiredSortedCache()
+	c.cleanExpiredSortedCache(ancientLimit)
 	// 清理过期的错误缓存
 	c.cleanExpiredErrorCache()
 	// 清理完成的排序任务

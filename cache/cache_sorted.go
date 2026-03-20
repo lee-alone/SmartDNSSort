@@ -1,8 +1,15 @@
 package cache
 
-// GetSorted 获取排序后的缓存
-// 注意：sortedCache 内部已实现线程安全，无需全局锁
+import "time"
+
+// GetSorted 获取排序后的缓存（仅限未过期的）
 func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool) {
+	return c.GetSortedWithStale(domain, qtype, false)
+}
+
+// GetSortedWithStale 获取排序后的缓存，支持获取过期（Stale）数据
+// 当 rawCache 命中 Stale 时，应调用此方法以获取之前的排序结果，而不是回退到原始顺序
+func (c *Cache) GetSortedWithStale(domain string, qtype uint16, includeStale bool) (*SortedCacheEntry, bool) {
 	key := cacheKey(domain, qtype)
 	value, exists := c.sortedCache.Get(key)
 	if !exists {
@@ -14,7 +21,8 @@ func (c *Cache) GetSorted(domain string, qtype uint16) (*SortedCacheEntry, bool)
 		return nil, false
 	}
 
-	if entry.IsExpired() {
+	// 如果不包含 Stale 数据且已过期，返回 false
+	if !includeStale && entry.IsExpired() {
 		return nil, false
 	}
 
@@ -111,10 +119,14 @@ func (c *Cache) CancelSort(domain string, qtype uint16) {
 }
 
 // cleanExpiredSortedCache 清理过期的排序缓存
-func (c *Cache) cleanExpiredSortedCache() {
+// 增加策略：与主缓存一致，仅清理超过 ancientLimit 的陈旧排序
+func (c *Cache) cleanExpiredSortedCache(ancientLimit int64) {
+	now := timeNow()
 	c.sortedCache.CleanExpired(func(value any) bool {
 		if entry, ok := value.(*SortedCacheEntry); ok {
-			return entry.IsExpired()
+			// 只有超过 AncientLimit 的才真正清理
+			expiresAt := entry.Timestamp.Add(time.Duration(entry.TTL) * time.Second)
+			return now.After(expiresAt.Add(time.Duration(ancientLimit) * time.Second))
 		}
 		return false
 	})
