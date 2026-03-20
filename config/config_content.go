@@ -199,7 +199,7 @@ cache:
   max_memory_mb: 32
   # 是否保留已过期的缓存条目。当内存充足时，可设为 true 以加速后续查询。
   # 内存敏感环境建议关闭（设置为 false）
-  keep_expired_entries: false
+  keep_expired_entries: true
   # 内存使用达到此百分比阈值时，触发淘汰机制 (0.7-0.95)。
   # 内存敏感环境建议设置为 0.8
   eviction_threshold: 0.8

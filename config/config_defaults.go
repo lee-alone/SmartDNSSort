@@ -169,9 +169,9 @@ func setCacheDefaults(cfg *Config) {
 		cfg.Cache.MaxMemoryMB = 32 // 优化：从 128 降至 32，可存储约 40,000 条域名
 	}
 	// 内存敏感环境建议关闭已过期条目的保留
-	// 默认值为 false，以节省内存
+	// 默认值为 true，以加速后续查询，但如果用户明确设置为 false，我们尊重用户的选择
 	if !cfg.Cache.KeepExpiredEntries {
-		cfg.Cache.KeepExpiredEntries = false
+		cfg.Cache.KeepExpiredEntries = true
 	}
 	// 内存敏感环境建议设置为 0.8
 	if cfg.Cache.EvictionThreshold == 0 {
