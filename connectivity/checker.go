@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"os"
+
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 )
@@ -87,11 +89,13 @@ func DefaultNetworkHealthConfig() NetworkHealthConfig {
 		ProbeIPs: []string{
 			"8.8.8.8",   // Google DNS
 			"8.8.4.4",   // Google DNS
+			"1.0.0.1",   // Cloudflare DNS
 			"223.5.5.5", // Alibaba DNS (China)
 			"223.6.6.6", // Alibaba DNS (China)
 		},
 		// TCP 探测端口（备选方案）
-		ProbePorts: []int{53, 443}, // DNS TCP 端口和 HTTPS 端口
+		// 优先使用 443 (HTTPS)，因为 53 (DNS) 极易被本地防火墙或 DNS 服务劫持到本地，导致误判
+		ProbePorts: []int{443, 53},
 	}
 }
 
@@ -234,8 +238,7 @@ func (c *networkHealthChecker) probe() bool {
 	// 统计成功和失败的数量，快速失败优化：一旦有成功就返回
 	for result := range resultCh {
 		if result {
-			// 已经至少一个成功，立即返回
-			// 其他 goroutine 继续运行但结果被忽略
+			// 一旦有一个成功，整个探测即认为成功
 			return true
 		}
 	}
@@ -246,72 +249,105 @@ func (c *networkHealthChecker) probe() bool {
 
 // probeIP 使用 ICMP ping 测试单个 IP
 func (c *networkHealthChecker) probeIP(ip string) bool {
-	// 创建 ICMP 连接
+	// 1. 尝试创建 ICMP 连接
+	// 优先尝试 "ip4:icmp" (需要 root 权限)
+	// 如果失败尝试 "udp4:icmp" (非特权模式，某些 Linux 版本支持)
+	privileged := true
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
-		logger.Debugf("Failed to create ICMP connection for %s: %v", ip, err)
-		return false
+		privileged = false
+		conn, err = icmp.ListenPacket("udp4:icmp", "0.0.0.0")
+		if err != nil {
+			logger.Debugf("Failed to create ICMP connection for %s (both privileged and unprivileged): %v", ip, err)
+			return false
+		}
 	}
 	defer conn.Close()
 
 	// 设置读超时
 	conn.SetDeadline(time.Now().Add(c.config.ProbeTimeout))
 
-	// 记录开始时间用于 RTT 统计
-	start := time.Now()
+	// 使用 PID 作为 ID 减少冲突
+	id := os.Getpid() & 0xffff
+	seq := 1
 
 	// 创建 ICMP echo 请求
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
 		Body: &icmp.Echo{
-			ID:  1,
-			Seq: 1,
+			ID:  id,
+			Seq: seq,
 		},
 	}
 
 	// 编码消息
 	b, err := msg.Marshal(nil)
 	if err != nil {
-		logger.Debugf("Failed to marshal ICMP message for %s: %v", ip, err)
 		return false
 	}
 
-	// 发送 ICMP echo 请求
-	_, err = conn.WriteTo(b, &net.IPAddr{IP: net.ParseIP(ip)})
+	// 记录开始时间
+	start := time.Now()
+
+	// 发送探测包
+	var target net.Addr
+	if privileged {
+		target = &net.IPAddr{IP: net.ParseIP(ip)}
+	} else {
+		target = &net.UDPAddr{IP: net.ParseIP(ip)}
+	}
+
+	_, err = conn.WriteTo(b, target)
 	if err != nil {
-		logger.Debugf("Failed to send ICMP echo to %s: %v", ip, err)
+		logger.Debugf("Failed to send ICMP to %s: %v", ip, err)
 		return false
 	}
 
-	// 接收 ICMP echo 回复（缓冲区大小优化为 256 字节）
+	// 接收循环（过滤非目标包）
 	reply := make([]byte, 256)
-	_, _, err = conn.ReadFrom(reply)
-	if err != nil {
-		logger.Debugf("Failed to receive ICMP echo reply from %s: %v", ip, err)
-		return false
-	}
+	for {
+		n, from, err := conn.ReadFrom(reply)
+		if err != nil {
+			return false
+		}
 
-	// 解析回复（1 = ICMPv4 protocol number）
-	rm, err := icmp.ParseMessage(1, reply)
-	if err != nil {
-		logger.Debugf("Failed to parse ICMP reply from %s: %v", ip, err)
-		return false
-	}
+		// 解析回复
+		// 注意：raw 和 udp 下解析方式略有不同（Protocol 1 = ICMP）
+		rm, err := icmp.ParseMessage(1, reply[:n])
+		if err != nil {
+			continue
+		}
 
-	// 检查是否是 echo 回复，并验证 ID 和 Seq
-	if rm.Type == ipv4.ICMPTypeEchoReply {
-		if echoReply, ok := rm.Body.(*icmp.Echo); ok {
-			if echoReply.ID == 1 && echoReply.Seq == 1 {
-				rtt := time.Since(start)
-				logger.Debugf("Ping to %s successful, RTT: %v", ip, rtt)
-				return true
+		// 检查源 IP
+		fromIP := ""
+		if addr, ok := from.(*net.IPAddr); ok {
+			fromIP = addr.IP.String()
+		} else if addr, ok := from.(*net.UDPAddr); ok {
+			fromIP = addr.IP.String()
+		}
+
+		if fromIP != ip {
+			continue
+		}
+
+		// 检查是否是对应的 echo 回复
+		if rm.Type == ipv4.ICMPTypeEchoReply {
+			if echoReply, ok := rm.Body.(*icmp.Echo); ok {
+				if echoReply.ID == id && echoReply.Seq == seq {
+					rtt := time.Since(start)
+					// 增加虚假成功防御：如果目标是全球公网 IP，但 RTT 极低 (如 < 1ms)，
+					// 说明极有可能是在本地环回或被本地防火墙虚假响应。
+					if rtt < 1*time.Millisecond {
+						logger.Warnf("Suspicious tiny RTT (%v) to global IP %s, might be local interception", rtt, ip)
+						// 即使可疑我们也先认为是通的，但记录警告
+					}
+					logger.Debugf("ICMP probe to %s successful (%s), RTT: %v", ip, fromIP, rtt)
+					return true
+				}
 			}
 		}
 	}
-
-	logger.Debugf("Unexpected ICMP response from %s: %v", ip, rm.Type)
-	return false
 }
 
 // probeIPWithTCP 使用 TCP 连接测试单个 IP（ICMP 的备选方案）
@@ -336,6 +372,7 @@ func (c *networkHealthChecker) probeIPWithTCP(ip string) bool {
 func (c *networkHealthChecker) probeIPWithPort(ip string, port int) bool {
 	address := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
 
+	start := time.Now()
 	// 设置连接超时
 	conn, err := net.DialTimeout("tcp", address, c.config.ProbeTimeout)
 	if err != nil {
@@ -343,6 +380,13 @@ func (c *networkHealthChecker) probeIPWithPort(ip string, port int) bool {
 		return false
 	}
 	defer conn.Close()
+
+	rtt := time.Since(start)
+	// 高级防御：如果通过 Port 53 探测成功且 RTT 异常低，高度怀疑是被本地 DNS 服务截获
+	if port == 53 && rtt < 1*time.Millisecond {
+		logger.Warnf("TCP probe to %s:53 succeeded with suspiciously low RTT (%v), possibly intercepted by local DNS server. Ignoring this result.", ip, rtt)
+		return false
+	}
 
 	// 连接成功
 	return true
