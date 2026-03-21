@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"smartdnssort/config"
-	"smartdnssort/logger"
 	"smartdnssort/connectivity"
-	"strings"
+	"smartdnssort/logger"
 	"sync"
 	"time"
 )
@@ -24,19 +24,9 @@ type AdBlockManager struct {
 }
 
 func NewManager(cfg *config.AdBlockConfig, networkChecker connectivity.NetworkHealthChecker) (*AdBlockManager, error) {
-	var engine FilterEngine
-	var err error
-
-	switch strings.ToLower(cfg.Engine) {
-	case "urlfilter":
-		engine, err = NewURLFilterEngine()
-		if err != nil {
-			return nil, fmt.Errorf("error creating urlfilter engine: %w", err)
-		}
-	case "simple":
-		engine = NewSimpleFilter()
-	default:
-		return nil, fmt.Errorf("unknown adblock engine: %s", cfg.Engine)
+	engine, err := CreateEngine(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	sourcesMgr, err := NewSourceManager(cfg)
@@ -129,6 +119,9 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 				return
 			}
 
+			// Capture old rule count before update
+			oldRuleCount := s.RuleCount
+
 			// Force mode: always download regardless of cache age
 			// Non-force mode: only download if cache is stale
 			if !force {
@@ -152,12 +145,16 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 			if err != nil {
 				failedSources = append(failedSources, s.URL)
 			} else {
-				// This is a simplification. A real diff would be more complex.
-				if ruleCount > s.RuleCount {
-					newRules += ruleCount - s.RuleCount
-				} else {
-					removedRules += s.RuleCount - ruleCount
+				// Only count differences if the source was previously loaded (oldRuleCount > 0)
+				// This avoids false positives when a source is re-enabled or loaded for the first time
+				if oldRuleCount > 0 {
+					if ruleCount > oldRuleCount {
+						newRules += ruleCount - oldRuleCount
+					} else if ruleCount < oldRuleCount {
+						removedRules += oldRuleCount - ruleCount
+					}
 				}
+				// If oldRuleCount == 0, this is a first-time load or re-enable, don't count as new rules
 			}
 			mu.Unlock()
 		}(source)
@@ -177,18 +174,9 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 	}
 
 	// Create a new engine instance with the updated rules
-	var newEngine FilterEngine
-	switch strings.ToLower(m.cfg.Engine) {
-	case "urlfilter":
-		var err error
-		newEngine, err = NewURLFilterEngine()
-		if err != nil {
-			return UpdateResult{}, fmt.Errorf("error creating new urlfilter engine: %w", err)
-		}
-	case "simple":
-		newEngine = NewSimpleFilter()
-	default:
-		return UpdateResult{}, fmt.Errorf("unknown adblock engine: %s", m.cfg.Engine)
+	newEngine, err := CreateEngine(m.cfg)
+	if err != nil {
+		return UpdateResult{}, err
 	}
 
 	if err := newEngine.LoadRules(allRules); err != nil {
@@ -217,9 +205,7 @@ func (m *AdBlockManager) UpdateRules(force bool) (UpdateResult, error) {
 }
 
 func (m *AdBlockManager) LoadRulesFromCache() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// Phase 1: Check cache files (without holding lock)
 	sources := m.sourcesMgr.GetAllSources()
 
 	// If no sources configured, return error to trigger download
@@ -236,15 +222,15 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 		}
 
 		// For local files, check if file exists
-		if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
-			filePath := strings.TrimPrefix(source.URL, "file://")
+		if IsLocalFile(source.URL) {
+			filePath := GetLocalFilePath(source.URL)
 			if _, err := os.Stat(filePath); err == nil {
 				hasCachedFiles = true
 				break
 			}
 		} else {
 			// For remote files, check if cache file exists
-			cachePath := fmt.Sprintf("%s/%s", m.loader.cacheDir, source.CacheFile)
+			cachePath := filepath.Join(m.loader.cacheDir, source.CacheFile)
 			if _, err := os.Stat(cachePath); err == nil {
 				hasCachedFiles = true
 				break
@@ -257,22 +243,27 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 		return fmt.Errorf("no cached files found")
 	}
 
+	// Phase 2: Load rules from files (without holding lock)
 	allRules, err := m.loader.LoadAllRules(sources)
 	if err != nil {
 		return err
 	}
 
+	const minCacheRuleCount = 100
 	// Only load rules if we have a reasonable number
-	// If cache has very few rules (< 100), it's likely incomplete or corrupted
+	// If cache has very few rules, it's likely incomplete or corrupted
 	// Trigger a fresh download to get complete rules
-	if len(allRules) < 100 {
+	if len(allRules) < minCacheRuleCount {
 		logger.Warnf("[AdBlock] Cache has too few rules (%d), likely incomplete. Will trigger fresh download.", len(allRules))
 		return fmt.Errorf("cache has insufficient rules: %d", len(allRules))
 	}
 
 	logger.Infof("[AdBlock] Loaded %d rules from cache", len(allRules))
 
-	// Load rules into the engine
+	// Phase 3: Load rules into engine and update state (with minimal lock time)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if err := m.engine.LoadRules(allRules); err != nil {
 		return err
 	}
@@ -327,8 +318,10 @@ func (m *AdBlockManager) GetStats() AdBlockStats {
 		}
 	}
 
-	// Use the calculated total if engine count is 0 or if calculated is higher
-	if totalRules == 0 || calculatedTotal > totalRules {
+	// Use engine count as primary source of truth for loaded rules
+	// If engine count is 0, fall back to calculated total
+	if totalRules == 0 {
+		logger.Debugf("[AdBlock] Engine count is 0, using calculated total: %d", calculatedTotal)
 		totalRules = calculatedTotal
 	}
 
@@ -358,15 +351,13 @@ func (m *AdBlockManager) RemoveSource(url string) error {
 }
 
 func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// 1. Update source status (minimal lock time in SourceManager)
 	m.sourcesMgr.SetEnabled(url, enabled)
 	if err := m.sourcesMgr.saveMeta(); err != nil {
 		return err
 	}
 
-	// Reload rules after enabling/disabling a source
+	// 2. Load rules and create engine WITHOUT holding manager lock
 	sources := m.sourcesMgr.GetAllSources()
 	allRules, err := m.loader.LoadAllRules(sources)
 	if err != nil {
@@ -374,25 +365,18 @@ func (m *AdBlockManager) SetSourceEnabled(url string, enabled bool) error {
 	}
 
 	// Create a new engine with updated rules
-	var newEngine FilterEngine
-	switch strings.ToLower(m.cfg.Engine) {
-	case "urlfilter":
-		var err error
-		newEngine, err = NewURLFilterEngine()
-		if err != nil {
-			return fmt.Errorf("error creating new urlfilter engine: %w", err)
-		}
-	case "simple":
-		newEngine = NewSimpleFilter()
-	default:
-		return fmt.Errorf("unknown adblock engine: %s", m.cfg.Engine)
+	newEngine, err := CreateEngine(m.cfg)
+	if err != nil {
+		return err
 	}
 
 	if err := newEngine.LoadRules(allRules); err != nil {
 		return err
 	}
 
-	// Replace the engine
+	// 3. Swap the engine with minimal lock holding time
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.engine = newEngine
 	return nil
 }

@@ -1,7 +1,6 @@
 package adblock
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -16,7 +15,8 @@ import (
 
 const (
 	defaultMaxConcurrentDownloads = 5
-	defaultDownloadTimeout        = 60 * time.Second // 增加到60秒，给大文件足够的时间
+	defaultDownloadTimeout        = 60 * time.Second
+	maxFileSizeLimit              = 50 * 1024 * 1024 // 50MB
 )
 
 type RuleLoader struct {
@@ -27,12 +27,23 @@ type RuleLoader struct {
 }
 
 func NewRuleLoader(cfg *config.AdBlockConfig) *RuleLoader {
+	maxConcurrent := cfg.MaxConcurrentDownloads
+	if maxConcurrent <= 0 {
+		maxConcurrent = defaultMaxConcurrentDownloads
+	}
+
+	timeoutSeconds := cfg.DownloadTimeoutSeconds
+	timeout := defaultDownloadTimeout
+	if timeoutSeconds > 0 {
+		timeout = time.Duration(timeoutSeconds) * time.Second
+	}
+
 	return &RuleLoader{
 		client: &http.Client{
-			Timeout: defaultDownloadTimeout,
+			Timeout: timeout,
 		},
-		maxConcurrent: defaultMaxConcurrentDownloads,
-		sem:           make(chan struct{}, defaultMaxConcurrentDownloads),
+		maxConcurrent: maxConcurrent,
+		sem:           make(chan struct{}, maxConcurrent),
 		cacheDir:      cfg.CacheDir,
 	}
 }
@@ -51,9 +62,9 @@ type UpdateResult struct {
 // It returns the path to the cached file, the number of rules, and any error.
 // It will retry up to 3 times on failure.
 func (rl *RuleLoader) UpdateFromSource(ctx context.Context, source *SourceInfo) (string, int, error) {
-	if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
+	if IsLocalFile(source.URL) {
 		// Handle local file
-		filePath := strings.TrimPrefix(source.URL, "file://")
+		filePath := GetLocalFilePath(source.URL)
 		return rl.loadLocalFile(filePath)
 	}
 
@@ -139,8 +150,11 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 		return "", 0, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Close file before counting lines
-	file.Close()
+	// Close file before counting lines to flush and release on some OS
+	if err := file.Close(); err != nil {
+		os.Remove(tempPath)
+		return "", 0, fmt.Errorf("failed to close temp file: %w", err)
+	}
 
 	// Check if received zero bytes (this is still an error)
 	if bytesReceived == 0 {
@@ -148,9 +162,8 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 		return "", 0, fmt.Errorf("downloaded file is empty (0 bytes)")
 	}
 
-	// Check if file exceeds 50MB limit
-	const maxFileSize = 50 * 1024 * 1024
-	if bytesReceived > maxFileSize {
+	// Check if file exceeds limit
+	if bytesReceived > maxFileSizeLimit {
 		os.Remove(tempPath)
 		return "", 0, fmt.Errorf("file exceeds 50MB limit (size: %d bytes)", bytesReceived)
 	}
@@ -170,7 +183,9 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 
 	// Move temp file to final location
 	if err := os.Rename(tempPath, cachePath); err != nil {
-		os.Remove(tempPath)
+		if rmErr := os.Remove(tempPath); rmErr != nil {
+			logger.Warnf("[AdBlock] Failed to remove temp file %s: %v", tempPath, rmErr)
+		}
 		return "", 0, fmt.Errorf("failed to finalize cache file: %w", err)
 	}
 
@@ -189,31 +204,9 @@ func (rl *RuleLoader) loadLocalFile(path string) (string, int, error) {
 	return path, ruleCount, err
 }
 
-// countLinesFromFile counts non-empty lines in a file
-// This is more accurate than just counting newlines
+// countLinesFromFile is deprecated. Use CountValidRules in utils.go instead.
 func countLinesFromFile(path string) (int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments (# and !)
-		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
-			count++
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-
-	return count, nil
+	return CountValidRules(path)
 }
 
 // LoadAllRules reads all rules from a list of cache files.
@@ -233,8 +226,8 @@ func (rl *RuleLoader) LoadAllRules(sources []*SourceInfo) ([]string, error) {
 		cachePath := filepath.Join(rl.cacheDir, source.CacheFile)
 		if _, err := os.Stat(cachePath); os.IsNotExist(err) {
 			// if a local file, the path is the URL
-			if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
-				cachePath = strings.TrimPrefix(source.URL, "file://")
+			if IsLocalFile(source.URL) {
+				cachePath = GetLocalFilePath(source.URL)
 			} else {
 				// Cache file doesn't exist and it's not a local file
 				// This is a critical error - the source should have been downloaded first
@@ -243,7 +236,7 @@ func (rl *RuleLoader) LoadAllRules(sources []*SourceInfo) ([]string, error) {
 			}
 		}
 
-		rules, err := readLines(cachePath)
+		rules, err := ReadValidRules(cachePath)
 		if err != nil {
 			// Log error but continue with other sources
 			loadErrors = append(loadErrors, fmt.Sprintf("failed to read rules from %s: %v", source.URL, err))
@@ -254,29 +247,10 @@ func (rl *RuleLoader) LoadAllRules(sources []*SourceInfo) ([]string, error) {
 
 	// Log any errors that occurred during loading
 	if len(loadErrors) > 0 {
-		// In production, these should be logged properly
-		// For now, we'll just continue with the rules we managed to load
-		_ = loadErrors
+		for _, errStr := range loadErrors {
+			logger.Warnf("[AdBlock] %s", errStr)
+		}
 	}
 
 	return allRules, nil
-}
-
-func readLines(path string) ([]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments (# and !)
-		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
-			lines = append(lines, line)
-		}
-	}
-	return lines, scanner.Err()
 }

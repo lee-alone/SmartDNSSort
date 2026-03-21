@@ -71,14 +71,27 @@ func (f *SimpleFilter) LoadRules(rules []string) error {
 	f.hostsMatcher = NewHostsMatcher()
 	f.regexRules = make([]RegexRule, 0)
 
+	// 使用 map 去重
+	seenRules := make(map[string]struct{})
+	regexCount := 0
+	const maxRegexRules = 100 // 限制正则规则数量，防止性能问题
+
 	for _, rule := range rules {
 		rule = strings.TrimSpace(rule)
 		if rule == "" || strings.HasPrefix(rule, "!") || strings.HasPrefix(rule, "#") {
 			continue // Skip empty lines and comments
 		}
 
+		if _, ok := seenRules[rule]; ok {
+			continue // 跳过重复规则
+		}
+		seenRules[rule] = struct{}{}
+
 		// 正则表达式规则 /pattern/
 		if strings.HasPrefix(rule, "/") && strings.HasSuffix(rule, "/") {
+			if regexCount >= maxRegexRules {
+				continue // 达到上限，跳过
+			}
 			pattern := rule[1 : len(rule)-1]
 			// 强制不区分大小写
 			if !strings.HasPrefix(pattern, "(?i)") {
@@ -86,6 +99,7 @@ func (f *SimpleFilter) LoadRules(rules []string) error {
 			}
 			if re, err := regexp.Compile(pattern); err == nil {
 				f.regexRules = append(f.regexRules, RegexRule{Pattern: re, Raw: rule})
+				regexCount++
 			}
 			continue
 		}
@@ -127,8 +141,8 @@ func (f *SimpleFilter) LoadRules(rules []string) error {
 			parts := strings.Fields(rule)
 			if len(parts) >= 2 {
 				// Typically "127.0.0.1 domain.com" or "0.0.0.0 domain.com"
-				// We just care about the domain part
-				f.hostsMatcher.AddRule(rule)
+				// Use ParseAndAdd to parse the full line
+				f.hostsMatcher.ParseAndAdd(rule)
 				continue
 			}
 		}
@@ -145,4 +159,12 @@ func (f *SimpleFilter) Count() int {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.exactMatcher.Count() + f.suffixMatcher.Count() + f.hostsMatcher.Count() + len(f.regexRules)
+}
+
+// Close implements the FilterEngine interface.
+func (f *SimpleFilter) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.regexRules = nil
+	return nil
 }

@@ -80,3 +80,8 @@ func (e *URLFilterEngine) Count() int {
 	}
 	return e.ruleCount
 }
+
+func (e *URLFilterEngine) Close() error {
+	e.engine = nil
+	return nil
+}

@@ -14,4 +14,5 @@ type FilterEngine interface {
 	CheckHost(domain string) (result MatchResult, rule string)
 	LoadRules(rules []string) error
 	Count() int
+	Close() error
 }

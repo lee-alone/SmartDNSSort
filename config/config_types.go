@@ -150,6 +150,8 @@ type AdBlockConfig struct {
 	BlockedTTL          int      `yaml:"blocked_ttl,omitempty" json:"blocked_ttl"`
 	LastUpdate          int64    `yaml:"last_update,omitempty" json:"last_update"`
 	FailedSources       []string `yaml:"failed_sources,omitempty" json:"failed_sources"`
+	MaxConcurrentDownloads int   `yaml:"max_concurrent_downloads,omitempty" json:"max_concurrent_downloads"`
+	DownloadTimeoutSeconds int   `yaml:"download_timeout_seconds,omitempty" json:"download_timeout_seconds"`
 }
 
 // SystemConfig 系统资源配置

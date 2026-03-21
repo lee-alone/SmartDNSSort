@@ -1,7 +1,6 @@
 package adblock
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -90,44 +89,23 @@ func (sm *SourceManager) recalculateRuleCounts(cacheDir string) {
 
 		var cachePath string
 		// For local files, use the URL directly
-		if strings.HasPrefix(source.URL, "file://") || !strings.HasPrefix(source.URL, "http") {
-			cachePath = strings.TrimPrefix(source.URL, "file://")
+		if IsLocalFile(source.URL) {
+			cachePath = GetLocalFilePath(source.URL)
 		} else {
 			// For remote files, use the cache file
 			cachePath = filepath.Join(cacheDir, source.CacheFile)
 		}
 
 		// Try to count rules from the cache file
-		if ruleCount, err := sm.countRulesInFile(cachePath); err == nil {
+		if ruleCount, err := CountValidRules(cachePath); err == nil {
 			source.RuleCount = ruleCount
 		}
 	}
 }
 
-// countRulesInFile counts valid rules in a file (excluding comments and empty lines)
+// countRulesInFile is deprecated. Use CountValidRules in utils.go instead.
 func (sm *SourceManager) countRulesInFile(path string) (int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments (# and !)
-		if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "!") {
-			count++
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-
-	return count, nil
+	return CountValidRules(path)
 }
 
 // ensureCustomRulesFile creates the custom rules file if it doesn't exist
@@ -267,7 +245,7 @@ func (sm *SourceManager) GetAllSources() []*SourceInfo {
 
 	for _, s := range sm.sources {
 		// Local files (custom rules) go first
-		if strings.HasPrefix(s.URL, "file://") || !strings.HasPrefix(s.URL, "http") {
+		if IsLocalFile(s.URL) {
 			customRules = append(customRules, s)
 		} else {
 			// Remote files go after

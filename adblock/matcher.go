@@ -35,6 +35,8 @@ func (m *ExactMatcher) Match(domain string) (bool, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// 转换为小写以匹配存储格式
+	domain = strings.ToLower(domain)
 	if _, ok := m.rules[domain]; ok {
 		return true, domain
 	}
@@ -73,11 +75,11 @@ func NewSuffixMatcher() *SuffixMatcher {
 // Match 检查域名是否匹配后缀规则
 // 逻辑：如果规则是 example.com，那么 example.com 和 sub.example.com 都应该匹配
 func (m *SuffixMatcher) Match(domain string) (bool, string) {
-	// 转换为小写以确保大小写不敏感的匹配
-	domain = strings.ToLower(domain)
+	// 保存原始域名（转小写后）用于返回规则字符串
+	originalDomain := strings.ToLower(strings.TrimSuffix(domain, "."))
 
 	// 1. 颠倒待查询的域名 (e.g., "sub.example.com" -> "com.example.sub")
-	parts := strings.Split(domain, ".")
+	parts := strings.Split(originalDomain, ".")
 	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
 		parts[i], parts[j] = parts[j], parts[i]
 	}
@@ -90,8 +92,8 @@ func (m *SuffixMatcher) Match(domain string) (bool, string) {
 	_, _, found := m.tree.Root().LongestPrefix([]byte(reversedDomain))
 
 	if found {
-		// 找到了匹配
-		return true, "||" + domain + "^"
+		// 找到了匹配，返回原始域名的规则格式
+		return true, "||" + originalDomain + "^"
 	}
 
 	return false, ""
@@ -145,14 +147,25 @@ func (m *HostsMatcher) Match(domain string) (bool, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// 转换为小写以匹配存储格式
+	domain = strings.ToLower(domain)
 	if ip, ok := m.rules[domain]; ok {
 		return true, ip + " " + domain
 	}
 	return false, ""
 }
 
-// AddRule 添加一条 Hosts 规则
-func (m *HostsMatcher) AddRule(line string) {
+// AddRule 添加一条 Hosts 规则（域名和IP）
+// 保持与其他 Matcher 接口一致，使用默认 IP 127.0.0.1
+func (m *HostsMatcher) AddRule(domain string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rules[strings.ToLower(domain)] = "127.0.0.1"
+}
+
+// ParseAndAdd 解析 hosts 文件行并添加规则
+// 参数 line 格式: "127.0.0.1 example.com"
+func (m *HostsMatcher) ParseAndAdd(line string) {
 	// 简单的解析逻辑，假设 line 已经被清洗过
 	fields := strings.Fields(line)
 	if len(fields) >= 2 {
