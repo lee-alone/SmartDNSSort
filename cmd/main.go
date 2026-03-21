@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"smartdnssort/config"
+	"smartdnssort/connectivity"
 	"smartdnssort/dnsserver"
 	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"smartdnssort/sysinstall"
 	"smartdnssort/webapi"
-	"smartdnssort/connectivity"
 	"sync"
 	"syscall"
 	"time"
@@ -108,10 +108,10 @@ func main() {
 	// 立即设置日志级别，确保后续所有日志都遵循配置
 	logger.SetLevel(cfg.System.LogLevel)
 
-	// 验证并修复配置文件
-	logger.Infof("Validating config file: %s", effectiveConfigPath)
-	if err := config.ValidateAndRepairConfig(effectiveConfigPath); err != nil {
-		logger.Fatalf("Failed to validate/repair config: %v", err)
+	// 确保配置文件存在（如不存在则创建默认配置）
+	logger.Infof("Checking config file: %s", effectiveConfigPath)
+	if err := config.CreateDefaultConfigIfMissing(effectiveConfigPath); err != nil {
+		logger.Fatalf("Failed to create default config: %v", err)
 	}
 
 	logger.Infof("Log level set to: %s", cfg.System.LogLevel)

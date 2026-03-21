@@ -27,8 +27,19 @@ func (c *CacheConfig) CalculateMaxEntries() int {
 		// 如果未设置最大内存限制，返回 0 表示不限制
 		return 0
 	}
-	// 最大内存 (字节) / 每个域名的平均字节数
-	return (c.MaxMemoryMB * 1024 * 1024) / AvgBytesPerDomain
+
+	// 使用 int64 避免在 32 位系统上的整数溢出
+	// MaxMemoryMB * 1024 * 1024 可能超过 int32 范围（约 2097 MB）
+	maxBytes := int64(c.MaxMemoryMB) * 1024 * 1024
+	entries := int(maxBytes / AvgBytesPerDomain)
+
+	// 限制最大值，防止极端配置导致内存问题
+	const maxSafeEntries = 100_000_000 // 安全上限：1 亿条
+	if entries > maxSafeEntries {
+		return maxSafeEntries
+	}
+
+	return entries
 }
 
 // CreateDefaultConfig 创建默认配置文件
@@ -36,11 +47,11 @@ func CreateDefaultConfig(filePath string) error {
 	return os.WriteFile(filePath, []byte(DefaultConfigContent), 0644)
 }
 
-// ValidateAndRepairConfig 验证并修复配置文件中缺失的字段
-// 该函数只在配置文件不存在时创建默认配置
-// 如果配置文件已存在，不做任何修改，以保留用户的注释和自定义配置
-func ValidateAndRepairConfig(filePath string) error {
-	// 如果文件不存在, 直接创建默认配置
+// CreateDefaultConfigIfMissing 创建默认配置文件（如果不存在）
+// 如果配置文件已存在，不做任何修改
+// 注意：此函数不验证配置文件内容，仅检查文件是否存在
+func CreateDefaultConfigIfMissing(filePath string) error {
+	// 如果文件不存在，直接创建默认配置
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return CreateDefaultConfig(filePath)
 	}
@@ -49,6 +60,13 @@ func ValidateAndRepairConfig(filePath string) error {
 	// 这样可以保留用户的注释和零值配置（如 max_cpu_cores: 0）
 	// LoadConfig 函数会负责设置缺失字段的默认值
 	return nil
+}
+
+// ValidateAndRepairConfig 是 CreateDefaultConfigIfMissing 的别名
+// 已弃用：请使用 CreateDefaultConfigIfMissing
+// Deprecated: Use CreateDefaultConfigIfMissing instead.
+func ValidateAndRepairConfig(filePath string) error {
+	return CreateDefaultConfigIfMissing(filePath)
 }
 
 // LoadConfig 从YAML文件加载配置

@@ -2,8 +2,30 @@ package config
 
 import (
 	"runtime"
-	"strings"
+
+	"gopkg.in/yaml.v3"
 )
+
+// isFieldExplicitlySet 检查 YAML 配置中某个字段是否被显式设置
+// 使用 YAML 解析器而非字符串匹配，避免格式依赖问题
+func isFieldExplicitlySet(rawData []byte, section, field string) bool {
+	if len(rawData) == 0 {
+		return false
+	}
+
+	var rawConfig map[string]interface{}
+	if err := yaml.Unmarshal(rawData, &rawConfig); err != nil {
+		return false
+	}
+
+	sectionData, ok := rawConfig[section].(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	_, exists := sectionData[field]
+	return exists
+}
 
 // setDefaultValues 设置配置文件中缺失字段的默认值
 func setDefaultValues(cfg *Config, rawData []byte) {
@@ -15,10 +37,9 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 	// Upstream 配置默认值
 	setUpstreamDefaults(&cfg.Upstream)
 
-	// Bootstrap DNS 默认值：如果未配置，使用公共 DNS 服务器
+	// Bootstrap DNS 默认值
 	// 用于解析 DoH/DoT 服务器的域名
-	// 注意：这里不设置默认值，因为 DefaultConfigContent 中已经定义了
-	// 如果用户删除了这个配置，我们才使用公共 DNS
+	// 如果配置文件中未提供，使用公共 DNS 服务器（防御性编程）
 	if len(cfg.Upstream.BootstrapDNS) == 0 {
 		cfg.Upstream.BootstrapDNS = []string{"8.8.8.8", "1.1.1.1", "8.8.4.4", "1.0.0.1"}
 	}
@@ -130,17 +151,13 @@ func setPingDefaults(cfg *Config, rawData []byte) {
 	if cfg.Ping.RttCacheTtlSeconds == 0 {
 		cfg.Ping.RttCacheTtlSeconds = 600 // 与 DefaultConfigContent 保持一致
 	}
-	// Set default for Ping.Enabled.
-	// If the config file exists but doesn't specify 'ping.enabled',
-	// cfg.Ping.Enabled will be false after unmarshalling. We want it to be true.
-	// If the config file explicitly sets 'ping.enabled: false', it should remain false.
-	// If the config file explicitly sets 'ping.enabled: true', it should remain true.
-	//
-	// To distinguish between 'omitted' and 'explicitly false', we check the raw YAML data.
-	// This allows respecting explicit 'false' from users while defaulting omitted fields to 'true'.
-	// Note: This relies on 'data' (raw config bytes) still being available.
-	if !cfg.Ping.Enabled && !strings.Contains(string(rawData), "\nping:\n  enabled: false") {
-		cfg.Ping.Enabled = true
+
+	// 使用 YAML 解析器检测 ping.enabled 是否显式设置
+	// 如果未显式设置，则默认开启
+	if !cfg.Ping.Enabled {
+		if !isFieldExplicitlySet(rawData, "ping", "enabled") {
+			cfg.Ping.Enabled = true
+		}
 	}
 }
 
@@ -151,9 +168,9 @@ func setCacheDefaults(cfg *Config) {
 	}
 	// Note: MinTTLSeconds 和 MaxTTLSeconds 默认为 0
 	// 0 表示不限制
-	//   - 都设置为 0: 不修改原始 TTL
-	//   - 仅 min > 0: 只增加过小的 TTL
-	//   - 仅 max > 0: 只减小过大的 TTL
+	// - 都设置为 0: 不修改原始 TTL
+	// - 仅 min > 0: 只增加过小的 TTL
+	// - 仅 max > 0: 只减小过大的 TTL
 	if cfg.Cache.UserReturnTTL == 0 {
 		cfg.Cache.UserReturnTTL = 600 // 与 DefaultConfigContent 保持一致
 	}
@@ -183,7 +200,10 @@ func setCacheDefaults(cfg *Config) {
 	if cfg.Cache.MsgCacheSizeMB == 0 {
 		// 默认为主缓存的 1/10
 		cfg.Cache.MsgCacheSizeMB = cfg.Cache.MaxMemoryMB / 10
-		cfg.Cache.MsgCacheSizeMB = max(cfg.Cache.MsgCacheSizeMB, 1) // 最小 1MB
+		// 确保最小 1MB（兼容 Go 1.20 及更早版本，不使用 max() 泛型函数）
+		if cfg.Cache.MsgCacheSizeMB < 1 {
+			cfg.Cache.MsgCacheSizeMB = 1
+		}
 	}
 	if cfg.Cache.DNSSECMsgCacheTTLSeconds == 0 {
 		cfg.Cache.DNSSECMsgCacheTTLSeconds = 300 // 默认 5 分钟
@@ -334,8 +354,11 @@ func setIPMonitorDefaults(cfg *Config, rawData []byte) {
 		cfg.IPMonitor.RefreshConcurrency = 10
 	}
 
-	// 默认开启 IP 池监控，如果配置文件中没有明确禁用
-	if !cfg.IPMonitor.Enabled && !strings.Contains(string(rawData), "\nip_monitor:\n  enabled: false") {
-		cfg.IPMonitor.Enabled = true
+	// 使用 YAML 解析器检测 ip_monitor.enabled 是否显式设置
+	// 如果未显式设置，则默认开启
+	if !cfg.IPMonitor.Enabled {
+		if !isFieldExplicitlySet(rawData, "ip_monitor", "enabled") {
+			cfg.IPMonitor.Enabled = true
+		}
 	}
 }

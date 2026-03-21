@@ -183,11 +183,13 @@ cache:
   fast_response_ttl: 5
   # 正常返回给客户端的 TTL，默认值 600
   user_return_ttl: 600
-  # 最小 TTL（秒）
-  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 min > 0 时只增加过小的 TTL
+  # 最小 TTL（秒），默认 3600（1 小时）
+  # - 设置为 0：不强制最小 TTL，使用上游返回的原始值
+  # - 设置为正数：TTL 小于此值时会被提升到此值
   min_ttl_seconds: 3600
-  # 最大 TTL（秒）
-  # 设置为 0 表示不限制。如果 min 和 max 都为 0，不修改原始 TTL。当 max > 0 时只减小过大的 TTL
+  # 最大 TTL（秒），默认 84600（约 23.5 小时）
+  # - 设置为 0：不强制最大 TTL，使用上游返回的原始值
+  # - 设置为正数：TTL 大于此值时会被削减到此值
   max_ttl_seconds: 84600
   # 否定缓存（NXDOMAIN/无记录）的 TTL（秒），默认值 30
   negative_ttl_seconds: 300
