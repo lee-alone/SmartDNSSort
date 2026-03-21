@@ -1,0 +1,39 @@
+/* Dashboard loading animation */
+@keyframes dashboard-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+    animation: dashboard-spin 1s linear infinite;
+}
+
+/* Dashboard 布局变量 */
+:root {
+    --dashboard-max-width: 1600px;
+    --dashboard-gap: 1.5rem;
+    --dashboard-card-min-height: 180px;
+    --dashboard-grid-cols-mobile: 1;
+    --dashboard-grid-cols-tablet: 2;
+    --dashboard-grid-cols-desktop: 4;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--dashboard-grid-cols-mobile), 1fr);
+    gap: var(--dashboard-gap);
+    max-width: var(--dashboard-max-width);
+    margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(var(--dashboard-grid-cols-tablet), 1fr);
+    }
+}
+
+@media (min-width: 1280px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(var(--dashboard-grid-cols-desktop), 1fr);
+    }
+}

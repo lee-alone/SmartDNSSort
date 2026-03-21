@@ -2,17 +2,18 @@ package dnsserver
 
 import (
 	"sync"
+	"time"
 
 	"smartdnssort/adblock"
 	"smartdnssort/cache"
 	"smartdnssort/config"
+	"smartdnssort/connectivity"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
 	"smartdnssort/recursor"
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
-	"smartdnssort/connectivity"
 
 	"github.com/miekg/dns"
 )
@@ -21,27 +22,30 @@ import (
 // Note: Fields are used across multiple files in this package (handler*.go, sorting.go, refresh.go, tasks.go)
 // Linter warnings about unused fields are expected and can be safely ignored.
 type Server struct {
-	mu                 sync.RWMutex
-	cfg                *config.Config
-	stats              *stats.Stats
-	cache              *cache.Cache
-	msgPool            *cache.MsgPool       // Used in: handler_query.go, handler_cache.go, handler_response.go - DNS 消息对象池
-	upstream           *upstream.Manager    // Used in: handler_query.go, handler_cname.go, refresh.go, server_config.go
-	pinger             *ping.Pinger         // Used in: sorting.go, server_config.go
-	sortQueue          *cache.SortQueue     // Used in: sorting.go, server_lifecycle.go, server_config.go
-	prefetcher         *prefetch.Prefetcher // Used in: sorting.go, handler_cache.go, handler_query.go, server_lifecycle.go, server_config.go
-	refreshQueue       *RefreshQueue        // Used in: handler_cache.go, refresh.go, server_lifecycle.go, server_config.go
-	recentQueries      [20]string           // Circular buffer for recent queries
+	mu            sync.RWMutex
+	cfg           *config.Config
+	stats         *stats.Stats
+	cache         *cache.Cache
+	msgPool       *cache.MsgPool       // Used in: handler_query.go, handler_cache.go, handler_response.go - DNS 消息对象池
+	upstream      *upstream.Manager    // Used in: handler_query.go, handler_cname.go, refresh.go, server_config.go
+	pinger        *ping.Pinger         // Used in: sorting.go, server_config.go
+	sortQueue     *cache.SortQueue     // Used in: sorting.go, server_lifecycle.go, server_config.go
+	prefetcher    *prefetch.Prefetcher // Used in: sorting.go, handler_cache.go, handler_query.go, server_lifecycle.go, server_config.go
+	refreshQueue  *RefreshQueue        // Used in: handler_cache.go, refresh.go, server_lifecycle.go, server_config.go
+	recentQueries [20]struct {
+		domain    string
+		timestamp time.Time
+	} // Circular buffer for recent queries with timestamps
 	recentQueriesIndex int
 	recentQueriesMu    sync.Mutex
-	udpServer          *dns.Server                   // Used in: server_lifecycle.go
-	tcpServer          *dns.Server                   // Used in: server_lifecycle.go
-	adblockManager     *adblock.AdBlockManager       // 广告拦截管理器
-	customRespManager  *CustomResponseManager        // 自定义回复管理器
-	recursorMgr        *recursor.Manager             // 嵌入式递归解析器管理器
-	ipMonitor          *ping.IPMonitor               // IP 主动巡检调度器
-	stopCh             chan struct{}                 // 用于优雅关闭后台 goroutine
-	sortSemaphore      chan struct{}                 // 限制并发排序任务数量（最多 50 个）
+	udpServer          *dns.Server                       // Used in: server_lifecycle.go
+	tcpServer          *dns.Server                       // Used in: server_lifecycle.go
+	adblockManager     *adblock.AdBlockManager           // 广告拦截管理器
+	customRespManager  *CustomResponseManager            // 自定义回复管理器
+	recursorMgr        *recursor.Manager                 // 嵌入式递归解析器管理器
+	ipMonitor          *ping.IPMonitor                   // IP 主动巡检调度器
+	stopCh             chan struct{}                     // 用于优雅关闭后台 goroutine
+	sortSemaphore      chan struct{}                     // 限制并发排序任务数量（最多 50 个）
 	networkChecker     connectivity.NetworkHealthChecker // 网络健康检查器（用于静默隔离）
 }
 
@@ -93,7 +97,13 @@ func (s *Server) RecordRecentQuery(domain string) {
 	s.recentQueriesMu.Lock()
 	defer s.recentQueriesMu.Unlock()
 
-	s.recentQueries[s.recentQueriesIndex] = domain
+	s.recentQueries[s.recentQueriesIndex] = struct {
+		domain    string
+		timestamp time.Time
+	}{
+		domain:    domain,
+		timestamp: time.Now(),
+	}
 	s.recentQueriesIndex = (s.recentQueriesIndex + 1) % len(s.recentQueries)
 }
 
@@ -107,8 +117,8 @@ func (s *Server) GetRecentQueries() []string {
 	var orderedQueries []string
 	for i := 0; i < len(s.recentQueries); i++ {
 		idx := (s.recentQueriesIndex + i) % len(s.recentQueries)
-		if s.recentQueries[idx] != "" {
-			orderedQueries = append(orderedQueries, s.recentQueries[idx])
+		if s.recentQueries[idx].domain != "" {
+			orderedQueries = append(orderedQueries, s.recentQueries[idx].domain)
 		}
 	}
 	// Reverse to get the most recent first
@@ -117,6 +127,31 @@ func (s *Server) GetRecentQueries() []string {
 	}
 
 	return orderedQueries
+}
+
+// GetRecentQueriesWithTimeRange returns a slice of recent queries within the specified time range.
+func (s *Server) GetRecentQueriesWithTimeRange(days int) []string {
+	s.recentQueriesMu.Lock()
+	defer s.recentQueriesMu.Unlock()
+
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	var filteredQueries []string
+
+	// The buffer is circular, so we need to reconstruct the order.
+	// The oldest element is at `s.recentQueriesIndex`.
+	for i := 0; i < len(s.recentQueries); i++ {
+		idx := (s.recentQueriesIndex + i) % len(s.recentQueries)
+		entry := s.recentQueries[idx]
+		if entry.domain != "" && entry.timestamp.After(cutoffTime) {
+			filteredQueries = append(filteredQueries, entry.domain)
+		}
+	}
+	// Reverse to get the most recent first
+	for i, j := 0, len(filteredQueries)-1; i < j; i, j = i+1, j-1 {
+		filteredQueries[i], filteredQueries[j] = filteredQueries[j], filteredQueries[i]
+	}
+
+	return filteredQueries
 }
 
 // GetCache 获取缓存实例（供 WebAPI 使用）

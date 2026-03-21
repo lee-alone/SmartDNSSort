@@ -104,10 +104,23 @@ func (t *GeneralStatsTracker) Aggregate(startTime time.Time) map[string]int64 {
 	t.mu.RLock()
 	buckets := make([]*GeneralStatsBucket, len(t.buckets))
 	copy(buckets, t.buckets)
+	currentIdx := t.current // 记录当前桶索引
 	t.mu.RUnlock()
 
 	// 在锁外遍历和聚合
-	for _, bucket := range buckets {
+	for i, bucket := range buckets {
+		// 特殊处理当前活跃桶：始终包含在内
+		if i == currentIdx {
+			result["queries"] += atomic.LoadInt64(&bucket.queries)
+			result["effective_queries"] += atomic.LoadInt64(&bucket.effectiveQueries)
+			result["cache_hits"] += atomic.LoadInt64(&bucket.cacheHits)
+			result["cache_misses"] += atomic.LoadInt64(&bucket.cacheMisses)
+			result["cache_stale_refresh"] += atomic.LoadInt64(&bucket.cacheStaleRefresh)
+			result["upstream_failures"] += atomic.LoadInt64(&bucket.upstreamFailures)
+			continue
+		}
+
+		// 其他桶使用正常的时间过滤
 		if bucket.timestamp.After(startTime) || bucket.timestamp.Equal(startTime) {
 			result["queries"] += atomic.LoadInt64(&bucket.queries)
 			result["effective_queries"] += atomic.LoadInt64(&bucket.effectiveQueries)
@@ -122,26 +135,60 @@ func (t *GeneralStatsTracker) Aggregate(startTime time.Time) map[string]int64 {
 }
 
 // rotateBucket 旋转时间桶
+// 基于物理时钟校正，允许跳过多个桶
 func (t *GeneralStatsTracker) rotateBucket() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.current = (t.current + 1) % t.bucketCount
-	bucket := t.buckets[t.current]
-	bucket.timestamp = time.Now()
+	now := time.Now()
 
-	// 重置桶内数据
-	atomic.StoreInt64(&bucket.queries, 0)
-	atomic.StoreInt64(&bucket.effectiveQueries, 0)
-	atomic.StoreInt64(&bucket.cacheHits, 0)
-	atomic.StoreInt64(&bucket.cacheMisses, 0)
-	atomic.StoreInt64(&bucket.cacheStaleRefresh, 0)
-	atomic.StoreInt64(&bucket.upstreamFailures, 0)
+	// 计算应该旋转多少个桶
+	timeDiff := now.Sub(t.buckets[t.current].timestamp)
+	bucketsToRotate := int(timeDiff / t.bucketSize)
+
+	if bucketsToRotate < 1 {
+		// 还没到旋转时间，跳过
+		return
+	}
+
+	if bucketsToRotate > t.bucketCount {
+		// 系统暂停太久，所有桶都失效了，重置
+		for i := 0; i < t.bucketCount; i++ {
+			bucket := t.buckets[i]
+			atomic.StoreInt64(&bucket.queries, 0)
+			atomic.StoreInt64(&bucket.effectiveQueries, 0)
+			atomic.StoreInt64(&bucket.cacheHits, 0)
+			atomic.StoreInt64(&bucket.cacheMisses, 0)
+			atomic.StoreInt64(&bucket.cacheStaleRefresh, 0)
+			atomic.StoreInt64(&bucket.upstreamFailures, 0)
+		}
+		t.current = 0
+		t.buckets[0].timestamp = now
+		return
+	}
+
+	// 旋转多个桶（如果跳过了多个间隔）
+	for i := 0; i < bucketsToRotate; i++ {
+		t.current = (t.current + 1) % t.bucketCount
+		bucket := t.buckets[t.current]
+
+		// 重置桶数据
+		atomic.StoreInt64(&bucket.queries, 0)
+		atomic.StoreInt64(&bucket.effectiveQueries, 0)
+		atomic.StoreInt64(&bucket.cacheHits, 0)
+		atomic.StoreInt64(&bucket.cacheMisses, 0)
+		atomic.StoreInt64(&bucket.cacheStaleRefresh, 0)
+		atomic.StoreInt64(&bucket.upstreamFailures, 0)
+	}
+
+	// 设置当前桶的时间为物理时钟对齐的时间
+	alignedTime := now.Truncate(t.bucketSize)
+	t.buckets[t.current].timestamp = alignedTime
 }
 
 // startRotation 启动时间桶旋转
 func (t *GeneralStatsTracker) startRotation() {
-	ticker := time.NewTicker(t.bucketSize)
+	ticker := time.NewTicker(t.bucketSize / 2) // 检查频率是桶间隔的一半
 	defer ticker.Stop()
 
 	for {

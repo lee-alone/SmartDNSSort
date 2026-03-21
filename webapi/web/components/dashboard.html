@@ -1,4 +1,20 @@
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 max-w-[1600px] mx-auto">
+<!-- Loading Indicator -->
+<div id="dashboard-loading" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-card-light dark:bg-card-dark rounded-xl p-8 shadow-xl flex flex-col items-center gap-4">
+        <span class="material-symbols-outlined text-4xl text-primary animate-spin">refresh</span>
+        <p class="text-text-main-light dark:text-text-main-dark font-medium" data-i18n="dashboard.loading">加载中...</p>
+    </div>
+</div>
+
+<!-- Error State -->
+<div id="dashboard-error" class="hidden bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-4">
+    <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-red-500">error</span>
+        <p class="text-red-700 dark:text-red-300 text-sm" id="dashboard-error-message"></p>
+    </div>
+</div>
+
+<div class="dashboard-grid">
     <!-- Global Stats Period Selector -->
     <div class="col-span-1 md:col-span-2 xl:col-span-4 mb-2 flex justify-end items-center gap-3">
         <span class="text-sm text-text-sub-light dark:text-text-sub-dark font-medium" data-i18n="dashboard.statsPeriod">Stats Period</span>
@@ -42,6 +58,10 @@
                 <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
                     data-i18n="dashboard.cacheHitRate">Cache Hit Rate</p>
                 <h3 id="cache_hit_rate" class="text-2xl font-bold">0.00%</h3>
+                <!-- 在缓存命中率卡片中添加图表 -->
+                <div class="flex items-center justify-center mt-2">
+                    <div id="cache-hit-rate-chart"></div>
+                </div>
             </div>
             <div>
                 <p class="text-xs text-text-sub-light dark:text-text-sub-dark"

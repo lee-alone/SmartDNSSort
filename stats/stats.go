@@ -8,9 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"smartdnssort/connectivity"
+
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"smartdnssort/connectivity"
 )
 
 // Stats 运行统计
@@ -49,6 +50,17 @@ type Stats struct {
 
 	// 失败节点自动失效时间窗口（默认 24 小时）
 	failedNodesTTL time.Duration
+
+	// 缓存字段（用于减少 goroutine 创建）
+	topDomainsCache      []DomainCount
+	topBlockedCache      []BlockedDomainCount
+	topDomainsUpdateTime time.Time
+	topBlockedUpdateTime time.Time
+	cacheMu              sync.RWMutex
+	cacheTTL             time.Duration // 缓存有效期，如 5 秒
+
+	// 停止通道，用于优雅停止后台协程
+	stopChan chan struct{}
 }
 
 // NewStats 创建新的统计实例
@@ -82,16 +94,52 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 		bucketCount,
 	)
 
-	return &Stats{
+	s := &Stats{
 		failedNodes:         make(map[string]int64),
-		failedNodesTime:     make(map[string]time.Time), // 初始化时间戳 map
+		failedNodesTime:     make(map[string]time.Time),                       // 初始化时间戳 map
 		hotDomains:          NewHotDomainsTrackerWithNetworkChecker(cfg, nil), // 初始为 nil，后续通过 SetNetworkChecker 设置
 		blockedDomains:      NewBlockedDomainsTracker(cfg),
 		generalStatsTracker: generalStatsTracker,
 		startTime:           time.Now(),
 		lastCheckTime:       time.Now(),
-		failedNodesTTL:      24 * time.Hour, // 默认 24 小时自动失效
+		failedNodesTTL:      24 * time.Hour,      // 默认 24 小时自动失效
+		cacheTTL:            5 * time.Second,     // 缓存有效期 5 秒
+		stopChan:            make(chan struct{}), // 初始化停止通道
 	}
+
+	// 启动后台定期更新协程（只启动一次）
+	go s.startCacheRefresh()
+
+	return s
+}
+
+// startCacheRefresh 后台定期更新缓存
+func (s *Stats) startCacheRefresh() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.refreshCache()
+		case <-s.stopChan: // 接收停止信号
+			return // 退出协程
+		}
+	}
+}
+
+// refreshCache 在后台更新缓存
+func (s *Stats) refreshCache() {
+	// 在后台更新，不影响读请求
+	topDomains := s.hotDomains.GetTopDomains(10)
+	topBlocked := s.blockedDomains.GetTopBlockedDomains(10)
+
+	s.cacheMu.Lock()
+	s.topDomainsCache = topDomains
+	s.topBlockedCache = topBlocked
+	s.topDomainsUpdateTime = time.Now()
+	s.topBlockedUpdateTime = time.Now()
+	s.cacheMu.Unlock()
 }
 
 // IncQueries 增加查询计数
@@ -228,57 +276,90 @@ func (s *Stats) GetStatsWithTimeRange(days int) map[string]interface{} {
 }
 
 // GetStats 获取所有统计数据
+// GetStats 获取所有统计数据（优化版本）
 func (s *Stats) GetStats() map[string]interface{} {
-	// 1. 快速获取所有需要锁定的数据
-	s.mu.RLock()
-	
-	// 只复制未过期的失败节点
-	now := time.Now()
-	failedNodesCopy := make(map[string]int64)
-	for k, v := range s.failedNodes {
-		if t, exists := s.failedNodesTime[k]; exists && now.Sub(t) <= s.failedNodesTTL {
-			failedNodesCopy[k] = v
-		}
-	}
-	s.mu.RUnlock() // 尽快释放锁
-
-	// 2. 在锁之外执行耗时操作
-	topDomains := s.GetTopDomains(10) // 这个函数有自己的锁
-	topBlockedDomains := s.GetTopBlockedDomains(10)
-
+	// 1. 先获取所有原子值（无锁）
 	queries := atomic.LoadInt64(&s.queries)
 	effectiveQueries := atomic.LoadInt64(&s.effectiveQueries)
+	cacheHits := atomic.LoadInt64(&s.cacheHits)
+	cacheMisses := atomic.LoadInt64(&s.cacheMisses)
+	cacheStaleRefresh := atomic.LoadInt64(&s.cacheStaleRefresh)
+	upstreamFailures := atomic.LoadInt64(&s.upstreamFailures)
+	pingSuccesses := atomic.LoadInt64(&s.pingSuccesses)
+	pingFailures := atomic.LoadInt64(&s.pingFailures)
+	totalRTT := atomic.LoadInt64(&s.totalRTT)
+
+	// 2. 快速获取失败节点快照（最小锁范围）
+	s.mu.RLock()
+	now := time.Now()
+	failedNodesSnapshot := make(map[string]int64)
+	for k, v := range s.failedNodes {
+		if t, exists := s.failedNodesTime[k]; exists && now.Sub(t) <= s.failedNodesTTL {
+			failedNodesSnapshot[k] = v
+		}
+	}
+	s.mu.RUnlock()
+
+	// 3. 直接读取缓存，不创建 goroutine
+	s.cacheMu.RLock()
+	topDomains := s.topDomainsCache
+	topBlockedDomains := s.topBlockedCache
+	cacheTime := s.topDomainsUpdateTime
+	s.cacheMu.RUnlock()
+
+	// 可选：如果缓存太旧，触发一次同步更新
+	if time.Since(cacheTime) > 10*time.Second {
+		go s.refreshCache() // 异步触发，不阻塞
+	}
+
+	// 4. 计算派生指标（无锁）
 	var hitRate float64
 	if effectiveQueries > 0 {
-		hits := atomic.LoadInt64(&s.cacheHits)
-		hitRate = float64(hits) / float64(effectiveQueries) * 100
+		hitRate = float64(cacheHits) / float64(effectiveQueries) * 100
 	}
 
 	var avgRTT int64
-	pings := atomic.LoadInt64(&s.pingSuccesses)
-	if pings > 0 {
-		avgRTT = atomic.LoadInt64(&s.totalRTT) / pings
+	if pingSuccesses > 0 {
+		avgRTT = totalRTT / pingSuccesses
 	}
 
-	// 获取系统状态 (使用 gopsutil)
-	// 使用非阻塞方式获取CPU使用率，避免阻塞统计调用
-	var cpuUsage []float64
-	cpuUsageCh := make(chan []float64, 1)
-	go func() {
-		usage, err := cpu.Percent(time.Millisecond*200, false)
-		if err != nil {
-			logger.Warnf("无法获取 CPU 使用率: %v", err)
-			cpuUsageCh <- []float64{0.0}
-			return
-		}
-		cpuUsageCh <- usage
-	}()
+	// 5. 获取系统状态（耗时操作，已在锁外）
+	sysStats := s.getSystemStats()
 
-	// 等待CPU使用率结果，但设置超时避免长时间阻塞
-	select {
-	case cpuUsage = <-cpuUsageCh:
-	case <-time.After(100 * time.Millisecond):
-		// 超时，使用默认值
+	// 6. 构建返回结果
+	return map[string]interface{}{
+		"total_queries":       queries,
+		"effective_queries":   effectiveQueries,
+		"cache_hits":          cacheHits,
+		"cache_misses":        cacheMisses,
+		"cache_stale_refresh": cacheStaleRefresh,
+		"cache_hit_rate":      hitRate,
+		"upstream_failures":   upstreamFailures,
+		"ping_successes":      pingSuccesses,
+		"ping_failures":       pingFailures,
+		"average_rtt_ms":      avgRTT,
+		"failed_nodes":        failedNodesSnapshot,
+		"system_stats":        sysStats,
+		"top_domains":         topDomains,
+		"top_blocked_domains": topBlockedDomains,
+		"uptime_seconds":      time.Since(s.startTime).Seconds(),
+		"evictions_per_min":   0.0,
+	}
+}
+
+// getSystemStats 获取系统状态（提取为独立方法）
+// 使用非阻塞采样，避免 goroutine 泄漏和死锁
+func (s *Stats) getSystemStats() map[string]interface{} {
+	// gopsutil 的 cpu.Percent 在 block=false 时立即返回
+	// 第一次调用返回 0，后续调用返回上次的采样值
+	var cpuUsage []float64
+	usage, err := cpu.Percent(0, false) // 0 表示不阻塞
+	if err != nil {
+		logger.Warnf("无法获取 CPU 使用率: %v", err)
+		cpuUsage = []float64{0.0}
+	} else if len(usage) > 0 {
+		cpuUsage = usage
+	} else {
 		cpuUsage = []float64{0.0}
 	}
 
@@ -305,24 +386,7 @@ func (s *Stats) GetStats() map[string]interface{} {
 		sysStats["mem_usage_pct"] = memInfo.UsedPercent
 	}
 
-	return map[string]interface{}{
-		"total_queries":       queries,
-		"effective_queries":   effectiveQueries,
-		"cache_hits":          atomic.LoadInt64(&s.cacheHits),
-		"cache_misses":        atomic.LoadInt64(&s.cacheMisses),
-		"cache_stale_refresh": atomic.LoadInt64(&s.cacheStaleRefresh),
-		"cache_hit_rate":      hitRate,
-		"upstream_failures":   atomic.LoadInt64(&s.upstreamFailures),
-		"ping_successes":      pings,
-		"ping_failures":       atomic.LoadInt64(&s.pingFailures),
-		"average_rtt_ms":      avgRTT,
-		"failed_nodes":        failedNodesCopy,
-		"system_stats":        sysStats,
-		"top_domains":         topDomains,
-		"top_blocked_domains": topBlockedDomains,
-		"uptime_seconds":      time.Since(s.startTime).Seconds(),
-		"evictions_per_min":   0.0, // 占位符，由 API 处理器计算
-	}
+	return sysStats
 }
 
 // RecordDomainQuery 记录域名查询次数
@@ -407,6 +471,10 @@ func (s *Stats) Reset() {
 
 // Stop 停止统计服务
 func (s *Stats) Stop() {
+	// 先停止缓存刷新协程
+	close(s.stopChan)
+
+	// 再停止其他追踪器
 	s.hotDomains.Stop()
 	s.blockedDomains.Stop()
 	s.generalStatsTracker.Stop()

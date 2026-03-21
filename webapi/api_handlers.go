@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"smartdnssort/config"
+	"smartdnssort/connectivity"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
-	"smartdnssort/connectivity"
 	"sort"
 	"strconv"
 	"strings"
@@ -239,7 +239,20 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	queries := s.dnsServer.GetRecentQueries()
+
+	// 获取时间范围参数
+	daysStr := r.URL.Query().Get("days")
+	days := 7 // 默认 7 天
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil {
+			if d == 1 || d == 7 || d == 30 {
+				days = d
+			}
+		}
+	}
+
+	// 获取指定时间范围内的最近查询
+	queries := s.dnsServer.GetRecentQueriesWithTimeRange(days)
 	if queries == nil {
 		queries = []string{}
 	}
@@ -267,7 +280,20 @@ func (s *Server) handleBlockedDomains(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	stats := s.dnsServer.GetStats()
+
+	// 获取时间范围参数
+	daysStr := r.URL.Query().Get("days")
+	days := 7 // 默认 7 天
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil {
+			if d == 1 || d == 7 || d == 30 {
+				days = d
+			}
+		}
+	}
+
+	// 获取指定时间范围内的被拦截域名
+	stats := s.dnsServer.GetStatsWithTimeRange(days)
 	topBlockedDomainsList, ok := stats["top_blocked_domains"]
 	if !ok || topBlockedDomainsList == nil {
 		topBlockedDomainsList = []interface{}{}
@@ -322,7 +348,19 @@ func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domains := s.dnsCache.GetRecentlyBlocked().GetAll()
+	// 获取时间范围参数
+	daysStr := r.URL.Query().Get("days")
+	days := 7 // 默认 7 天
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil {
+			if d == 1 || d == 7 || d == 30 {
+				days = d
+			}
+		}
+	}
+
+	// 获取指定时间范围内的最近被拦截域名
+	domains := s.dnsCache.GetRecentlyBlocked().GetAllWithTimeRange(days)
 	if domains == nil {
 		domains = []string{}
 	}
