@@ -28,7 +28,7 @@ type Cache struct {
 	config       *config.CacheConfig           // 缓存配置
 	maxEntries   int                           // 最大条目数
 	rawCache     *ShardedCache                 // 原始缓存（使用分片 LRU 管理）
-	sortedCache  *LRUCache                     // 排序缓存（使用 LRU 管理）
+	sortedCache  *ShardedLRUCache              // 排序缓存（使用分片 LRU 管理，消除全局锁瓶颈）
 	sortingState map[string]*SortingState      // 排序任务状态
 	errorCache   *LRUCache                     // 错误缓存（使用 LRU 管理）
 	blockedCache map[string]*BlockedCacheEntry // 拦截缓存
@@ -84,7 +84,7 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 		config:          cfg,
 		maxEntries:      maxEntries,
 		rawCache:        NewShardedCache(maxEntries, 64), // 使用分片缓存获得 10x+ 性能提升
-		sortedCache:     NewLRUCache(maxEntries),
+		sortedCache:     NewShardedLRUCache(maxEntries, 64), // 使用分片 LRU 缓存，消除全局锁瓶颈
 		sortingState:    make(map[string]*SortingState),
 		errorCache:      NewLRUCache(maxEntries),
 		blockedCache:    make(map[string]*BlockedCacheEntry),
@@ -189,7 +189,7 @@ func (c *Cache) Close() error {
 		c.rawCache.Close()
 	}
 
-	// 关闭 LRUCache 的异步处理
+	// 关闭 ShardedLRUCache 的异步处理
 	if c.sortedCache != nil {
 		c.sortedCache.Close()
 	}

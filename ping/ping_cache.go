@@ -115,24 +115,47 @@ func (p *Pinger) UpdateIPCache(ip string, rtt int, loss float64, probeMethod str
 		return
 	}
 
-	// 静默隔离：如果网络探测器报告离线，则拒绝更新缓存
+	// 静默隔离：如果网络探测器报告离线，则拒绝更新 RTT 缓存
 	// 目的："缓存防毒"。如果是本地断网（由于拨号、网关故障等），
 	// 探测结果必然是全部超时。如果不拦截，这些假性的"不可达"会瞬间刷掉之前缓存的所有优质 IP 数据。
-	if p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy() {
-		logger.Warnf("[Pinger] Network is offline, skipping cache update for %s to prevent poisoning", ip)
+	//
+	// 修复 #1：断网时仍然更新 IPPool 的 EWMA 数据，因为：
+	// 1. IPPool 使用 EWMA 平滑，单次断网探测不会剧烈影响历史数据
+	// 2. 网络恢复后，IPPool 的数据可以帮助快速恢复排序
+	// 3. 只阻止 RTT 缓存更新，防止"不可达"结果污染缓存
+	isNetworkOffline := p.healthChecker != nil && !p.healthChecker.IsNetworkHealthy()
+	if isNetworkOffline {
+		logger.Warnf("[Pinger] Network is offline, skipping RTT cache update for %s to prevent poisoning", ip)
+		// 仍然更新 IPPool 的 EWMA 数据（使用较小的平滑系数，减少断网数据的影响）
+		// 第四阶段：使用配置化的 alphaOffline 参数
+		if p.ipPool != nil {
+			alpha := p.alphaOffline
+			if alpha <= 0 {
+				alpha = 0.1 // 默认值
+			}
+			p.ipPool.UpdateIPRTT(ip, rtt, loss, alpha)
+		}
 		return
 	}
 
 	// 第一阶段改造：同步更新 IPPool 中的 RTT 数据
-	// 使用 EWMA 平滑系数 0.3，平衡响应速度和稳定性
+	// 第四阶段：使用配置化的 alphaOnline 参数
 	if p.ipPool != nil {
-		p.ipPool.UpdateIPRTT(ip, rtt, loss, 0.3)
+		alpha := p.alphaOnline
+		if alpha <= 0 {
+			alpha = 0.3 // 默认值
+		}
+		p.ipPool.UpdateIPRTT(ip, rtt, loss, alpha)
 	}
 
 	// 第三阶段修复：更新失败权重系统
 	// 这样无论是后台监控还是用户请求，只要更新了缓存，权重系统就会同步更新
-	// 软容错改造：当 RTT < LogicDeadRTT 时，意味着至少有一次探测成功，立即重置失败惩罚
-	if rtt < LogicDeadRTT {
+	// 第四阶段：使用配置化的 deadThresholdMs 参数
+	deadThreshold := p.deadThresholdMs
+	if deadThreshold <= 0 {
+		deadThreshold = LogicDeadRTT // 默认值
+	}
+	if rtt < deadThreshold {
 		p.RecordIPSuccess(ip)
 	} else {
 		p.RecordIPFailure(ip)
@@ -185,14 +208,24 @@ func (p *Pinger) calculateDynamicTTL(r Result) time.Duration {
 
 	if r.Loss == 0 {
 		// 完全成功（0% 丢包）
-		if r.RTT < 50 {
-			// 极优 IP（RTT < 50ms）：10 倍基础 TTL
+		// 修复 #7：使用可配置的 RTT 阈值，而非硬编码的 50ms/100ms
+		excellentThreshold := p.rttThresholdExcellent
+		if excellentThreshold <= 0 {
+			excellentThreshold = 50 // 默认值
+		}
+		goodThreshold := p.rttThresholdGood
+		if goodThreshold <= 0 {
+			goodThreshold = 100 // 默认值
+		}
+
+		if r.RTT < excellentThreshold {
+			// 极优 IP：10 倍基础 TTL
 			ratio = 10.0
-		} else if r.RTT < 100 {
-			// 优质 IP（RTT 50-100ms）：5 倍基础 TTL
+		} else if r.RTT < goodThreshold {
+			// 优质 IP：5 倍基础 TTL
 			ratio = 5.0
 		} else {
-			// 一般 IP（RTT >= 100ms）：2 倍基础 TTL
+			// 一般 IP：2 倍基础 TTL
 			ratio = 2.0
 		}
 	} else if r.Loss < 20 {
@@ -256,14 +289,9 @@ func (p *Pinger) triggerStaleRevalidate(ip, domain string) {
 			return
 		}
 
-		// 记录失效权重
-		if result.FastFail {
-			// 已经在 pingIP 中记录过了
-		} else if result.Loss == 100 {
-			p.RecordIPFailure(ip)
-		} else {
-			p.RecordIPSuccess(ip)
-		}
+		// 记录失效权重（使用统一方法）
+		// 修复 #8：使用统一的 recordProbeResult 方法
+		p.recordProbeResult(ip, result.Loss, result.FastFail)
 
 		// 更新缓存
 		if p.rttCacheTtlSeconds > 0 {

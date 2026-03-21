@@ -261,6 +261,31 @@ func (sc *ShardedCache) GetSnapshot() []SnapshotEntry {
 	return results
 }
 
+// StreamForEach 流式遍历所有缓存条目，按分片锁定并逐个处理
+// 内存占用从 O(N) 降为 O(分片大小)，适用于百万级缓存的持久化场景
+// 处理函数返回 false 时可提前终止遍历
+func (sc *ShardedCache) StreamForEach(fn func(key string, value any) bool) {
+	for _, shard := range sc.shards {
+		shard.mu.RLock()
+		// 收集当前分片的所有 key-value 对（仅当前分片，内存可控）
+		entries := make([]SnapshotEntry, 0, len(shard.cache))
+		for elem := shard.list.head; elem != nil; elem = elem.next {
+			entries = append(entries, SnapshotEntry{
+				Key:   elem.key,
+				Value: elem.value,
+			})
+		}
+		shard.mu.RUnlock()
+
+		// 在释放锁后处理条目
+		for _, entry := range entries {
+			if !fn(entry.Key, entry.Value) {
+				return // 提前终止
+			}
+		}
+	}
+}
+
 // CacheShard 方法
 
 // processAccessRecords 异步处理访问记录，批量更新 LRU 链表

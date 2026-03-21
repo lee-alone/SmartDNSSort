@@ -52,9 +52,16 @@ func NewPinger(count, timeoutMs, concurrency, maxTestIPs, rttCacheTtlSeconds int
 		staleGracePeriod:   30 * time.Second, // 默认 30 秒软过期容忍期
 		icmpReady:          make(chan struct{}),
 		// TCP 回退探测默认配置
-		enableTCPFallback: true,            // 默认启用 TCP 回退
+		enableTCPFallback: true,           // 默认启用 TCP 回退
 		tcpFallbackPorts:  []int{443, 80}, // 默认探测 443 (HTTPS) 和 80 (HTTP)
-		tcpThresholdMs:    1000,            // 默认 ICMP 延迟超过 1000ms 时触发 TCP 回退
+		tcpThresholdMs:    1000,           // 默认 ICMP 延迟超过 1000ms 时触发 TCP 回退
+		// 修复 #7：TTL 阈值默认配置
+		rttThresholdExcellent: 50,  // 默认极优 IP 阈值 50ms
+		rttThresholdGood:      100, // 默认优质 IP 阈值 100ms
+		// 第四阶段：EWMA 平滑系数配置
+		deadThresholdMs: LogicDeadRTT, // 默认逻辑失效阈值 9000ms
+		alphaOnline:     0.3,          // 默认在线时 EWMA 系数
+		alphaOffline:    0.1,          // 默认断网时 EWMA 系数
 	}
 
 	// 初始化全局 ICMP 调度器
@@ -218,13 +225,15 @@ func (p *Pinger) startICMPReceiver() {
 					// 解析 ICMPv6 报文
 					// 软容错改造：智能判断报文格式，解决 Linux/Windows 兼容性问题
 					// 不要硬跳字节。检查 buf[0]。
-					// 如果 buf[0] == 0x60 (IPv6) 且长度 > 40，跳过 40 字节。
+					// 如果是 IPv6 报文且长度 > 40，跳过 40 字节。
 					// 否则，直接解析。
 					icmpData := buf[:n]
 					if n > 0 {
-						// 检查第一个字节判断是否为 IPv6 报文
-						// 0x60 = IPv6 (版本号 6)
-						if buf[0] == 0x60 && n > 40 {
+						// 修复 #5：使用更宽松的 IPv6 版本号检查
+						// 原先只检查 buf[0] == 0x60，但某些系统的 Traffic Class 字段可能不为 0
+						// 使用 (buf[0] >> 4) == 0x06 检查版本号，兼容 Traffic Class 不为 0 的情况
+						// IPv6 版本号在高 4 位，值为 6 (0110)
+						if (buf[0]>>4) == 0x06 && n > 40 {
 							// IPv6 报文，跳过 40 字节首部
 							icmpData = buf[40:n]
 						}

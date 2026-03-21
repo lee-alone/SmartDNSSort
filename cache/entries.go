@@ -151,4 +151,8 @@ type PersistentCacheEntry struct {
 	IPs    []string `json:"ips"`
 	CNAME  string   `json:"cname,omitempty"`  // 旧版本兼容
 	CNAMEs []string `json:"cnames,omitempty"` // 新版本字段
+
+	// 平滑恢复字段：用于计算剩余 TTL，实现"继承与容灾并重"
+	AcquisitionTime int64  `json:"acquisition_time"` // 原始获取时间 (Unix 时间戳)
+	EffectiveTTL    uint32 `json:"effective_ttl"`    // 当时生效的 TTL 策略值（秒）
 }

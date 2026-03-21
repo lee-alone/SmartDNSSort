@@ -111,12 +111,15 @@ func (m *IPMonitor) GetStats() IPMonitorStats {
 	defer m.mu.RUnlock()
 
 	// 计算降级 IP 数量
+	// 修复 #6：使用 sync.Map 的 Range 方法遍历
 	downgradedCount := 0
-	for _, record := range m.stabilityRecords {
+	m.stabilityRecords.Range(func(key, value interface{}) bool {
+		record := value.(*IPStabilityRecord)
 		if record.IsDowngraded || record.StableCount >= m.config.StabilityThreshold {
 			downgradedCount++
 		}
-	}
+		return true
+	})
 
 	stats := m.stats
 	stats.DowngradedIPs = downgradedCount
@@ -135,6 +138,10 @@ func (m *IPMonitor) GetIPPool() *IPPool {
 func (m *IPMonitor) GetPinger() *Pinger {
 	return m.pinger
 }
+
+// 新 IP 保护期常量
+// 修复 #10：防止误删新 IP 记录
+const newIPProtectionPeriod = 5 * time.Minute
 
 // cleanupStaleIPs 清理 IP 池中的僵尸 IP
 // 定期执行，清理长时间未访问且无引用的 IP，防止内存泄露
@@ -161,17 +168,31 @@ func (m *IPMonitor) cleanupStaleIPs() {
 	}
 
 	// 遍历 stabilityRecords，删除不在 IP 池中的孤立记录
-	m.mu.Lock()
+	// 修复 #6：使用 sync.Map 的 Range 和 Delete 方法
+	// 修复 #10：增加新 IP 保护期，防止误删新 IP 记录
 	orphanCount := 0
-	for ip := range m.stabilityRecords {
+	protectedCount := 0
+	now := time.Now()
+	m.stabilityRecords.Range(func(key, value interface{}) bool {
+		ip := key.(string)
+		record := value.(*IPStabilityRecord)
 		if !validIPs[ip] {
-			delete(m.stabilityRecords, ip)
+			// 检查是否在保护期内
+			if now.Sub(record.LastCheck) < newIPProtectionPeriod {
+				// 保护期内，跳过清理
+				protectedCount++
+				return true
+			}
+			m.stabilityRecords.Delete(ip)
 			orphanCount++
 		}
-	}
-	m.mu.Unlock()
+		return true
+	})
 
 	if orphanCount > 0 {
 		logger.Debugf("[IPMonitor] Cleaned %d orphan stability records", orphanCount)
+	}
+	if protectedCount > 0 {
+		logger.Debugf("[IPMonitor] Protected %d new IP stability records (within %v protection period)", protectedCount, newIPProtectionPeriod)
 	}
 }

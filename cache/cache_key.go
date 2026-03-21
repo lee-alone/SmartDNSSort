@@ -14,11 +14,13 @@ var builderPool = sync.Pool{
 }
 
 // cacheKey 生成缓存键，包含查询类型
+// DNS 域名不区分大小写，统一转换为小写以避免重复缓存
 func cacheKey(domain string, qtype uint16) string {
-	return domain + "#" + strconv.FormatUint(uint64(qtype), 10)
+	return strings.ToLower(domain) + "#" + strconv.FormatUint(uint64(qtype), 10)
 }
 
 // parseCacheKey 解析缓存键，返回域名和查询类型
+// 返回的域名已转换为小写
 func parseCacheKey(key string) (string, uint16) {
 	parts := strings.Split(key, "#")
 	if len(parts) != 2 {

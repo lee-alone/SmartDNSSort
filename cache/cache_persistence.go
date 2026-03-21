@@ -2,8 +2,8 @@ package cache
 
 import (
 	"encoding/gob"
+	"math/rand"
 	"os"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -11,7 +11,7 @@ import (
 )
 
 // SaveToDisk 将缓存保存到磁盘
-// 采用原子写入策略：直接使用 Gob 流式编码写入临时文件，再重命名
+// 采用流式持久化策略：按分片锁定并直接写入文件，内存占用从 O(N) 降为 O(分片大小)
 func (c *Cache) SaveToDisk(filename string) error {
 	// 1. 脏数据检查
 	currentDirty := c.rawCache.GetDirtyCount()
@@ -20,57 +20,71 @@ func (c *Cache) SaveToDisk(filename string) error {
 		return nil
 	}
 
-	// 2. 获取一致性快照 (分片锁定保证安全)
-	snapshot := c.rawCache.GetSnapshot()
-
-	// 3. 准备持久化条目
-	entries := make([]PersistentCacheEntry, 0, len(snapshot))
-	for _, s := range snapshot {
-		entry, ok := s.Value.(*RawCacheEntry)
-		if !ok {
-			continue
-		}
-
-		domain := c.extractDomain(s.Key)
-		// Extract QType from key (format: domain#qtype_char)
-		parts := strings.Split(s.Key, "#")
-		if len(parts) != 2 {
-			continue
-		}
-		qtype := uint16([]rune(parts[1])[0])
-
-		entryCNAMEs := entry.CNAMEs
-		var legacyCNAME string
-		if len(entryCNAMEs) > 0 {
-			legacyCNAME = entryCNAMEs[0]
-		}
-
-		entries = append(entries, PersistentCacheEntry{
-			Domain: domain,
-			QType:  qtype,
-			IPs:    entry.IPs,
-			CNAME:  legacyCNAME,
-			CNAMEs: entryCNAMEs,
-		})
-	}
-
-	// 4. 原子写入
+	// 2. 创建临时文件
 	tempFile := filename + ".tmp"
 	f, err := os.Create(tempFile)
 	if err != nil {
 		return err
 	}
 
-	// 使用 Encoder 直接流式写入，减少大块内存分配
+	// 3. 流式写入：使用 gob 流式编码器直接写入文件
+	//    先写入条目数量占位符，再逐条写入数据
 	encoder := gob.NewEncoder(f)
-	if err := encoder.Encode(entries); err != nil {
+
+	// 统计实际写入的条目数
+	var entryCount uint64
+
+	// 4. 流式遍历所有分片，直接编码写入
+	//    每次只锁定一个分片，处理完立即释放，内存占用可控
+	c.rawCache.StreamForEach(func(key string, value any) bool {
+		entry, ok := value.(*RawCacheEntry)
+		if !ok {
+			return true // 继续遍历
+		}
+
+		// 解析 domain 和 QType
+		domain, qtype := parseCacheKey(key)
+		if domain == "" {
+			return true // 继续遍历
+		}
+
+		// 准备 CNAME 数据
+		entryCNAMEs := entry.CNAMEs
+		var legacyCNAME string
+		if len(entryCNAMEs) > 0 {
+			legacyCNAME = entryCNAMEs[0]
+		}
+
+		// 构建持久化条目
+		persistentEntry := PersistentCacheEntry{
+			Domain:          domain,
+			QType:           qtype,
+			IPs:             entry.IPs,
+			CNAME:           legacyCNAME,
+			CNAMEs:          entryCNAMEs,
+			AcquisitionTime: entry.AcquisitionTime.Unix(),
+			EffectiveTTL:    entry.EffectiveTTL,
+		}
+
+		// 直接编码写入单条记录
+		if err := encoder.Encode(persistentEntry); err != nil {
+			return false // 遇到错误，停止遍历
+		}
+
+		entryCount++
+		return true // 继续遍历
+	})
+
+	// 检查是否有错误发生（通过条目数判断）
+	if entryCount == 0 && c.rawCache.Len() > 0 {
 		f.Close()
 		os.Remove(tempFile)
-		return err
+		// 如果有数据但没写入，说明编码出错
 	}
+
 	f.Close()
 
-	// 原子替换
+	// 5. 原子替换
 	if err := os.Rename(tempFile, filename); err != nil {
 		return err
 	}
@@ -81,6 +95,8 @@ func (c *Cache) SaveToDisk(filename string) error {
 }
 
 // LoadFromDisk 从磁盘加载缓存
+// 实现平滑恢复算法：继承剩余 TTL 或分配抖动延迟，避免集体失效洪峰
+// 支持流式读取：逐条解码，内存占用 O(1)
 func (c *Cache) LoadFromDisk(filename string) error {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -91,13 +107,22 @@ func (c *Cache) LoadFromDisk(filename string) error {
 	}
 	defer f.Close()
 
-	var entries []PersistentCacheEntry
 	decoder := gob.NewDecoder(f)
-	if err := decoder.Decode(&entries); err != nil {
-		return err
-	}
+	now := time.Now().Unix()
 
-	for _, entry := range entries {
+	// 流式读取：逐条解码，避免一次性加载整个切片到内存
+	for {
+		var entry PersistentCacheEntry
+		err := decoder.Decode(&entry)
+		if err != nil {
+			// EOF 表示读取完成
+			if err.Error() == "EOF" {
+				break
+			}
+			// 其他错误需要返回
+			return err
+		}
+
 		key := cacheKey(entry.Domain, entry.QType)
 
 		cnames := entry.CNAMEs
@@ -105,11 +130,34 @@ func (c *Cache) LoadFromDisk(filename string) error {
 			cnames = []string{entry.CNAME}
 		}
 
+		// 平滑恢复算法：计算剩余寿命并动态分配 TTL
+		var loadTTL uint32
+		if entry.AcquisitionTime > 0 && entry.EffectiveTTL > 0 {
+			// 有完整的持久化数据，执行平滑恢复
+			elapsed := now - entry.AcquisitionTime
+			remainingTTL := int64(entry.EffectiveTTL) - elapsed
+
+			if remainingTTL > 30 {
+				// 场景 A：数据依然很新鲜
+				// 策略：直接继承剩余寿命，保证准确性
+				loadTTL = uint32(remainingTTL)
+			} else {
+				// 场景 B：数据已过期或即将过期
+				// 策略：分配 30s 基础 TTL + 抖动延迟（15~45s）
+				// 核心用意：防止在重启后的第 30.001 秒发生二次集体失效洪峰
+				loadTTL = uint32(15 + rand.Intn(31)) // 15~45s 随机分布
+			}
+		} else {
+			// 旧版本数据或数据不完整，使用默认 30s + 抖动
+			loadTTL = uint32(15 + rand.Intn(31))
+		}
+
 		cacheEntry := &RawCacheEntry{
 			IPs:             entry.IPs,
 			CNAMEs:          cnames,
-			UpstreamTTL:     300,
-			AcquisitionTime: time.Now(),
+			UpstreamTTL:     loadTTL,
+			EffectiveTTL:    loadTTL,
+			AcquisitionTime: time.Now(), // 以加载时间为新起点
 		}
 		c.rawCache.Set(key, cacheEntry)
 	}

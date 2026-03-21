@@ -111,16 +111,9 @@ func (p *Pinger) PingAndSort(ctx context.Context, ips []string, domain string) [
 	results := p.concurrentPing(ctx, toPing, domain)
 
 	// 记录失效权重（避免两重记录）
+	// 修复 #8：使用统一的 recordProbeResult 方法
 	for _, r := range results {
-		if r.FastFail {
-			// 已经在 pingIP 中通过 RecordIPFastFail 记录过了，跳过以避免重复
-			continue
-		}
-		if r.Loss == 100 {
-			p.RecordIPFailure(r.IP)
-		} else {
-			p.RecordIPSuccess(r.IP)
-		}
+		p.recordProbeResult(r.IP, r.Loss, r.FastFail)
 	}
 
 	// 更新缓存（缓存所有结果，包括失败）
@@ -164,4 +157,22 @@ func (p *Pinger) Stop() {
 // GetIPPool 获取全局 IP 资源管理器
 func (p *Pinger) GetIPPool() *IPPool {
 	return p.ipPool
+}
+
+// recordProbeResult 统一记录探测结果的权重
+// 修复 #8：提取统一接口，避免代码重复
+// 参数：
+//   - ip: IP 地址
+//   - loss: 丢包率（0-100）
+//   - isFastFail: 是否为快速失败（第一次探测就超时）
+func (p *Pinger) recordProbeResult(ip string, loss float64, isFastFail bool) {
+	if isFastFail {
+		// FastFail 已经在 pingIP 中通过 RecordIPFastFail 记录过了，跳过以避免重复
+		return
+	}
+	if loss == 100 {
+		p.RecordIPFailure(ip)
+	} else {
+		p.RecordIPSuccess(ip)
+	}
 }

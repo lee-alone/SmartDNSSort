@@ -252,7 +252,7 @@ func (c *Cache) GetCleanupStats() CleanupStats {
 	}
 }
 
-// cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error）
+// cleanAuxiliaryCaches 清理非核心缓存（sorted, sorting, error, msgCache）
 // 由于排序缓存和错误缓存现在由 LRUCache 管理，我们只需清理过期条目
 func (c *Cache) cleanAuxiliaryCaches(ancientLimit int64) {
 	// 清理过期的排序缓存
@@ -262,8 +262,36 @@ func (c *Cache) cleanAuxiliaryCaches(ancientLimit int64) {
 	// 清理完成的排序任务
 	c.cleanCompletedSortingStates()
 
+	// 清理过期的 DNSSEC 消息缓存
+	// 避免冷门域名的 DNSSEC 大包数据永久驻留内存
+	c.cleanExpiredMsgCache()
+
 	// 调用 adblock_cache.go 中的清理方法
 	c.cleanAdBlockCaches()
+}
+
+// cleanExpiredMsgCache 清理过期的 DNSSEC 消息缓存
+// 主动遍历清理，确保冷门域名的过期 DNSSEC 数据能被及时释放
+func (c *Cache) cleanExpiredMsgCache() {
+	if c.msgCache == nil {
+		return
+	}
+
+	// 使用 LRUCache 的 CleanExpired 方法，传入过期判断函数
+	expiredCount := c.msgCache.CleanExpired(func(value any) bool {
+		entry, ok := value.(*DNSSECCacheEntry)
+		if !ok {
+			return true // 类型不匹配，视为过期
+		}
+		return entry.IsExpired()
+	})
+
+	// 更新驱逐统计（如果有过期条目）
+	if expiredCount > 0 {
+		c.mu.Lock()
+		c.evictions += int64(expiredCount)
+		c.mu.Unlock()
+	}
 }
 
 // addToExpiredHeap 将过期数据添加到堆中（异步化）

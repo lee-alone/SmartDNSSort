@@ -306,9 +306,18 @@ func (p *Pinger) smartPingWithMethod(_ context.Context, ip, _ string) (int, stri
 		// 执行 TCP 探测
 		tcpRTT, tcpPort := p.tcpPing(ip, p.tcpFallbackPorts)
 
-		// 如果 TCP 探测成功，返回 TCP 结果
+		// 如果 TCP 探测成功，返回归一化后的 RTT
+		// 修复 #2：TCP RTT 归一化处理
+		// TCP 握手通常比 ICMP 慢 2-5 倍（包含 TCP 协议开销、服务端处理延迟等）
+		// 使用经验系数 2.5 进行归一化，使 TCP 回退的 IP 与 ICMP 探测的 IP 具有可比性
+		// 这样 TCP 回退的 IP 不会被错误地排到后面
 		if tcpRTT >= 0 {
-			return tcpRTT, fmt.Sprintf("tcp:%d", tcpPort), nil
+			normalizedRTT := int(float64(tcpRTT) / 2.5)
+			// 确保归一化后的 RTT 至少为 1ms，避免 0 值导致排序异常
+			if normalizedRTT < 1 {
+				normalizedRTT = 1
+			}
+			return normalizedRTT, fmt.Sprintf("tcp:%d", tcpPort), nil
 		}
 	}
 

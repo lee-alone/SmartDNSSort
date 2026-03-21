@@ -35,7 +35,7 @@ func (c *Cache) GetSortedWithStale(domain string, qtype uint16, includeStale boo
 }
 
 // SetSorted 设置排序后的缓存
-// 注意：sortedCache 内部已实现线程安全，无需全局锁
+// 注意：sortedCache 已改用分片锁 (ShardedLRUCache)，无需全局锁，降低锁竞争
 func (c *Cache) SetSorted(domain string, qtype uint16, entry *SortedCacheEntry) {
 	key := cacheKey(domain, qtype)
 

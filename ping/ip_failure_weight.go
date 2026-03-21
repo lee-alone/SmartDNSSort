@@ -63,6 +63,9 @@ func (m *IPFailureWeightManager) RecordFailure(ip string) {
 }
 
 // RecordSuccess 记录IP成功
+// 修复 #4：优化 FastFail 恢复逻辑
+// - FastFail 后的首次成功，直接重置惩罚（因为 FastFail 表示第一次探测就超时，恢复后应该快速回归）
+// - 普通成功，连续 3 次后减少 1 次失败计数
 func (m *IPFailureWeightManager) RecordSuccess(ip string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -77,7 +80,17 @@ func (m *IPFailureWeightManager) RecordSuccess(ip string) {
 	record.TotalAttempts++
 	m.updateFailureRate(record)
 
-	// 连续成功3次后，降低失效计数
+	// 优化 1: 检查是否是 FastFail 后的首次成功
+	// FastFail 表示第一次探测就超时，这种 IP 如果恢复了，应该快速回归正常权重
+	if record.FastFailCount > 0 && record.SuccessCount == 1 {
+		// FastFail 后的首次成功，直接重置惩罚
+		record.FailureCount = 0
+		record.SuccessCount = 0
+		record.FastFailCount = 0
+		return
+	}
+
+	// 优化 2: 普通成功，连续 3 次后减少 1 次失败计数
 	if record.SuccessCount >= 3 && record.FailureCount > 0 {
 		record.FailureCount--
 		record.SuccessCount = 0

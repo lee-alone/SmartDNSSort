@@ -2,6 +2,7 @@ package ping
 
 import (
 	"context"
+	"math"
 	"sort"
 	"sync"
 )
@@ -77,8 +78,9 @@ func (p *Pinger) concurrentPing(ctx context.Context, ips []string, _ string) []R
 func (p *Pinger) sortResults(results []Result) {
 	sort.Slice(results, func(i, j int) bool {
 		// 计算实际失效次数（从百分比还原，用于阶梯式惩罚）
-		failCountI := int(results[i].Loss*float64(p.count)/100.0 + 0.5)
-		failCountJ := int(results[j].Loss*float64(p.count)/100.0 + 0.5)
+		// 修复 #3：使用 math.Round 替代手动四舍五入，避免浮点精度问题
+		failCountI := int(math.Round(results[i].Loss * float64(p.count) / 100.0))
+		failCountJ := int(math.Round(results[j].Loss * float64(p.count) / 100.0))
 
 		// 1. 基础得分：真实 RTT + 强力失效率惩罚（每次失败加 2000ms）
 		// 这样 1 次丢包（即使 RTT 只有 10ms）也会排在 0 丢包（即使 RTT 是 1000ms）的后面

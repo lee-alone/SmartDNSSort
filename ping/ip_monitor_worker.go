@@ -147,51 +147,54 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 
 // updateStabilityRecord 更新 IP 稳定性记录
 // 用于稳定性退避策略：连续稳定的 IP 可以降级到低频池
+// 修复 #6：使用 sync.Map 的 Load 和 Store 方法
 func (m *IPMonitor) updateStabilityRecord(ip string, rtt int, poolName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// 使用 LoadOrStore 原子操作，避免竞态条件
+	value, loaded := m.stabilityRecords.LoadOrStore(ip, &IPStabilityRecord{
+		LastCheck: time.Now(),
+		LastRTT:   rtt,
+	})
 
-	record, exists := m.stabilityRecords[ip]
-	if !exists {
-		record = &IPStabilityRecord{
-			LastCheck: time.Now(),
-			LastRTT:   rtt,
+	record := value.(*IPStabilityRecord)
+	if loaded {
+		// 记录已存在，更新逻辑
+		// 检查 RTT 波动是否在阈值范围内
+		if record.LastRTT > 0 {
+			rttVariance := float64(abs(rtt-record.LastRTT)) / float64(record.LastRTT)
+			if rttVariance <= m.config.StabilityRTTVariance {
+				// RTT 稳定，增加稳定计数
+				record.StableCount++
+				record.LastCheck = time.Now()
+				record.LastRTT = rtt
+
+				// 如果达到稳定阈值且未降级，记录日志并标记为已降级
+				if record.StableCount >= m.config.StabilityThreshold && !record.IsDowngraded {
+					logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), marking as downgraded",
+						ip, poolName, record.StableCount)
+					record.IsDowngraded = true // 标记为已降级，防止日志刷屏并闭合逻辑
+				}
+			} else {
+				// RTT 波动过大，重置稳定计数
+				record.StableCount = 0
+				record.LastCheck = time.Now()
+				record.LastRTT = rtt
+				record.IsDowngraded = false
+			}
+		} else {
+			// LastRTT 为 0（新记录），直接更新
+			record.LastCheck = time.Now()
+			record.LastRTT = rtt
 		}
-		m.stabilityRecords[ip] = record
-		return
-	}
-
-	// 检查 RTT 波动是否在阈值范围内
-	rttVariance := float64(abs(rtt-record.LastRTT)) / float64(record.LastRTT)
-	if rttVariance <= m.config.StabilityRTTVariance {
-		// RTT 稳定，增加稳定计数
-		record.StableCount++
-		record.LastCheck = time.Now()
-		record.LastRTT = rtt
-
-		// 如果达到稳定阈值且未降级，记录日志并标记为已降级
-		if record.StableCount >= m.config.StabilityThreshold && !record.IsDowngraded {
-			logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), marking as downgraded",
-				ip, poolName, record.StableCount)
-			record.IsDowngraded = true // 标记为已降级，防止日志刷屏并闭合逻辑
-		}
-	} else {
-		// RTT 波动过大，重置稳定计数
-		record.StableCount = 0
-		record.LastCheck = time.Now()
-		record.LastRTT = rtt
-		record.IsDowngraded = false
 	}
 }
 
 // resetStabilityRecord 重置 IP 稳定性记录
 // 当 IP 探测失败时调用（仅在网络在线时）
 // 注意：调用者应确保在网络在线时才调用此方法
+// 修复 #6：使用 sync.Map 的 Load 方法
 func (m *IPMonitor) resetStabilityRecord(ip string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if record, exists := m.stabilityRecords[ip]; exists {
+	if v, ok := m.stabilityRecords.Load(ip); ok {
+		record := v.(*IPStabilityRecord)
 		record.StableCount = 0
 		record.IsDowngraded = false
 	}

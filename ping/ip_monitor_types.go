@@ -113,9 +113,13 @@ type IPMonitor struct {
 	stopCh chan struct{}
 
 	// 优化功能相关字段
-	stabilityRecords map[string]*IPStabilityRecord // IP 稳定性记录
-	hourlyPingCount  int64                         // 本小时探测次数
-	hourlyResetTime  time.Time                     // 小时重置时间
+	// 修复 #6：使用 sync.Map 替代普通 map，减少锁竞争
+	// stabilityRecords 在 selectSortedIPs 中被长时间遍历读取，
+	// 而在 updateStabilityRecord/resetStabilityRecord 中被写入，
+	// 使用 sync.Map 可以避免读写锁竞争，提高并发性能
+	stabilityRecords sync.Map  // key: IP string, value: *IPStabilityRecord
+	hourlyPingCount  int64     // 本小时探测次数
+	hourlyResetTime  time.Time // 小时重置时间
 }
 
 // NewIPMonitor 创建新的 IP 监控器
@@ -158,10 +162,10 @@ func NewIPMonitor(pinger *Pinger, config IPMonitorConfig) *IPMonitor {
 	}
 
 	return &IPMonitor{
-		pinger:           pinger,
-		config:           config,
-		stopCh:           make(chan struct{}),
-		stabilityRecords: make(map[string]*IPStabilityRecord),
-		hourlyResetTime:  time.Now(),
+		pinger: pinger,
+		config: config,
+		stopCh: make(chan struct{}),
+		// stabilityRecords 是 sync.Map，不需要初始化
+		hourlyResetTime: time.Now(),
 	}
 }

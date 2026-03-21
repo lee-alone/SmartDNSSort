@@ -21,22 +21,21 @@ func (m *IPMonitor) selectSortedIPs() []weightedIP {
 	weighted := make([]weightedIP, 0, len(allIPs))
 	now := time.Now()
 
-	// === 稳定性退避策略：对极度稳定的 IP 进行降级 ===
-	// 在整个循环外部统一加锁，避免频繁的锁竞争
-	// stabilityRecords 在这个过程中不应发生突变
-	if m.config.EnableStabilityBackoff {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-	}
+	// 修复 #6：使用 sync.Map 后，不再需要在循环外部加锁
+	// sync.Map 的 Range 方法是并发安全的，不会阻塞其他操作
 
 	for _, info := range allIPs {
 		w := m.calculateWeight(info)
 
 		// === 稳定性退避策略：对极度稳定的 IP 进行降级 ===
 		if m.config.EnableStabilityBackoff {
-			if record, ok := m.stabilityRecords[info.IP]; ok && record.StableCount >= m.config.StabilityThreshold {
-				// 对于已经极度稳定的 IP，将其原始权重减半，从而挤出 T0 核心池
-				w = w * 0.5
+			// 使用 sync.Map 的 Load 方法，无需加锁
+			if v, ok := m.stabilityRecords.Load(info.IP); ok {
+				record := v.(*IPStabilityRecord)
+				if record.StableCount >= m.config.StabilityThreshold {
+					// 对于已经极度稳定的 IP，将其原始权重减半，从而挤出 T0 核心池
+					w = w * 0.5
+				}
 			}
 		}
 
