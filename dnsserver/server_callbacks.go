@@ -53,26 +53,31 @@ func (s *Server) setupUpstreamCallback(u *upstream.Manager) {
 		}
 
 		// ========== IP池变化检测 ==========
-		// 检测是否存在"实质性"的IP池变化
+		// 检测是否存在"实质性"的IP池变化（优化为 O(n) 算法）
+		// 预先构建集合，避免循环内重复创建
+		oldIPSet := make(map[string]bool, len(oldIPs))
+		for _, ip := range oldIPs {
+			oldIPSet[ip] = true
+		}
+
+		newIPSet = make(map[string]bool, len(newIPs))
+		for _, ip := range newIPs {
+			newIPSet[ip] = true
+		}
+
+		// 检测是否有新增 IP
 		hasNewIPs := false
-		for _, newIP := range newIPs {
-			oldIPSet := make(map[string]bool)
-			for _, ip := range oldIPs {
-				oldIPSet[ip] = true
-			}
-			if !oldIPSet[newIP] {
+		for ip := range newIPSet {
+			if !oldIPSet[ip] {
 				hasNewIPs = true
 				break
 			}
 		}
 
+		// 检测是否有删除 IP
 		hasRemovedIPs := false
-		newIPSet2 := make(map[string]bool)
-		for _, ip := range newIPs {
-			newIPSet2[ip] = true
-		}
-		for _, oldIP := range oldIPs {
-			if !newIPSet2[oldIP] {
+		for ip := range oldIPSet {
+			if !newIPSet[ip] {
 				hasRemovedIPs = true
 				break
 			}

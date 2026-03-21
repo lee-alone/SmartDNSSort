@@ -9,6 +9,27 @@ import (
 	"github.com/miekg/dns"
 )
 
+// deduplicateCNAMEs 对 CNAME 链进行去重
+// 输入：["a.com.", "b.com.", "a.com."]
+// 输出：["a.com.", "b.com."]
+// 用于合并初始 CNAME 链和递归解析出的 CNAME 链
+func deduplicateCNAMEs(cnames []string) []string {
+	if len(cnames) == 0 {
+		return cnames
+	}
+	set := make(map[string]bool)
+	result := make([]string, 0, len(cnames))
+	for _, cname := range cnames {
+		// 规范化：去除末尾点号用于比较
+		normalized := strings.TrimRight(cname, ".")
+		if !set[normalized] {
+			set[normalized] = true
+			result = append(result, cname)
+		}
+	}
+	return result
+}
+
 // buildNXDomainResponse builds an NXDOMAIN response for blocked domains.
 // Used in: handler_adblock.go
 func buildNXDomainResponse(w dns.ResponseWriter, r *dns.Msg, msgPool *cache.MsgPool, srv *Server, ttl int) {

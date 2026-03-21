@@ -118,7 +118,5 @@ func (rq *RefreshQueue) Stop() {
 	// 注意:这里没有关闭 taskQueue,因为可能还有 worker 在读取
 	// worker 会在 quit 信号后退出循环
 	rq.wg.Wait()
-	// worker 会在 quit 信号后退出循环
-	rq.wg.Wait()
 	logger.Info("[RefreshQueue] 刷新队列已停止")
 }

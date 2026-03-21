@@ -8,6 +8,22 @@ import (
 	"github.com/miekg/dns"
 )
 
+// localBlockedDomains 定义本地拦截的域名列表
+// 这些域名通常用于本地网络或私有网络，不应被公网解析
+var localBlockedDomains = map[string]int{
+	"local":                     dns.RcodeRefused,
+	"corp":                      dns.RcodeRefused,
+	"home":                      dns.RcodeRefused,
+	"lan":                       dns.RcodeRefused,
+	"internal":                  dns.RcodeRefused,
+	"intranet":                  dns.RcodeRefused,
+	"private":                   dns.RcodeRefused,
+	"home.arpa":                 dns.RcodeRefused,
+	"wpad":                      dns.RcodeNameError, // NXDOMAIN is better for wpad
+	"isatap":                    dns.RcodeRefused,
+	"teredo.ipv6.microsoft.com": dns.RcodeNameError,
+}
+
 // handleCustomResponse 处理自定义回复规则
 // 返回 true 表示请求已处理
 func (s *Server) handleCustomResponse(w dns.ResponseWriter, r *dns.Msg, domain string, qtype uint16) bool {
@@ -116,21 +132,9 @@ func (s *Server) handleLocalRules(w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg
 
 	// Rule: Blocklist for specific domains and suffixes
 	// Using a map for exact matches is efficient.
-	blockedDomains := map[string]int{
-		"local":                     dns.RcodeRefused,
-		"corp":                      dns.RcodeRefused,
-		"home":                      dns.RcodeRefused,
-		"lan":                       dns.RcodeRefused,
-		"internal":                  dns.RcodeRefused,
-		"intranet":                  dns.RcodeRefused,
-		"private":                   dns.RcodeRefused,
-		"home.arpa":                 dns.RcodeRefused,
-		"wpad":                      dns.RcodeNameError, // NXDOMAIN is better for wpad
-		"isatap":                    dns.RcodeRefused,
-		"teredo.ipv6.microsoft.com": dns.RcodeNameError,
-	}
+	// 使用包级变量 localBlockedDomains，避免每次调用都创建 map
 
-	if rcode, ok := blockedDomains[domain]; ok {
+	if rcode, ok := localBlockedDomains[domain]; ok {
 		logger.Debugf("[QueryFilter] Rule match for '%s', responding with %s", domain, dns.RcodeToString[rcode])
 		msg.SetRcode(r, rcode)
 		// 添加 SOA 记录（REFUSED 和 NXDOMAIN 都需要）

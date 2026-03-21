@@ -311,11 +311,9 @@ func (s *Server) deduplicateRecords(records []dns.RR) []dns.RR {
 		case *dns.CNAME:
 			key = fmt.Sprintf("CNAME:%s:%s", header.Name, r.Target)
 		default:
-			// 对于其他记录，临时将 TTL 设为 0 来生成键
-			originalTTL := header.Ttl
-			header.Ttl = 0
-			key = rr.String()
-			header.Ttl = originalTTL
+			// 对于其他记录，使用类型 + 名称 + 数据内容作为键
+			// 避免修改原始对象的 TTL
+			key = fmt.Sprintf("%T:%s:%s", rr, header.Name, rr.String())
 		}
 
 		if !seen[key] {

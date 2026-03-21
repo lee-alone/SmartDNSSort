@@ -60,16 +60,7 @@ func (s *Server) refreshCacheAsync(task RefreshTask) {
 
 		finalIPs = finalResult.IPs
 		// 合并CNAME链（去重）
-		cnameSet := make(map[string]bool)
-		for _, cname := range result.CNAMEs {
-			cnameSet[cname] = true
-			fullCNAMEs = append(fullCNAMEs, cname)
-		}
-		for _, cname := range finalResult.CNAMEs {
-			if !cnameSet[cname] {
-				fullCNAMEs = append(fullCNAMEs, cname)
-			}
-		}
+		fullCNAMEs = deduplicateCNAMEs(append(result.CNAMEs, finalResult.CNAMEs...))
 		finalTTL = finalResult.TTL
 		// 保存原始查询的记录（包含 CNAME），而不是递归结果的记录
 		recordsToCache = result.Records
