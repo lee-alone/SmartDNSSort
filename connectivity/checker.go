@@ -1,6 +1,7 @@
 package connectivity
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"smartdnssort/logger"
@@ -28,7 +29,6 @@ type NetworkHealthChecker interface {
 
 // NetworkHealthConfig 网络健康检查配置
 type NetworkHealthConfig struct {
-	ProbeInterval          time.Duration // 探测间隔（已废弃，使用 NormalProbeInterval）
 	NormalProbeInterval    time.Duration // 健康状态下的探测间隔
 	UnhealthyProbeInterval time.Duration // 故障状态下的探测间隔
 	FailureThreshold       int           // 失败阈值（判定故障）
@@ -52,7 +52,8 @@ type networkHealthChecker struct {
 	config NetworkHealthConfig
 
 	// 控制循环
-	stopCh chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
 	done   sync.WaitGroup
 }
 
@@ -63,9 +64,11 @@ func NewNetworkHealthChecker() NetworkHealthChecker {
 
 // NewNetworkHealthCheckerWithConfig 使用自定义配置创建网络健康检查器
 func NewNetworkHealthCheckerWithConfig(config NetworkHealthConfig) NetworkHealthChecker {
+	ctx, cancel := context.WithCancel(context.Background())
 	checker := &networkHealthChecker{
 		config: config,
-		stopCh: make(chan struct{}),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	// 初始状态：认为网络正常
@@ -80,8 +83,6 @@ func DefaultNetworkHealthConfig() NetworkHealthConfig {
 		// 梯度探测间隔：健康状态 1 分钟，故障状态 20 秒
 		NormalProbeInterval:    1 * time.Minute,
 		UnhealthyProbeInterval: 20 * time.Second,
-		// 向后兼容：保留旧字段
-		ProbeInterval: 1 * time.Minute,
 		// 故障判定：3 次失败（约 30-60 秒）
 		FailureThreshold: 3,
 		// 恢复判定：1 次成功即可恢复（快恢复）
@@ -112,7 +113,7 @@ func (c *networkHealthChecker) Start() {
 
 // Stop 停止定时探测循环
 func (c *networkHealthChecker) Stop() {
-	close(c.stopCh)
+	c.cancel()
 	c.done.Wait()
 }
 
@@ -125,33 +126,30 @@ func (c *networkHealthChecker) probeLoop() {
 
 	// 使用梯度探测间隔
 	var ticker *time.Ticker
-	var tickerCh <-chan time.Time
 	var lastInterval time.Duration
 
 	// 创建初始 ticker
 	lastInterval = c.getCurrentProbeInterval()
 	ticker = time.NewTicker(lastInterval)
 	defer ticker.Stop()
-	tickerCh = ticker.C
 
 	for {
-		select {
-		case <-c.stopCh:
-			return
-		case <-tickerCh:
-			c.performProbe()
-
-			// 根据当前状态动态调整探测间隔
-			newInterval := c.getCurrentProbeInterval()
-			// 仅在间隔变化时重建 ticker，避免不必要的开销
-			if newInterval != lastInterval {
-				if ticker != nil {
-					ticker.Stop()
-				}
-				ticker = time.NewTicker(newInterval)
-				tickerCh = ticker.C
-				lastInterval = newInterval
+		// 根据当前状态动态调整探测间隔
+		newInterval := c.getCurrentProbeInterval()
+		// 仅在间隔变化时重建 ticker，避免不必要的开销
+		if newInterval != lastInterval {
+			if ticker != nil {
+				ticker.Stop()
 			}
+			ticker = time.NewTicker(newInterval)
+			lastInterval = newInterval
+		}
+
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.performProbe()
 		}
 	}
 }
@@ -205,6 +203,10 @@ func (c *networkHealthChecker) performProbe() {
 // 返回 true 表示至少有一个 IP 探测成功（网络正常）
 // 返回 false 表示所有 IP 都探测失败（网络掉线）
 func (c *networkHealthChecker) probe() bool {
+	// 创建带超时的 context，防止 goroutine 泄漏
+	ctx, cancel := context.WithTimeout(c.ctx, c.config.ProbeTimeout*time.Duration(len(c.config.ProbeIPs)))
+	defer cancel()
+
 	// 并发探测所有 IP
 	resultCh := make(chan bool, len(c.config.ProbeIPs))
 	var wg sync.WaitGroup
@@ -213,19 +215,43 @@ func (c *networkHealthChecker) probe() bool {
 		wg.Add(1)
 		go func(ip string) {
 			defer wg.Done()
+
+			// 检查 context 是否已取消
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			// 优先尝试 ICMP 探测
 			if c.probeIP(ip) {
-				resultCh <- true
+				select {
+				case resultCh <- true:
+				case <-ctx.Done():
+				}
 				return
+			}
+
+			// 检查 context 是否已取消
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
 
 			// ICMP 失败，尝试 TCP 连接作为备选
 			if c.probeIPWithTCP(ip) {
-				resultCh <- true
+				select {
+				case resultCh <- true:
+				case <-ctx.Done():
+				}
 				return
 			}
 
-			resultCh <- false
+			select {
+			case resultCh <- false:
+			case <-ctx.Done():
+			}
 		}(ip)
 	}
 
@@ -239,6 +265,8 @@ func (c *networkHealthChecker) probe() bool {
 	for result := range resultCh {
 		if result {
 			// 一旦有一个成功，整个探测即认为成功
+			// 取消所有正在进行的探测
+			cancel()
 			return true
 		}
 	}
@@ -305,8 +333,10 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 	}
 
 	// 接收循环（过滤非目标包）
+	// 限制最大接收次数，防止无限制循环消耗 CPU
 	reply := make([]byte, 256)
-	for {
+	maxReceives := 10 // 最多接收 10 个包
+	for i := 0; i < maxReceives; i++ {
 		n, from, err := conn.ReadFrom(reply)
 		if err != nil {
 			return false
@@ -336,9 +366,10 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 			if echoReply, ok := rm.Body.(*icmp.Echo); ok {
 				if echoReply.ID == id && echoReply.Seq == seq {
 					rtt := time.Since(start)
-					// 增加虚假成功防御：如果目标是全球公网 IP，但 RTT 极低 (如 < 1ms)，
+					// 虚假成功防御：如果目标是全球公网 IP，但 RTT 极低 (如 < 2ms)，
 					// 说明极有可能是在本地环回或被本地防火墙虚假响应。
-					if rtt < 1*time.Millisecond {
+					// 调整阈值到 2ms 以避免误判本地高速网络
+					if rtt < 2*time.Millisecond {
 						logger.Warnf("Suspicious tiny RTT (%v) to global IP %s, might be local interception", rtt, ip)
 						// 即使可疑我们也先认为是通的，但记录警告
 					}
@@ -348,6 +379,8 @@ func (c *networkHealthChecker) probeIP(ip string) bool {
 			}
 		}
 	}
+	// 达到最大接收次数仍未收到有效回复
+	return false
 }
 
 // probeIPWithTCP 使用 TCP 连接测试单个 IP（ICMP 的备选方案）
@@ -383,7 +416,8 @@ func (c *networkHealthChecker) probeIPWithPort(ip string, port int) bool {
 
 	rtt := time.Since(start)
 	// 高级防御：如果通过 Port 53 探测成功且 RTT 异常低，高度怀疑是被本地 DNS 服务截获
-	if port == 53 && rtt < 1*time.Millisecond {
+	// 调整阈值到 2ms 以避免误判本地高速网络
+	if port == 53 && rtt < 2*time.Millisecond {
 		logger.Warnf("TCP probe to %s:53 succeeded with suspiciously low RTT (%v), possibly intercepted by local DNS server. Ignoring this result.", ip, rtt)
 		return false
 	}
