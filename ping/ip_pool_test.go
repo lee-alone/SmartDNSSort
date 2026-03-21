@@ -45,10 +45,20 @@ func TestUpdateDomainIPs(t *testing.T) {
 	// 测试更新 IP 列表（移除一个 IP，添加一个新 IP）
 	pool.UpdateDomainIPs([]string{"1.1.1.1", "2.2.2.2"}, []string{"2.2.2.2", "3.3.3.3"}, "example.com")
 
-	// 验证 1.1.1.1 被移除
+	// 现在取消了即时删除，验证引用计数降为 0，但 IP 仍存在
+	info1, exists = pool.GetIPInfo("1.1.1.1")
+	if !exists {
+		t.Fatal("IP 1.1.1.1 should still exist (deferred removal)")
+	}
+	if info1.RefCount != 0 {
+		t.Errorf("Expected RefCount 0, got %d", info1.RefCount)
+	}
+
+	// 手动触发清理，或使用 RemoveIP 验证物理删除
+	pool.RemoveIP("1.1.1.1")
 	_, exists = pool.GetIPInfo("1.1.1.1")
 	if exists {
-		t.Fatal("IP 1.1.1.1 should be removed")
+		t.Fatal("IP 1.1.1.1 should be removed after manual RemoveIP")
 	}
 
 	// 验证 2.2.2.2 引用计数保持为 1
@@ -101,10 +111,27 @@ func TestUpdateDomainIPs_MultipleDomains(t *testing.T) {
 	// 另一个域名也移除该 IP
 	pool.UpdateDomainIPs([]string{"1.1.1.1"}, []string{}, "test.com")
 
-	// 验证 IP 被完全移除
+	// 验证引用计数降为 0，但并不立即从 map 中删除（延迟删除设计）
+	info, exists = pool.GetIPInfo("1.1.1.1")
+	if !exists {
+		t.Fatal("IP 1.1.1.1 should still exist in pool (deferred removal)")
+	}
+	if info.RefCount != 0 {
+		t.Errorf("Expected RefCount 0, got %d", info.RefCount)
+	}
+
+	// 等待一小段时间，确保时间差大于 0
+	time.Sleep(1 * time.Millisecond)
+
+	// 验证物理清理工作
+	cleaned := pool.CleanStaleIPs(0) // 传入 0 强制清理所有 RefCount=0 且空闲时间 > 0 的
+	if cleaned == 0 {
+		t.Error("CleanStaleIPs should have cleaned at least one IP")
+	}
+
 	_, exists = pool.GetIPInfo("1.1.1.1")
 	if exists {
-		t.Fatal("IP 1.1.1.1 should be removed when RefCount reaches 0")
+		t.Fatal("IP 1.1.1.1 should be removed after CleanStaleIPs")
 	}
 }
 

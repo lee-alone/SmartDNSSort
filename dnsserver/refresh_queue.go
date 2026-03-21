@@ -36,7 +36,7 @@ type RefreshQueue struct {
 // NewRefreshQueue 创建一个新的刷新队列
 func NewRefreshQueue(workers, queueSize int) *RefreshQueue {
 	if workers <= 0 {
-		workers = 4
+		workers = DefaultRefreshWorkers
 	}
 	if queueSize <= 0 {
 		queueSize = 100
@@ -83,10 +83,8 @@ func (rq *RefreshQueue) start() {
 	}
 }
 
-// Submit 提交一个新任务到队列
-// 第四阶段改造：使用 singleflight 确保同一个域名只有 1 个后台协程去上游刷新
-// 如果任务已在进行中或队列已满,返回 false
-func (rq *RefreshQueue) Submit(task RefreshTask) bool {
+// 如果任务已在进行中或队列已满,返回错误
+func (rq *RefreshQueue) Submit(task RefreshTask) error {
 	key := task.key()
 
 	// 第四阶段改造：使用 singleflight 实现唯一锁原则
@@ -103,7 +101,7 @@ func (rq *RefreshQueue) Submit(task RefreshTask) bool {
 		}
 	})
 
-	return err == nil
+	return err
 }
 
 // markComplete 标记任务完成

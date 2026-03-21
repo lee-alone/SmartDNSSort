@@ -38,7 +38,16 @@ func NewHotDomainsTracker(cfg *config.StatsConfig) *HotDomainsTracker {
 // NewHotDomainsTrackerWithNetworkChecker 创建带网络健康检查器的热门域名追踪器
 func NewHotDomainsTrackerWithNetworkChecker(cfg *config.StatsConfig, networkChecker connectivity.NetworkHealthChecker) *HotDomainsTracker {
 	// Calculate number of buckets
-	numBuckets := (cfg.HotDomainsWindowHours * 60) / cfg.HotDomainsBucketMinutes
+	windowHours := cfg.HotDomainsWindowHours
+	if windowHours <= 0 {
+		windowHours = 24 // 默认 24 小时
+	}
+	bucketMinutes := cfg.HotDomainsBucketMinutes
+	if bucketMinutes <= 0 {
+		bucketMinutes = 60 // 默认 60 分钟
+	}
+
+	numBuckets := (windowHours * 60) / bucketMinutes
 	if numBuckets < 1 {
 		numBuckets = 1
 	}
@@ -178,7 +187,11 @@ func (t *HotDomainsTracker) GetTopDomains(k int) []DomainCount {
 }
 
 func (t *HotDomainsTracker) startRotation() {
-	ticker := time.NewTicker(time.Duration(t.cfg.HotDomainsBucketMinutes) * time.Minute)
+	bucketMinutes := t.cfg.HotDomainsBucketMinutes
+	if bucketMinutes <= 0 {
+		bucketMinutes = 60
+	}
+	ticker := time.NewTicker(time.Duration(bucketMinutes) * time.Minute)
 	defer ticker.Stop()
 
 	for {

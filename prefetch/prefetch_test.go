@@ -70,7 +70,12 @@ func (m *mockRefresher) wasRefreshed(domain string) bool {
 
 func TestRunPrefetch(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0, // 设置为 0 以确保测试中的低分也能触发预取
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	domainToRefresh := "expiring.com"
@@ -116,7 +121,12 @@ func TestRunPrefetch(t *testing.T) {
 // TestConcurrentFailureCountsAccess tests that failureCounts is safely accessed from multiple goroutines
 func TestConcurrentFailureCountsAccess(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -156,7 +166,12 @@ func TestConcurrentFailureCountsAccess(t *testing.T) {
 // TestStopConcurrency tests that Stop() is safe to call while other operations are in progress
 func TestStopConcurrency(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -201,7 +216,12 @@ func TestStopConcurrency(t *testing.T) {
 // TestConcurrentScoringAccess tests that scoring operations are thread-safe
 func TestConcurrentScoringSampling(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -242,7 +262,12 @@ func TestConcurrentScoringSampling(t *testing.T) {
 // TestEvictionUnderCapacityLimit tests that eviction works correctly when capacity is exceeded
 func TestEvictionUnderCapacityLimit(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -282,7 +307,12 @@ func TestEvictionUnderCapacityLimit(t *testing.T) {
 // TestDecayAccuracy verifies that decay calculation is mathematically correct
 func TestDecayAccuracy(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -319,7 +349,12 @@ func TestDecayAccuracy(t *testing.T) {
 // TestBlacklistExponentialBackoff verifies exponential backoff for failures
 func TestBlacklistExponentialBackoff(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}
@@ -364,7 +399,12 @@ func TestBlacklistExponentialBackoff(t *testing.T) {
 // TestEvictedDomainNotRefreshed verifies that evicted domains are not refreshed
 func TestEvictedDomainNotRefreshed(t *testing.T) {
 	prefetchCfg := &config.PrefetchConfig{
-		Enabled: true,
+		Enabled:                true,
+		MaxRefreshDomains:      150,
+		MinScoreThreshold:      0.0,
+		EligibilityTTL:         300,
+		StableCycleThreshold:   10,
+		StabilityPenaltyFactor: 0.95,
 	}
 
 	mockStats := &mockStats{}

@@ -90,6 +90,7 @@ func TestNetworkHealthCheckerConsecutiveFailures(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 1 * time.Second
 	config.ProbeIPs = []string{"192.0.2.1"}
+	config.FailureThreshold = 2 // 设置为 2，与测试逻辑匹配
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)
@@ -122,6 +123,7 @@ func TestNetworkHealthCheckerRecovery(t *testing.T) {
 	config := DefaultNetworkHealthConfig()
 	config.ProbeTimeout = 5 * time.Second
 	config.ProbeIPs = []string{"192.0.2.1"}
+	config.FailureThreshold = 2 // 设置为 2，与测试逻辑匹配
 
 	checker := NewNetworkHealthCheckerWithConfig(config)
 	c := checker.(*networkHealthChecker)

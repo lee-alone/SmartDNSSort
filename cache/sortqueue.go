@@ -179,10 +179,32 @@ func (sq *SortQueue) processTask(task *SortTask, workerID int) {
 	atomic.AddInt64(&sq.tasksProcessed, 1)
 }
 
-// Stop 停止排序队列（等待所有任务完成）
+// Stop 停止排序队列（清空待处理任务并通知回调）
 func (sq *SortQueue) Stop() {
+	sq.mu.Lock()
+	if sq.stopCh == nil {
+		sq.mu.Unlock()
+		return
+	}
 	close(sq.stopCh)
+	sq.mu.Unlock()
+
 	sq.stopWg.Wait()
+
+	// 核心整改点：清空队列中的待处理任务，并通知调用方任务已取消
+	// 避免回调函数永远不执行，导致外部状态（如 SortingState）无法清理造成内存泄漏
+	for {
+		select {
+		case task := <-sq.taskQueue:
+			if task != nil && task.Callback != nil {
+				task.Callback(nil, ErrQueueClosed)
+			}
+		default:
+			goto DRAIN_DONE
+		}
+	}
+
+DRAIN_DONE:
 	close(sq.taskQueue)
 	processed := atomic.LoadInt64(&sq.tasksProcessed)
 	failed := atomic.LoadInt64(&sq.tasksFailed)

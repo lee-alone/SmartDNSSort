@@ -31,6 +31,9 @@ func NewGeneralStatsTracker(bucketSize time.Duration, bucketCount int) *GeneralS
 	if bucketCount <= 0 {
 		bucketCount = 1
 	}
+	if bucketSize <= 0 {
+		bucketSize = time.Hour
+	}
 
 	tracker := &GeneralStatsTracker{
 		buckets:     make([]*GeneralStatsBucket, bucketCount),

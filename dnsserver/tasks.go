@@ -8,9 +8,7 @@ import (
 // cleanCacheRoutine 定期清理过期缓存
 // 使用固定的清理间隔,与 min_ttl_seconds 配置无关
 func (s *Server) cleanCacheRoutine() {
-	// 使用固定的60秒清理间隔
-	// 注意：这个间隔与 min_ttl_seconds 是独立的概念
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(DefaultCacheCleanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -39,7 +37,7 @@ func (s *Server) startIPMonitorRoutine() {
 func (s *Server) saveCacheRoutine() {
 	interval := time.Duration(s.cfg.Cache.SaveToDiskIntervalMinutes) * time.Minute
 	if interval <= 0 {
-		interval = 60 * time.Minute
+		interval = DefaultCacheSaveInterval
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

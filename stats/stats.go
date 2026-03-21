@@ -63,7 +63,16 @@ func NewStats(cfg *config.StatsConfig) *Stats {
 	}()
 
 	// 计算通用统计的桶数量
-	bucketCount := (cfg.GeneralStatsRetentionDays * 24 * 60) / cfg.GeneralStatsBucketMinutes
+	retentionDays := cfg.GeneralStatsRetentionDays
+	if retentionDays <= 0 {
+		retentionDays = 7 // 默认 7 天
+	}
+	bucketMinutes := cfg.GeneralStatsBucketMinutes
+	if bucketMinutes <= 0 {
+		bucketMinutes = 60 // 默认 60 分钟
+	}
+
+	bucketCount := (retentionDays * 24 * 60) / bucketMinutes
 	if bucketCount < 1 {
 		bucketCount = 1
 	}

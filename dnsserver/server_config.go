@@ -16,6 +16,25 @@ import (
 	"smartdnssort/upstream/bootstrap"
 )
 
+const (
+	// MaxConcurrentSorts 限制同时进行的并发排序任务数量
+	MaxConcurrentSorts = 50
+	// DefaultUpstreamTimeout 上游查询最大超时时间限制
+	DefaultUpstreamTimeout = 30 * time.Second
+	// DefaultRefreshWorkers 异步刷新队列的默认工作线程数
+	DefaultRefreshWorkers = 4
+	// DefaultCacheCleanInterval 缓存清理的默认间隔
+	DefaultCacheCleanInterval = 60 * time.Second
+	// DefaultCacheSaveInterval 缓存保存的默认间隔
+	DefaultCacheSaveInterval = 60 * time.Minute
+	// DefaultRefreshQueueSize 刷新队列缓冲大小
+	DefaultRefreshQueueSize = 100
+	// DefaultSortQueueSize 排序队列缓冲大小
+	DefaultSortQueueSize = 200
+	// DefaultSortTimeout 排序任务超时时间
+	DefaultSortTimeout = 10 * time.Second
+)
+
 // ApplyConfig applies a new configuration to the running server (hot-reload).
 func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	logger.Info("Applying new configuration...")
@@ -71,7 +90,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newSortQueue *cache.SortQueue
 	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
 		logger.Infof("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
-		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, 200, 10*time.Second)
+		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, DefaultSortQueueSize, DefaultSortTimeout)
 		newSortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 			return s.performPingSort(ctx, domain, ips)
 		})
@@ -80,7 +99,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	var newRefreshQueue *RefreshQueue
 	if s.cfg.System.RefreshWorkers != newCfg.System.RefreshWorkers {
 		logger.Infof("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
-		newRefreshQueue = NewRefreshQueue(newCfg.System.RefreshWorkers, 100)
+		newRefreshQueue = NewRefreshQueue(newCfg.System.RefreshWorkers, DefaultRefreshQueueSize)
 		newRefreshQueue.SetWorkFunc(s.refreshCacheAsync)
 	}
 

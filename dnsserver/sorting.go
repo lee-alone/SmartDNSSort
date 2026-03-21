@@ -7,6 +7,7 @@ import (
 	"smartdnssort/cache"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
+	"sort"
 	"strings"
 	"time"
 
@@ -136,14 +137,17 @@ func (s *Server) sortIPsByRTT(ips []string, rttMap map[string]int, domain string
 		ipRTTs = append(ipRTTs, ipRTT{ip: ip, rtt: rtt})
 	}
 
-	// 按 RTT 排序（冒泡排序，简单实现）
-	for i := 0; i < len(ipRTTs); i++ {
-		for j := i + 1; j < len(ipRTTs); j++ {
-			if ipRTTs[j].rtt < ipRTTs[i].rtt {
-				ipRTTs[i], ipRTTs[j] = ipRTTs[j], ipRTTs[i]
-			}
+	// 按 RTT 从小到大排序
+	// 选择 sort.Slice 因为其底层实现针对中等规模数组（DNS 响应 IP 数量通常 < 100）
+	// 比冒泡排序 O(n²) 性能更优 (O(n log n))
+	sort.Slice(ipRTTs, func(i, j int) bool {
+		// 首先按 RTT 从小到大排序
+		if ipRTTs[i].rtt != ipRTTs[j].rtt {
+			return ipRTTs[i].rtt < ipRTTs[j].rtt
 		}
-	}
+		// RTT 相等时，按 IP 字符串字典序排序（保证排序稳定性，便于测试和结果一致性）
+		return ipRTTs[i].ip < ipRTTs[j].ip
+	})
 
 	// 提取排序后的 IP 和 RTT
 	sortedIPs := make([]string, len(ipRTTs))
@@ -247,8 +251,8 @@ func (s *Server) sortIPsAsync(domain string, qtype uint16, ips []string, upstrea
 		}()
 	default:
 		// 信号量已满，跳过此次排序
-		logger.Warnf("[sortIPsAsync] 并发排序任务已达上限 (50)，跳过排序: %s (type=%s)",
-			domain, dns.TypeToString[qtype])
+		logger.Warnf("[sortIPsAsync] 并发排序任务已达上限 (%d)，跳过排序: %s (type=%s)",
+			MaxConcurrentSorts, domain, dns.TypeToString[qtype])
 		s.cache.FinishSort(domain, qtype, nil, fmt.Errorf("sort semaphore full"), state)
 	}
 }

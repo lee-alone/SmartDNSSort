@@ -9,6 +9,26 @@ import (
 	"github.com/miekg/dns"
 )
 
+// deduplicateIPs 对 IP 列表进行解析和去重
+func deduplicateIPs(ips []string) []net.IP {
+	ipSet := make(map[string]bool)
+	uniqueIPs := make([]net.IP, 0, len(ips))
+
+	for _, ip := range ips {
+		parsedIP := net.ParseIP(ip)
+		if parsedIP == nil {
+			continue
+		}
+
+		ipStr := parsedIP.String()
+		if !ipSet[ipStr] {
+			ipSet[ipStr] = true
+			uniqueIPs = append(uniqueIPs, parsedIP)
+		}
+	}
+	return uniqueIPs
+}
+
 // buildSOARecord 构造 SOA 记录用于负响应（NXDOMAIN/NODATA）
 // 根据 RFC 2308，负响应应在 Authority section 包含 SOA 记录
 // SOA 记录的 MINIMUM 字段指示客户端应缓存负响应的时间
@@ -53,20 +73,9 @@ func (s *Server) buildDNSResponseWithDNSSEC(msg *dns.Msg, domain string, ips []s
 	}
 
 	// 进行IP去重
-	ipSet := make(map[string]bool)
-	for _, ip := range ips {
-		parsedIP := net.ParseIP(ip)
-		if parsedIP == nil {
-			continue
-		}
+	uniqueIPs := deduplicateIPs(ips)
 
-		// 对IP进行去重
-		ipStr := parsedIP.String()
-		if ipSet[ipStr] {
-			continue // 跳过重复的IP
-		}
-		ipSet[ipStr] = true
-
+	for _, parsedIP := range uniqueIPs {
 		switch qtype {
 		case dns.TypeA:
 			// 返回 IPv4
@@ -150,20 +159,9 @@ func (s *Server) buildDNSResponseWithCNAMEAndDNSSEC(msg *dns.Msg, domain string,
 
 	// The IPs belong to the LAST CNAME target
 	// 2. 然后添加目标域名的 A/AAAA 记录（进行IP去重）
-	ipSet := make(map[string]bool) // 用于去重IP
-	for _, ip := range ips {
-		parsedIP := net.ParseIP(ip)
-		if parsedIP == nil {
-			continue
-		}
+	uniqueIPs := deduplicateIPs(ips)
 
-		// 对IP进行去重
-		ipStr := parsedIP.String()
-		if ipSet[ipStr] {
-			continue // 跳过重复的IP
-		}
-		ipSet[ipStr] = true
-
+	for _, parsedIP := range uniqueIPs {
 		switch qtype {
 		case dns.TypeA:
 			// 返回 IPv4，记录名称使用 CNAME 目标

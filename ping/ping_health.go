@@ -68,6 +68,14 @@ func (p *Pinger) SetHealthChecker(checker connectivity.NetworkHealthChecker) {
 	p.healthChecker = checker
 }
 
+// ClearIPFailureWeights 清空所有 IP 失效权重记录
+// 用于测试场景，确保排序结果不受历史权重影响
+func (p *Pinger) ClearIPFailureWeights() {
+	if p.failureWeightMgr != nil {
+		p.failureWeightMgr.Clear()
+	}
+}
+
 // IsNetworkOnline 返回网络是否在线
 // 供 IPMonitor 使用，用于判断是否跳过当前刷新周期
 func (p *Pinger) IsNetworkOnline() bool {

@@ -36,7 +36,16 @@ type BlockedDomainCount struct {
 
 func NewBlockedDomainsTracker(cfg *config.StatsConfig) *BlockedDomainsTracker {
 	// Calculate number of buckets
-	numBuckets := (cfg.HotDomainsWindowHours * 60) / cfg.HotDomainsBucketMinutes
+	windowHours := cfg.HotDomainsWindowHours
+	if windowHours <= 0 {
+		windowHours = 24 // 默认 24 小时
+	}
+	bucketMinutes := cfg.HotDomainsBucketMinutes
+	if bucketMinutes <= 0 {
+		bucketMinutes = 60 // 默认 60 分钟
+	}
+
+	numBuckets := (windowHours * 60) / bucketMinutes
 	if numBuckets < 1 {
 		numBuckets = 1
 	}
@@ -171,7 +180,11 @@ func (t *BlockedDomainsTracker) GetTopBlockedDomains(k int) []BlockedDomainCount
 }
 
 func (t *BlockedDomainsTracker) startRotation() {
-	ticker := time.NewTicker(time.Duration(t.cfg.HotDomainsBucketMinutes) * time.Minute)
+	bucketMinutes := t.cfg.HotDomainsBucketMinutes
+	if bucketMinutes <= 0 {
+		bucketMinutes = 60
+	}
+	ticker := time.NewTicker(time.Duration(bucketMinutes) * time.Minute)
 	defer ticker.Stop()
 
 	for {

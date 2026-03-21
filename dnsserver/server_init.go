@@ -3,7 +3,6 @@ package dnsserver
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"smartdnssort/adblock"
 	"smartdnssort/cache"
@@ -21,10 +20,10 @@ import (
 // NewServer 创建新的 DNS 服务器
 func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 创建异步排序队列
-	sortQueue := cache.NewSortQueue(cfg.System.SortQueueWorkers, 200, 10*time.Second)
+	sortQueue := cache.NewSortQueue(cfg.System.SortQueueWorkers, DefaultSortQueueSize, DefaultSortTimeout)
 
 	// 创建异步刷新队列
-	refreshQueue := NewRefreshQueue(cfg.System.RefreshWorkers, 100)
+	refreshQueue := NewRefreshQueue(cfg.System.RefreshWorkers, DefaultRefreshQueueSize)
 
 	// Initialize Bootstrap Resolver
 	boot := bootstrap.NewResolver(cfg.Upstream.BootstrapDNS)
@@ -71,7 +70,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		sortQueue:     sortQueue,
 		refreshQueue:  refreshQueue,
 		stopCh:        make(chan struct{}),
-		sortSemaphore: make(chan struct{}, 50), // 限制最多 50 个并发排序任务
+		sortSemaphore: make(chan struct{}, MaxConcurrentSorts), // 限制并发排序任务数量
 	}
 
 	// 静默隔离改造：将全局网络健康检查器注入给 pinger 实例

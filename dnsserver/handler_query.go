@@ -36,8 +36,8 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// ========== 阶段一：首次查询（无缓存）==========
 	logger.Debugf("[handleQuery] 首次查询，无缓存: %s (type=%s)", domain, dns.TypeToString[qtype])
 
-	// 使用配置的上游超时作为总超时（不与服务器数相乘，避免长时间等待）
-	maxTotalTimeout := 30 * time.Second
+	// 使用配置的上游超时作为总超时
+	maxTotalTimeout := DefaultUpstreamTimeout
 	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs) * time.Millisecond
 	totalTimeout = min(totalTimeout, maxTotalTimeout)
 
@@ -83,6 +83,27 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	}
 
 	// --- 统一处理入口 ---
+
+	// 核心修复：检查上游返回的消息状态码
+	// 如果上游返回 NXDOMAIN，我们应该尊重并缓存 NXDOMAIN，而不是视为空结果 (NODATA)
+	if result.DnsMsg != nil && result.DnsMsg.Rcode == dns.RcodeNameError {
+		logger.Debugf("[handleQuery] 上游查询返回 NXDOMAIN: %s", domain)
+		s.cache.SetError(domain, qtype, dns.RcodeNameError, currentCfg.Cache.ErrorCacheTTL)
+
+		msg := s.msgPool.Get()
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Compress = false
+		msg.SetRcode(r, dns.RcodeNameError)
+
+		// 添加 SOA 记录到 Authority section（符合 RFC 2308）
+		soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+		msg.Ns = append(msg.Ns, soa)
+
+		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
+		return
+	}
 
 	var finalIPs []string
 	var fullCNAMEs []string
@@ -307,7 +328,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// 仅处理 A 和 AAAA 查询（暂时保留限制，后续会移除）
 	if qtype != dns.TypeA && qtype != dns.TypeAAAA {
 		// 对于非 A/AAAA 查询，尝试通用处理
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultUpstreamTimeout)
 		defer cancel()
 		if s.handleGenericQuery(w, r, domain, qtype, ctx, currentUpstream, currentCfg, currentStats) {
 			return
@@ -363,7 +384,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	// ========== 第 5 阶段: 缓存未命中，执行首次查询 ==========
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultUpstreamTimeout)
 	defer cancel()
 
 	s.handleCacheMiss(w, r, domain, question, ctx, currentUpstream, currentCfg, currentStats, adblockMgr)
@@ -395,7 +416,7 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 	logger.Debugf("[handleGenericCacheMiss] 通用查询缓存未命中: %s (type=%s)", domain, dns.TypeToString[qtype])
 
 	// 使用配置的上游超时
-	maxTotalTimeout := 30 * time.Second
+	maxTotalTimeout := DefaultUpstreamTimeout
 	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs) * time.Millisecond
 	totalTimeout = min(totalTimeout, maxTotalTimeout)
 
@@ -428,6 +449,25 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
 			msg.Ns = append(msg.Ns, soa)
 		}
+		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
+		return
+	}
+
+	// 核心修复：检查上游返回的消息状态码（通用查询逻辑）
+	if result.DnsMsg != nil && result.DnsMsg.Rcode == dns.RcodeNameError {
+		logger.Debugf("[handleGenericCacheMiss] 上游查询返回 NXDOMAIN: %s", domain)
+		s.cache.SetError(domain, qtype, dns.RcodeNameError, currentCfg.Cache.ErrorCacheTTL)
+
+		msg := s.msgPool.Get()
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Compress = false
+		msg.SetRcode(r, dns.RcodeNameError)
+
+		soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+		msg.Ns = append(msg.Ns, soa)
+
 		w.WriteMsg(msg)
 		s.msgPool.Put(msg)
 		return
