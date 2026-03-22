@@ -35,87 +35,6 @@ const parsed = parseFloat(value);
 return isNaN(parsed) ? defaultValue : parsed;
 }
 
-// ==================== 输入验证 ====================
-const InputValidator = {
-/**
-* 验证端口号
-*/
-validatePort(port, fieldName) {
-const p = safeParseInt(port, -1);
-if (p < VALIDATION.MIN_PORT || p > VALIDATION.MAX_PORT) {
-return `${fieldName} 必须在 ${VALIDATION.MIN_PORT}-${VALIDATION.MAX_PORT} 之间`;
-}
-return null;
-},
-
-/**
-* 验证超时时间
-*/
-validateTimeout(timeout, fieldName) {
-const t = safeParseInt(timeout, -1);
-if (t < VALIDATION.MIN_TIMEOUT_MS || t > VALIDATION.MAX_TIMEOUT_MS) {
-return `${fieldName} 必须在 ${VALIDATION.MIN_TIMEOUT_MS}-${VALIDATION.MAX_TIMEOUT_MS}ms 之间`;
-}
-return null;
-},
-
-/**
-* 验证正整数
-*/
-validatePositiveInt(value, fieldName, min = 1, max = 1000000) {
-const v = safeParseInt(value, -1);
-if (v < min || v > max) {
-return `${fieldName} 必须在 ${min}-${max} 之间`;
-}
-return null;
-},
-
-/**
-* 验证配置数据
-*/
-validateConfig(data) {
-const errors = [];
-
-// DNS 配置验证
-if (data.dns) {
-const portError = this.validatePort(data.dns.listen_port, 'DNS 监听端口');
-if (portError) errors.push(portError);
-}
-
-// Upstream 配置验证
-if (data.upstream) {
-const timeoutError = this.validateTimeout(data.upstream.timeout_ms, '上游超时时间');
-if (timeoutError) errors.push(timeoutError);
-
-const concurrencyError = this.validatePositiveInt(data.upstream.concurrency, '并发数', VALIDATION.MIN_CONCURRENCY, VALIDATION.MAX_CONCURRENCY);
-if (concurrencyError) errors.push(concurrencyError);
-}
-
-// Ping 配置验证
-if (data.ping) {
-const pingTimeoutError = this.validateTimeout(data.ping.timeout_ms, 'Ping 超时时间');
-if (pingTimeoutError) errors.push(pingTimeoutError);
-}
-
-// Cache 配置验证
-if (data.cache) {
-const cacheSizeError = this.validatePositiveInt(data.cache.max_memory_mb, '缓存大小', VALIDATION.MIN_CACHE_SIZE, VALIDATION.MAX_CACHE_SIZE);
-if (cacheSizeError) errors.push(cacheSizeError);
-}
-
-// WebUI 配置验证
-if (data.webui) {
-const webuiPortError = this.validatePort(data.webui.listen_port, 'WebUI 端口');
-if (webuiPortError) errors.push(webuiPortError);
-}
-
-return {
-valid: errors.length === 0,
-errors
-};
-}
-};
-
 // ==================== 防抖函数 ====================
 function debounce(func, wait) {
 let timeout;
@@ -146,6 +65,7 @@ return defaultValue;
 }
 
 function populateForm(config) {
+    console.log('[Config] Populating form with config:', config);
     try {
         originalConfig = config;
 
@@ -153,12 +73,18 @@ function populateForm(config) {
             const el = document.getElementById(id);
             if (el) {
                 el.value = value;
+                console.log(`[Config] Set ${id} = ${value}`);
+            } else {
+                console.warn(`[Config] Element not found: ${id}`);
             }
         };
         const setChecked = (id, checked) => {
             const el = document.getElementById(id);
             if (el) {
                 el.checked = checked;
+                console.log(`[Config] Set ${id} = ${checked}`);
+            } else {
+                console.warn(`[Config] Element not found: ${id}`);
             }
         };
 
@@ -252,12 +178,24 @@ function populateForm(config) {
             setValue('adblock_blocked_ttl', config.adblock.blocked_ttl || 0);
             setValue('adblock_block_mode', config.adblock.block_mode || 'nxdomain');
         }
+
+        // Load IP Monitor settings
+        if (config.ip_monitor) {
+            setChecked('ip_monitor.enabled', config.ip_monitor.enabled || false);
+            setValue('ip_monitor.max_size', config.ip_monitor.max_size || 0);
+            setValue('ip_monitor.t0_refresh_interval', config.ip_monitor.t0_refresh_interval || 0);
+            setValue('ip_monitor.t1_refresh_interval', config.ip_monitor.t1_refresh_interval || 0);
+            setValue('ip_monitor.t2_refresh_interval', config.ip_monitor.t2_refresh_interval || 0);
+        }
+        console.log('[Config] Form populated successfully');
     } catch (e) {
+        console.error('[Config] Error populating form:', e);
         alert("An error occurred while displaying the configuration. Check developer console (F12).");
     }
 }
 
-function loadConfig() {
+function fetchAndPopulateConfig() {
+    console.log('[Config] Fetching configuration from server...');
     fetch(CONFIG_API_URL)
         .then(response => {
             if (!response.ok) {
@@ -266,20 +204,43 @@ function loadConfig() {
             return response.json();
         })
         .then(result => {
+            console.log('[Config] API Response:', result);
             // 解析统一响应格式 {success, message, data}
             if (result.success && result.data) {
+                console.log('[Config] Config data:', result.data);
                 // 延迟执行以确保所有组件都已加载
                 setTimeout(() => {
                     populateForm(result.data);
-                }, 100);
+                }, 300);
             } else {
                 throw new Error(result.message || 'Invalid response format');
             }
         })
         .catch(error => {
-            console.error('Failed to load configuration:', error);
+            console.error('[Config] Failed to load configuration:', error);
             alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
         });
+}
+
+function loadConfig() {
+    console.log('[Config] loadConfig() called');
+    // 检查组件是否已加载
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        // 组件可能已经加载，直接获取配置
+        console.log('[Config] Document ready, fetching configuration...');
+        setTimeout(() => {
+            fetchAndPopulateConfig();
+        }, 300);
+    } else {
+        // 等待组件加载完成的事件
+        document.addEventListener('componentsLoaded', () => {
+            console.log('[Config] Components loaded, fetching configuration...');
+            // 额外等待 DOM 渲染完成
+            setTimeout(() => {
+                fetchAndPopulateConfig();
+            }, 300);
+        }, { once: true });  // 只触发一次
+    }
 }
 
 function saveConfig(event) {
@@ -369,6 +330,13 @@ system: {
 max_cpu_cores: safeParseInt(getFormValue(form, 'system.max_cpu_cores', '0'), 0),
 sort_queue_workers: safeParseInt(getFormValue(form, 'system.sort_queue_workers', '4'), 4),
 refresh_workers: safeParseInt(getFormValue(form, 'system.refresh_workers', '4'), 4),
+},
+ip_monitor: {
+enabled: getFormValue(form, 'ip_monitor.enabled', false),
+max_size: safeParseInt(getFormValue(form, 'ip_monitor.max_size', '0'), 0),
+t0_refresh_interval: safeParseInt(getFormValue(form, 'ip_monitor.t0_refresh_interval', '0'), 0),
+t1_refresh_interval: safeParseInt(getFormValue(form, 'ip_monitor.t1_refresh_interval', '0'), 0),
+t2_refresh_interval: safeParseInt(getFormValue(form, 'ip_monitor.t2_refresh_interval', '0'), 0),
 },
 };
 
@@ -547,8 +515,40 @@ function showDefaultServersNotification() {
     }, 3000);
 }
 
+function initMaintenanceButtons() {
+    console.log('[Config] Initializing maintenance buttons...');
+    const exportBtn = document.querySelector('button[onclick="exportConfig()"]');
+    const importBtn = document.getElementById('import-config-file');
+    const resetBtn = document.querySelector('button[onclick="resetConfig()"]');
+
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportConfig);
+        exportBtn.removeAttribute('onclick');
+        console.log('[Config] Export button initialized');
+    } else {
+        console.warn('[Config] Export button not found');
+    }
+
+    if (importBtn) {
+        importBtn.addEventListener('change', (e) => importConfig(e.target));
+        importBtn.removeAttribute('onchange');
+        console.log('[Config] Import button initialized');
+    } else {
+        console.warn('[Config] Import button not found');
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetConfig);
+        resetBtn.removeAttribute('onclick');
+        console.log('[Config] Reset button initialized');
+    } else {
+        console.warn('[Config] Reset button not found');
+    }
+}
+
 document.addEventListener('componentsLoaded', () => {
     initializeConfigUI();
+    initMaintenanceButtons();
 });
 
 window.addEventListener('languageChanged', () => {

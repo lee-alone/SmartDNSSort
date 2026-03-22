@@ -361,12 +361,6 @@ function initializeIPPoolMonitor() {
 		// we just need to ensure the event listener is set up.
 	});
 
-	// Add refresh button listener
-	const refreshBtn = document.getElementById('refreshIpPoolBtn');
-	if (refreshBtn) {
-		refreshBtn.addEventListener('click', loadIPPoolData);
-	}
-	
 	// Add expand button listener
 	const expandBtn = document.getElementById('btn-expand-ips');
 	if (expandBtn) {

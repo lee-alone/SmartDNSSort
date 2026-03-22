@@ -90,21 +90,51 @@ const InputValidator = {
     validateConfig(data) {
         const errors = [];
 
+        // DNS 配置验证
         if (data.dns) {
             if (!this.validatePort(data.dns.listen_port)) {
                 errors.push(`DNS 端口必须在 ${CONSTANTS.MIN_PORT}-${CONSTANTS.MAX_PORT} 之间`);
             }
         }
 
+        // Upstream 配置验证
         if (data.upstream) {
             if (!this.validateTimeout(data.upstream.timeout_ms)) {
-                errors.push(`超时时间必须在 ${CONSTANTS.MIN_TIMEOUT_MS}-${CONSTANTS.MAX_TIMEOUT_MS}ms 之间`);
+                errors.push(`上游超时时间必须在 ${CONSTANTS.MIN_TIMEOUT_MS}-${CONSTANTS.MAX_TIMEOUT_MS}ms 之间`);
+            }
+            
+            // 验证并发数 - 允许更大的范围以支持高并发场景
+            const concurrency = safeParseInt(data.upstream.concurrency, -1);
+            if (concurrency < 1 || concurrency > 1000) {
+                errors.push('并发数必须在 1-1000 之间');
+            }
+            
+            // 验证最大连接数
+            const maxConnections = safeParseInt(data.upstream.max_connections, -1);
+            if (maxConnections < 0 || maxConnections > 2000) {
+                errors.push('最大连接数必须在 0-2000 之间');
             }
         }
 
+        // Ping 配置验证
+        if (data.ping) {
+            if (!this.validateTimeout(data.ping.timeout_ms)) {
+                errors.push(`Ping 超时时间必须在 ${CONSTANTS.MIN_TIMEOUT_MS}-${CONSTANTS.MAX_TIMEOUT_MS}ms 之间`);
+            }
+        }
+
+        // Cache 配置验证
         if (data.cache) {
-            if (!this.validateCacheSize(data.cache.size)) {
-                errors.push(`缓存大小必须在 ${CONSTANTS.MIN_CACHE_SIZE}-${CONSTANTS.MAX_CACHE_SIZE} 之间`);
+            const maxMemoryMb = safeParseInt(data.cache.max_memory_mb, -1);
+            if (maxMemoryMb < 1 || maxMemoryMb > 102400) {
+                errors.push('缓存大小必须在 1-102400 MB 之间');
+            }
+        }
+
+        // WebUI 配置验证
+        if (data.webui) {
+            if (!this.validatePort(data.webui.listen_port)) {
+                errors.push(`WebUI 端口必须在 ${CONSTANTS.MIN_PORT}-${CONSTANTS.MAX_PORT} 之间`);
             }
         }
 
