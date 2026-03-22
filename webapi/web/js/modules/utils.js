@@ -263,6 +263,37 @@ function createIconTextCell(iconHtml, text) {
 }
 
 // ==================== 带超时的 fetch 封装 ====================
+
+/**
+ * 按钮反馈动画
+ * @param {HTMLElement} button - 按钮元素
+ * @param {boolean} success - 是否成功
+ */
+function addButtonFeedback(button, success) {
+    if (!button) return;
+    
+    const originalText = button.textContent;
+    const originalClass = button.className;
+    
+    // 移除之前的反馈类
+    button.classList.remove('bg-green-500', 'bg-red-500');
+    
+    if (success) {
+        button.classList.add('bg-green-500');
+        button.textContent = '✓ 已保存';
+    } else {
+        button.classList.add('bg-red-500');
+        button.textContent = '✗ 保存失败';
+    }
+    
+    // 2 秒后恢复原状
+    setTimeout(() => {
+        button.classList.remove('bg-green-500', 'bg-red-500');
+        button.className = originalClass;
+        button.textContent = originalText;
+    }, 2000);
+}
+
 /**
  * 带超时的 fetch
  * @param {string} url - 请求 URL
@@ -300,6 +331,11 @@ if (typeof module !== 'undefined' && module.exports) {
         createTableCell,
         createSafeElement,
         createIconTextCell,
-        fetchWithTimeout
+        fetchWithTimeout,
+        addButtonFeedback
     };
 }
+
+// 导出到全局作用域（供其他模块使用）
+window.addInputCounter = window.addInputCounter || null;
+window.addButtonFeedback = addButtonFeedback;
