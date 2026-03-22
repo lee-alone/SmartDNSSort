@@ -72,6 +72,7 @@ const resourcesEn = {
         "noBlockedDomainData": "No blocked domain data yet.",
         "noRecentQueries": "No recent queries.",
         "noRecentlyBlocked": "No recently blocked domains.",
+        "loading": "Loading...",
         "errorLoadingData": "Error loading data.",
         "statsPeriod": "Stats Period",
         "period1Day": "1 Day",

@@ -65,7 +65,6 @@ return defaultValue;
 }
 
 function populateForm(config) {
-    console.log('[Config] Populating form with config:', config);
     try {
         originalConfig = config;
 
@@ -73,18 +72,12 @@ function populateForm(config) {
             const el = document.getElementById(id);
             if (el) {
                 el.value = value;
-                console.log(`[Config] Set ${id} = ${value}`);
-            } else {
-                console.warn(`[Config] Element not found: ${id}`);
             }
         };
         const setChecked = (id, checked) => {
             const el = document.getElementById(id);
             if (el) {
                 el.checked = checked;
-                console.log(`[Config] Set ${id} = ${checked}`);
-            } else {
-                console.warn(`[Config] Element not found: ${id}`);
             }
         };
 
@@ -187,15 +180,12 @@ function populateForm(config) {
             setValue('ip_monitor.t1_refresh_interval', config.ip_monitor.t1_refresh_interval || 0);
             setValue('ip_monitor.t2_refresh_interval', config.ip_monitor.t2_refresh_interval || 0);
         }
-        console.log('[Config] Form populated successfully');
     } catch (e) {
-        console.error('[Config] Error populating form:', e);
-        alert("An error occurred while displaying the configuration. Check developer console (F12).");
+        alert("An error occurred while displaying the configuration.");
     }
 }
 
 function fetchAndPopulateConfig() {
-    console.log('[Config] Fetching configuration from server...');
     fetch(CONFIG_API_URL)
         .then(response => {
             if (!response.ok) {
@@ -204,10 +194,8 @@ function fetchAndPopulateConfig() {
             return response.json();
         })
         .then(result => {
-            console.log('[Config] API Response:', result);
             // 解析统一响应格式 {success, message, data}
             if (result.success && result.data) {
-                console.log('[Config] Config data:', result.data);
                 // 延迟执行以确保所有组件都已加载
                 setTimeout(() => {
                     populateForm(result.data);
@@ -217,24 +205,20 @@ function fetchAndPopulateConfig() {
             }
         })
         .catch(error => {
-            console.error('[Config] Failed to load configuration:', error);
-            alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
+            alert('Could not load configuration from server.');
         });
 }
 
 function loadConfig() {
-    console.log('[Config] loadConfig() called');
     // 检查组件是否已加载
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         // 组件可能已经加载，直接获取配置
-        console.log('[Config] Document ready, fetching configuration...');
         setTimeout(() => {
             fetchAndPopulateConfig();
         }, 300);
     } else {
         // 等待组件加载完成的事件
         document.addEventListener('componentsLoaded', () => {
-            console.log('[Config] Components loaded, fetching configuration...');
             // 额外等待 DOM 渲染完成
             setTimeout(() => {
                 fetchAndPopulateConfig();
@@ -516,7 +500,6 @@ function showDefaultServersNotification() {
 }
 
 function initMaintenanceButtons() {
-    console.log('[Config] Initializing maintenance buttons...');
     const exportBtn = document.querySelector('button[onclick="exportConfig()"]');
     const importBtn = document.getElementById('import-config-file');
     const resetBtn = document.querySelector('button[onclick="resetConfig()"]');
@@ -524,25 +507,16 @@ function initMaintenanceButtons() {
     if (exportBtn) {
         exportBtn.addEventListener('click', exportConfig);
         exportBtn.removeAttribute('onclick');
-        console.log('[Config] Export button initialized');
-    } else {
-        console.warn('[Config] Export button not found');
     }
 
     if (importBtn) {
         importBtn.addEventListener('change', (e) => importConfig(e.target));
         importBtn.removeAttribute('onchange');
-        console.log('[Config] Import button initialized');
-    } else {
-        console.warn('[Config] Import button not found');
     }
 
     if (resetBtn) {
         resetBtn.addEventListener('click', resetConfig);
         resetBtn.removeAttribute('onclick');
-        console.log('[Config] Reset button initialized');
-    } else {
-        console.warn('[Config] Reset button not found');
     }
 }
 

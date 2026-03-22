@@ -42,8 +42,6 @@ const AccessibilityEnhancer = (function() {
         enhanceLiveRegions();
         enhanceKeyboardNavigation();
         enhanceFocusIndicators();
-        
-        console.log('[Accessibility] Enhancements applied');
     }
 
     /**

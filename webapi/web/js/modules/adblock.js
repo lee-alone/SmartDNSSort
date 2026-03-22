@@ -15,7 +15,9 @@ function loadAdBlockSettings() {
             if (maxCacheSizeEl) maxCacheSizeEl.value = settings.max_cache_size_mb;
             if (blockedTtlEl) blockedTtlEl.value = settings.blocked_ttl;
         })
-        .catch(error => console.error('Error fetching AdBlock settings:', error));
+        .catch(error => {
+            // 静默处理错误
+        });
 }
 
 function updateAdBlockTab() {
@@ -44,7 +46,6 @@ function updateAdBlockTab() {
             document.getElementById('adblock_last_update').textContent = data.last_update ? new Date(data.last_update).toLocaleString() : 'Never';
         })
         .catch(error => {
-            console.error('Error fetching AdBlock status:', error);
             document.getElementById('adblock_status').textContent = i18n.t('adblock.statusError');
             document.getElementById('adblock_status').className = 'value status-error';
         });
@@ -59,7 +60,7 @@ function updateAdBlockTab() {
             }
         })
         .catch(error => {
-            console.error('Error loading BlockMode:', error);
+            // 静默处理错误
         });
 
     fetch('/api/adblock/sources')
@@ -146,7 +147,6 @@ function updateAdBlockTab() {
     }
     })
     .catch(error => {
-    console.error('Error fetching AdBlock sources:', error);
     const sourcesTable = document.getElementById('adblock_sources_table').getElementsByTagName('tbody')[0];
     // 安全：使用 DOM 操作
     sourcesTable.innerHTML = '';
@@ -175,7 +175,6 @@ function initializeAdBlockHandlers() {
                 const statusEl = document.getElementById('adblock_status');
                 statusEl.textContent = enabled ? i18n.t('adblock.statusEnabled') : i18n.t('adblock.statusDisabled');
                 statusEl.className = enabled ? 'value status-success' : 'value status-error';
-                console.log('AdBlock status changed to:', enabled);
             } else {
                 e.target.checked = !enabled;
                 const text = await response.text();
@@ -287,7 +286,6 @@ function initializeAdBlockHandlers() {
         } catch (error) {
             resultDiv.textContent = i18n.t('messages.testError');
             resultDiv.className = 'test-result status-error';
-            console.error('Test domain error:', error);
         }
     });
 }

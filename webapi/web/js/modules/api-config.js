@@ -54,7 +54,6 @@ const API_CONFIG = {
     getUrl(endpointName, params = {}) {
         const endpoint = this.endpoints[endpointName];
         if (!endpoint) {
-            console.warn(`API endpoint "${endpointName}" not found`);
             return '';
         }
         

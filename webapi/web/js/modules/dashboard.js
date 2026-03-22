@@ -80,7 +80,6 @@ async function fetchWithRetry(url, { signal, ...options } = {}, maxRetries = 3) 
         } catch (error) {
             // 用户主动中止时立即抛出，不重试
             if (error.name === 'AbortError') {
-                console.log(`Fetch aborted: ${url}`);
                 throw error;
             }
             lastError = error;
@@ -767,9 +766,9 @@ async function updateDashboard(isManualRefresh = false) {
         } else if (isManualRefresh) {
         	showSectionError('recent-blocked', blockedData?.error?.message || '最近拦截获取失败');
         }
-        
+
         // 检查是否有失败，显示部分错误提示
-        const failures = results.filter(r => r.status === 'rejected');
+        const failures = [statsResult, upstreamResult, queriesResult, blockedResult].filter(r => !r.success);
         if (failures.length > 0) {
             showPartialErrorState(failures.length);
         } else {
@@ -782,10 +781,8 @@ async function updateDashboard(isManualRefresh = false) {
         }
     } catch (error) {
         if (error.name === 'AbortError') {
-            console.log('Dashboard update aborted');
             return; // 被中止时不显示错误
         }
-        console.error('Dashboard update failed:', error);
         if (isManualRefresh) {
             showErrorState(error.message); // 只在手动刷新时显示错误提示
         }
@@ -824,7 +821,6 @@ function initializeDashboardButtons() {
                 alert(i18n.t('messages.cacheClearFailed'));
             }
         } catch (error) {
-            console.error('Error clearing cache:', error);
             alert(i18n.t('messages.cacheClearError'));
         }
     });
@@ -846,7 +842,6 @@ function initializeDashboardButtons() {
                 alert(i18n.t('messages.statsClearFailed'));
             }
         } catch (error) {
-            console.error('Error clearing stats:', error);
             alert(i18n.t('messages.statsClearError'));
         }
     });

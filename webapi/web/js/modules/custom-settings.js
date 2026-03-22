@@ -1,5 +1,25 @@
 // Custom Settings Module
 
+// 更新计数器显示
+function updateCounter(containerId, lineCountId, charCountId) {
+    const container = document.getElementById(containerId);
+    const lineCountEl = document.getElementById(lineCountId);
+    const charCountEl = document.getElementById(charCountId);
+    
+    if (!container) return;
+    
+    const content = container.value || '';
+    const lines = content ? content.split('\n').length : 0;
+    const chars = content.length;
+    
+    if (lineCountEl) {
+        lineCountEl.textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
+    }
+    if (charCountEl) {
+        charCountEl.textContent = `${chars} character${chars !== 1 ? 's' : ''}`;
+    }
+}
+
 function initializeCounters() {
     const blockedTextarea = document.getElementById('custom-blocked-content');
     if (blockedTextarea) {
@@ -7,8 +27,6 @@ function initializeCounters() {
             updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
         });
         updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
-    } else {
-        console.warn('initializeCounters: custom-blocked-content element not found');
     }
 
     const responseTextarea = document.getElementById('custom-response-content');
@@ -17,8 +35,6 @@ function initializeCounters() {
             updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
         });
         updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
-    } else {
-        console.warn('initializeCounters: custom-response-content element not found');
     }
 
     const unboundTextarea = document.getElementById('unbound-config-content');
@@ -26,8 +42,6 @@ function initializeCounters() {
         unboundTextarea.addEventListener('input', () => {
             updateCounter('unbound-config-content', 'unbound-line-count', 'unbound-char-count');
         });
-    } else {
-        console.warn('initializeCounters: unbound-config-content element not found');
     }
 }
 

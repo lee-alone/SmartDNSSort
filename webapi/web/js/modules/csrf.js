@@ -50,10 +50,8 @@ const CSRFManager = (function() {
                 scheduleTokenRefresh(expiresInSeconds);
             }
 
-            console.log('[CSRF] Token obtained successfully');
             return csrfToken;
         } catch (error) {
-            console.error('[CSRF] Failed to fetch token:', error);
             
             if (retryCount < CONFIG.maxRetries) {
                 await new Promise(resolve => setTimeout(resolve, CONFIG.retryDelayMs));
@@ -101,7 +99,7 @@ const CSRFManager = (function() {
                 try {
                     await fetchToken();
                 } catch (error) {
-                    console.error('[CSRF] Auto-refresh failed:', error);
+                    // 自动刷新失败，静默处理
                 }
             }, refreshTime);
         }
@@ -159,7 +157,7 @@ const CSRFManager = (function() {
         if (response.ok && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
             // 异步刷新令牌，不阻塞响应
             fetchToken().catch(error => {
-                console.warn('[CSRF] Failed to refresh token after request:', error);
+                // 令牌刷新失败，静默处理
             });
         }
 
@@ -180,7 +178,6 @@ const CSRFManager = (function() {
             try {
                 const data = await response.clone().json();
                 if (data.message && data.message.includes('CSRF')) {
-                    console.log('[CSRF] Token invalid, refreshing and retrying...');
                     
                     // 强制刷新令牌
                     csrfToken = null;

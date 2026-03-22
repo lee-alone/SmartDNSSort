@@ -37,8 +37,6 @@ const ConfigSearch = (function() {
         
         // 绑定事件
         bindEvents();
-        
-        console.log('[ConfigSearch] Initialized with', searchIndex.length, 'items');
     }
 
     /**
@@ -106,7 +104,6 @@ const ConfigSearch = (function() {
         // 查找侧边栏
         const sidebar = document.querySelector('.sidebar, #sidebar, [role="navigation"]');
         if (!sidebar) {
-            console.warn('[ConfigSearch] Sidebar not found');
             return;
         }
 

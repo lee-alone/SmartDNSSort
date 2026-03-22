@@ -4,7 +4,6 @@ function initConfigSidebar() {
     const navButtons = document.querySelectorAll('.config-nav-btn');
     
     if (navButtons.length === 0) {
-        console.warn('No config navigation buttons found');
         return;
     }
     

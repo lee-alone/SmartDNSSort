@@ -14,7 +14,6 @@ async function getRecursorStatus() {
         const result = await response.json();
         return result.success ? result.data : null;
     } catch (error) {
-        console.error('[Recursor] Failed to get status:', error);
         return null;
     }
 }

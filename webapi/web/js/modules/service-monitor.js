@@ -193,7 +193,6 @@ const ServiceMonitor = (function() {
      */
     async function startMonitoring(options = {}) {
         if (isMonitoring) {
-            console.warn('[ServiceMonitor] Already monitoring');
             return;
         }
 
@@ -327,8 +326,6 @@ const ServiceMonitor = (function() {
             await startMonitoring(options);
 
         } catch (error) {
-            console.error('[ServiceMonitor] Restart error:', error);
-            
             if (options.onFailure) {
                 options.onFailure(error);
             }

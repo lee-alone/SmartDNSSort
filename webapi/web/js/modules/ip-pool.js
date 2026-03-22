@@ -169,7 +169,6 @@ async function loadIPPoolData() {
 			throw new Error(result.message || 'Failed to parse IP pool data');
 		}
 	} catch (error) {
-	console.error('Failed to load IP pool data:', error);
 	const tbody = document.getElementById('ip_pool_table_body');
 	if (tbody) {
 	// 安全：使用 DOM 操作替代 innerHTML
@@ -408,7 +407,6 @@ function initializeIPPoolMonitor() {
 					}
 				}
 			} catch (error) {
-				console.error('Failed to toggle IP monitor:', error);
 				toggleMonitor.checked = !enabled; // Revert
 			}
 		});

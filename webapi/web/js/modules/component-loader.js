@@ -26,14 +26,12 @@ const html = await response.text();
 const container = document.getElementById(containerId);
 if (container) {
 container.innerHTML = html;
-} else {
-console.warn(`Container with ID "${containerId}" not found`);
 }
 } catch (error) {
 if (error.name === 'AbortError') {
-console.error(`Component load timeout: ${componentPath}`);
+// 组件加载超时，静默处理
 } else {
-console.error(`Error loading component ${componentPath}:`, error);
+// 组件加载错误，静默处理
 }
 } finally {
 clearTimeout(timeoutId);
