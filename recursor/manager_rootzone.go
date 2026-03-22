@@ -229,7 +229,11 @@ func (rm *RootZoneManager) downloadRootZone() error {
 	if err != nil {
 		return fmt.Errorf("failed to download root.zone: %w", err)
 	}
-	defer resp.Body.Close()
+	// 确保响应体在函数返回时关闭
+	// 检查 resp 是否为 nil 以防止潜在 panic（虽然 http.Client.Get 在错误时通常返回 nil）
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to download root.zone: HTTP %d", resp.StatusCode)

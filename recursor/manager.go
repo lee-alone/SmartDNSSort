@@ -19,9 +19,11 @@ type InstallState int
 
 const (
 	StateNotInstalled InstallState = iota
+	StateInitializing              // 正在初始化（新增状态，用于解决竞态条件）
 	StateInstalling
 	StateInstalled
 	StateError
+	StateRetryableError // 可重试的错误状态（允许重新尝试初始化）
 )
 
 // 常量定义 - 重启和超时配置
@@ -99,17 +101,24 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("recursor already running")
 	}
 
+	// 检查是否正在初始化（防止并发调用 Start）
+	if m.installState == StateInitializing {
+		m.mu.Unlock()
+		return fmt.Errorf("recursor is initializing, please wait")
+	}
+
 	// 首次启用时执行初始化（仅 Linux）
-	if m.installState == StateNotInstalled && runtime.GOOS == "linux" {
-		m.installState = StateInstalling
-		// 立即标记为启用，防止其他goroutine在Initialize期间调用Start
-		m.enabled = true
+	// 允许在 StateNotInstalled 或 StateRetryableError 时重新尝试初始化
+	if (m.installState == StateNotInstalled || m.installState == StateRetryableError) && runtime.GOOS == "linux" {
+		// 使用 StateInitializing 状态，避免在初始化期间设置 enabled = true
+		// 这样其他 goroutine 可以通过检查 installState 来判断是否正在初始化
+		m.installState = StateInitializing
 		m.mu.Unlock()
 
 		if err := m.Initialize(); err != nil {
 			m.mu.Lock()
-			m.enabled = false
-			m.installState = StateError
+			// 区分可重试和不可重试的错误
+			m.installState = m.classifyError(err)
 			m.mu.Unlock()
 			return err
 		}
@@ -142,6 +151,11 @@ func (m *Manager) Start() error {
 	// 调用平台特定的启动逻辑（不再调用 Initialize，已在上面处理）
 	if err := m.startPlatformSpecificNoInit(); err != nil {
 		return err
+	}
+
+	// 预检查：验证端口是否可用（提前发现端口冲突）
+	if err := checkPortAvailable(m.port); err != nil {
+		return fmt.Errorf("port %d is not available: %w", m.port, err)
 	}
 
 	// 3. 启动 Unbound 进程
@@ -306,59 +320,32 @@ func (m *Manager) Stop() error {
 }
 
 // generateConfig 生成 Unbound 配置文件
-// 根据运行时的机器情况动态调整参数：
-// - 线程数：基于 CPU 核数（最多 8 个）
-// - 缓存大小：基于线程数动态计算
-// - 路径处理：Windows 使用正斜杠，Linux 使用标准路径
+// 使用 ConfigGenerator 统一生成配置，确保参数一致性
 //
 // 智能生成策略：
 // - 如果配置文件已存在，则跳过生成（允许用户编辑和保存）
 // - 如果文件不存在，则生成默认配置
 // - 首次启动时会生成配置，之后用户可以自由编辑
 func (m *Manager) generateConfig() (string, error) {
-	// 如果已有 ConfigGenerator，使用它
-	if m.configGen != nil {
-		config, err := m.configGen.GenerateConfig()
-		if err != nil {
-			return "", err
-		}
-
-		// 确定配置文件路径
-		var configPath string
-		if runtime.GOOS == "linux" {
-			configPath = "/etc/unbound/unbound.conf.d/smartdnssort.conf"
-		} else {
-			configDir, _ := GetUnboundConfigDir()
-			configPath = filepath.Join(configDir, "unbound.conf")
-			// 在 Windows 上，使用绝对路径
-			absPath, _ := filepath.Abs(configPath)
-			configPath = absPath
-		}
-
-		// 检查配置文件是否已存在
-		if fileExists(configPath) {
-			logger.Infof("[Recursor] Using existing config file: %s", configPath)
-			return configPath, nil
-		}
-
-		// 写入配置文件
-		if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
-			return "", fmt.Errorf("failed to write config file: %w", err)
-		}
-
-		logger.Infof("[Recursor] Generated new config file: %s", configPath)
-		return configPath, nil
+	// 必须使用 ConfigGenerator 生成配置
+	// 确保所有缓存参数计算逻辑统一
+	if m.configGen == nil {
+		return "", fmt.Errorf("config generator not initialized, call Initialize() first")
 	}
 
-	// 回退到原有的配置生成逻辑（用于兼容性）
-	configDir, err := GetUnboundConfigDir()
+	config, err := m.configGen.GenerateConfig()
 	if err != nil {
 		return "", err
 	}
 
-	configPath := filepath.Join(configDir, "unbound.conf")
-	// 在 Windows 上，使用绝对路径
-	if runtime.GOOS == "windows" {
+	// 确定配置文件路径
+	var configPath string
+	if runtime.GOOS == "linux" {
+		configPath = "/etc/unbound/unbound.conf.d/smartdnssort.conf"
+	} else {
+		configDir, _ := GetUnboundConfigDir()
+		configPath = filepath.Join(configDir, "unbound.conf")
+		// 在 Windows 上，使用绝对路径
 		absPath, _ := filepath.Abs(configPath)
 		configPath = absPath
 	}
@@ -369,90 +356,7 @@ func (m *Manager) generateConfig() (string, error) {
 		return configPath, nil
 	}
 
-	// 动态计算线程数（基于 CPU 核数）
-	// min(CPU, 8) 且至少为 1
-	numThreads := max(1, min(runtime.NumCPU(), 8))
-
-	// 根据线程数调整缓存大小 - 递归优化模式
-	// 小型缓存，因为上层应用已有完整的缓存层
-	msgCacheSize := 10 + (2 * numThreads)   // 10-26MB（原 50-250MB）
-	rrsetCacheSize := 20 + (4 * numThreads) // 20-52MB（原 100-500MB）
-
-	// 获取 root.key 路径
-	rootKeyPath := filepath.Join(configDir, "root.key")
-	// 在 Windows 上，unbound 配置文件中的路径需要使用正斜杠或转义反斜杠
-	if runtime.GOOS == "windows" {
-		rootKeyPath = strings.ReplaceAll(rootKeyPath, "\\", "/")
-	}
-
-	// 生成配置内容
-	config := fmt.Sprintf(`# SmartDNSSort Embedded Unbound Configuration (Fallback)
-# Auto-generated, do not edit manually
-# Generated for %d CPU cores
-# 
-# 配置原则：Unbound 作为递归解析器，不重复缓存
-# 上层 SmartDNSSort 应用已有完整的缓存层
-
-server:
-    # 监听配置
-    interface: 127.0.0.1@%d
-    do-ip4: yes
-    do-ip6: no
-    do-udp: yes
-    do-tcp: yes
-    
-    # 访问控制 - 仅本地访问
-    access-control: 127.0.0.1 allow
-    access-control: ::1 allow
-    access-control: 0.0.0.0/0 deny
-    access-control: ::/0 deny
-    
-    # 性能优化 - 根据 CPU 核数动态调整
-    num-threads: %d
-    msg-cache-size: %dm
-    rrset-cache-size: %dm
-    outgoing-range: 4096
-    so-rcvbuf: 1m
-    
-    # 缓存策略 - 快速刷新，不重复缓存
-    cache-max-ttl: 300
-    cache-min-ttl: 0
-    cache-max-negative-ttl: 60
-    serve-expired: no
-    serve-expired-ttl: 300
-    serve-expired-reply-ttl: 30
-    
-    # 预取优化 - 禁用，因为上层已处理
-    prefetch: no
-    prefetch-key: yes
-    
-    # 安全加固
-    harden-dnssec-stripped: yes
-    harden-glue: yes
-    harden-referral-path: yes
-    qname-minimisation: yes
-    minimal-responses: yes
-    use-caps-for-id: yes
-    
-    # 系统优化
-    so-reuseport: yes
-    
-    # DNSSEC 信任锚
-    auto-trust-anchor-file: "%s"
-    
-    # 模块配置 - 仅使用 iterator，不强制 DNSSEC 验证
-    module-config: "iterator"
-    
-    # 日志配置
-    verbosity: 1
-    log-queries: no
-    log-replies: no
-    
-    # 隐藏版本信息
-    hide-identity: yes
-    hide-version: yes
-`, runtime.NumCPU(), m.port, numThreads, msgCacheSize, rrsetCacheSize, rootKeyPath)
-
+	// 写入配置文件
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
 		return "", fmt.Errorf("failed to write config file: %w", err)
 	}
@@ -521,4 +425,72 @@ func (m *Manager) getWaitForReadyTimeout() time.Duration {
 		return m.waitForReadyTimeoutWindows()
 	}
 	return m.waitForReadyTimeoutLinux()
+}
+
+// checkPortAvailable 检查端口是否可用
+// 通过尝试绑定端口来检测是否已被其他进程占用
+// 返回错误如果端口已被占用
+func checkPortAvailable(port int) error {
+	// 尝试绑定端口
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		// 端口绑定失败，通常意味着已被占用
+		if addrErr, ok := err.(*net.OpError); ok {
+			if addrErr.Op == "listen" {
+				return fmt.Errorf("port already in use by another process")
+			}
+		}
+		return err
+	}
+	// 立即关闭，释放端口
+	listener.Close()
+	return nil
+}
+
+// classifyError 根据错误类型分类，判断是否为可重试错误
+// 可重试错误：临时网络故障、资源暂时不可用
+// 不可重试错误：配置错误、权限永久拒绝、端口冲突
+func (m *Manager) classifyError(err error) InstallState {
+	if err == nil {
+		return StateError
+	}
+
+	errStr := err.Error()
+
+	// 可重试的临时错误
+	retryableErrors := []string{
+		"timeout",
+		"temporary failure",
+		"connection refused",
+		"network unreachable",
+		"resource temporarily unavailable",
+		"i/o timeout",
+	}
+
+	for _, pattern := range retryableErrors {
+		if containsIgnoreCase(errStr, pattern) {
+			return StateRetryableError
+		}
+	}
+
+	// 默认为不可重试错误
+	return StateError
+}
+
+// ResetState 重置管理器状态，允许在错误后重新尝试初始化
+// 调用此方法后，可以再次调用 Start() 尝试启动
+func (m *Manager) ResetState() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.installState = StateNotInstalled
+	m.enabled = false
+	m.restartAttempts = 0
+	m.startTime = time.Time{}
+	logger.Infof("[Recursor] Manager state reset, can attempt re-initialization")
+}
+
+// containsIgnoreCase 检查字符串是否包含子串（忽略大小写）
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

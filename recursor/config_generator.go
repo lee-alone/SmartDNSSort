@@ -9,6 +9,23 @@ import (
 	"strings"
 )
 
+// 缓存大小计算常量
+// 这些常量用于动态计算 Unbound 缓存大小，基于 CPU 线程数
+const (
+	// BaseMsgCacheSize 消息缓存基础大小（MB）
+	BaseMsgCacheSize = 10
+	// PerThreadMsgCache 每线程消息缓存增量（MB）
+	PerThreadMsgCache = 2
+	// BaseRRsetCacheSize RRset缓存基础大小（MB）
+	BaseRRsetCacheSize = 20
+	// PerThreadRRsetCache 每线程RRset缓存增量（MB）
+	PerThreadRRsetCache = 4
+	// ConservativePerThreadMsgCache 保守模式下每线程消息缓存增量（MB）
+	ConservativePerThreadMsgCache = 1
+	// ConservativePerThreadRRsetCache 保守模式下每线程RRset缓存增量（MB）
+	ConservativePerThreadRRsetCache = 2
+)
+
 // ConfigGenerator 生成 unbound 配置
 type ConfigGenerator struct {
 	version     string
@@ -132,14 +149,14 @@ func (cg *ConfigGenerator) CalculateParams() ConfigParams {
 
 	if cg.sysInfo.MemoryGB > 0 {
 		// 递归解析器模式：使用固定的小缓存
-		// msg-cache: 10-20MB（原 25-500MB）
-		// rrset-cache: 20-40MB（原 50-1000MB）
-		msgCacheSize = 10 + (2 * numThreads)   // 10-26MB
-		rrsetCacheSize = 20 + (4 * numThreads) // 20-52MB
+		// msg-cache: 10-26MB（原 25-500MB）
+		// rrset-cache: 20-52MB（原 50-1000MB）
+		msgCacheSize = BaseMsgCacheSize + (PerThreadMsgCache * numThreads)
+		rrsetCacheSize = BaseRRsetCacheSize + (PerThreadRRsetCache * numThreads)
 	} else {
 		// 无内存信息时使用保守的小缓存
-		msgCacheSize = 10 + numThreads
-		rrsetCacheSize = 20 + (2 * numThreads)
+		msgCacheSize = BaseMsgCacheSize + (ConservativePerThreadMsgCache * numThreads)
+		rrsetCacheSize = BaseRRsetCacheSize + (ConservativePerThreadRRsetCache * numThreads)
 	}
 
 	return ConfigParams{

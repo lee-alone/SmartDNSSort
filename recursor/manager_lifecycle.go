@@ -11,17 +11,48 @@ func (m *Manager) healthCheckLoop() {
 	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 
+	// 重启失败后的重试定时器
+	var retryTimer *time.Timer
+	var retryTimerCh <-chan time.Time
+
 	for {
 		select {
 		case <-m.healthCtx.Done():
 			// Context 已取消，退出循环
 			logger.Debugf("[Recursor] Health check loop cancelled")
+			// 清理重试定时器
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
 			return
 
 		case <-m.stopCh:
 			// 收到停止信号，退出循环
 			logger.Debugf("[Recursor] Health check loop received stop signal")
+			// 清理重试定时器
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
 			return
+
+		case <-retryTimerCh:
+			// 重启失败后的定时重试
+			logger.Infof("[Recursor] Attempting scheduled retry after Start() failure...")
+			retryTimerCh = nil // 清除通道，防止重复触发
+
+			// 尝试重启
+			if err := m.Start(); err != nil {
+				logger.Errorf("[Recursor] Scheduled retry failed: %v", err)
+				// 重启仍然失败，设置更长的延迟后再次重试
+				// 使用固定 5 分钟延迟，避免频繁失败
+				retryTimer = time.NewTimer(5 * time.Minute)
+				retryTimerCh = retryTimer.C
+			} else {
+				// 重启成功，当前 goroutine 退出
+				// Start() 已经启动了新的 healthCheckLoop
+				logger.Infof("[Recursor] Scheduled retry succeeded")
+				return
+			}
 
 		case <-m.exitCh:
 			// 进程意外退出
@@ -72,8 +103,12 @@ func (m *Manager) healthCheckLoop() {
 			// 尝试重启
 			if err := m.Start(); err != nil {
 				logger.Errorf("[Recursor] Failed to restart (attempt %d): %v", attempts, err)
-				// 不继续循环，因为 Start() 失败意味着无法恢复
-				// 等待下一次进程退出或停止信号
+				// Start() 失败后，启动定时重试机制
+				// 这样可以在配置问题修复后自动恢复
+				logger.Warnf("[Recursor] Scheduling periodic retry (every 5 minutes) until manual intervention or success...")
+				retryTimer = time.NewTimer(5 * time.Minute)
+				retryTimerCh = retryTimer.C
+				// 不继续循环，等待定时器触发或停止信号
 			} else {
 				// 重启成功，当前 goroutine 应该退出
 				// 因为 Start() 已经启动了新的 healthCheckLoop

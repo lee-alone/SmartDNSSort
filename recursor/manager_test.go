@@ -36,6 +36,13 @@ func TestManagerGenerateConfig(t *testing.T) {
 	port := 5353
 	mgr := NewManager(port)
 
+	// 初始化 ConfigGenerator（现在必须）
+	sysInfo := SystemInfo{
+		CPUCores: 4,
+		MemoryGB: 8,
+	}
+	mgr.configGen = NewConfigGenerator("1.19.0", sysInfo, port)
+
 	configPath, err := mgr.generateConfig()
 	if err != nil {
 		t.Fatalf("Failed to generate config: %v", err)
@@ -167,6 +174,14 @@ func TestPortConfiguration(t *testing.T) {
 // TestConfigFilePermissions 测试配置文件权限
 func TestConfigFilePermissions(t *testing.T) {
 	mgr := NewManager(5353)
+
+	// 初始化 ConfigGenerator（现在必须）
+	sysInfo := SystemInfo{
+		CPUCores: 4,
+		MemoryGB: 8,
+	}
+	mgr.configGen = NewConfigGenerator("1.19.0", sysInfo, 5353)
+
 	configPath, err := mgr.generateConfig()
 	if err != nil {
 		t.Fatalf("Failed to generate config: %v", err)
@@ -231,6 +246,13 @@ func TestManagerConfigContent(t *testing.T) {
 	port := 5353
 	mgr := NewManager(port)
 
+	// 初始化 ConfigGenerator（现在必须）
+	sysInfo := SystemInfo{
+		CPUCores: 4,
+		MemoryGB: 8,
+	}
+	mgr.configGen = NewConfigGenerator("1.19.0", sysInfo, port)
+
 	configPath, err := mgr.generateConfig()
 	if err != nil {
 		t.Fatalf("Failed to generate config: %v", err)
@@ -248,7 +270,7 @@ func TestManagerConfigContent(t *testing.T) {
 	// 验证所有必要的配置项
 	requiredConfigs := map[string]string{
 		"do-ip4":              "do-ip4: yes",
-		"do-ip6":              "do-ip6: no",
+		"do-ip6":              "do-ip6: yes",  // ConfigGenerator 默认启用 IPv6
 		"do-udp":              "do-udp: yes",
 		"do-tcp":              "do-tcp: yes",
 		"interface":           "interface: 127.0.0.1",
