@@ -6,6 +6,9 @@
     </div>
 </div>
 
+<!-- Refresh Progress Bar -->
+<div id="refresh-progress" class="refresh-progress"></div>
+
 <!-- Error State -->
 <div id="dashboard-error" class="hidden bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-4">
     <div class="flex items-center gap-2">
@@ -58,10 +61,6 @@
                 <p class="text-xs text-text-sub-light dark:text-text-sub-dark"
                     data-i18n="dashboard.cacheHitRate">Cache Hit Rate</p>
                 <h3 id="cache_hit_rate" class="text-2xl font-bold">0.00%</h3>
-                <!-- 在缓存命中率卡片中添加图表 -->
-                <div class="flex items-center justify-center mt-2">
-                    <div id="cache-hit-rate-chart"></div>
-                </div>
             </div>
             <div>
                 <p class="text-xs text-text-sub-light dark:text-text-sub-dark"

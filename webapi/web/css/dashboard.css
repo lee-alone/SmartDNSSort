@@ -37,3 +37,30 @@
         grid-template-columns: repeat(var(--dashboard-grid-cols-desktop), 1fr);
     }
 }
+
+/* 刷新按钮加载状态 */
+#refreshButton.loading .material-symbols-outlined {
+    animation: dashboard-spin 1s linear infinite;
+}
+
+#refreshButton.loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+/* 顶部刷新进度条 */
+.refresh-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    width: 0%;
+    transition: width 0.3s ease;
+    z-index: 9999;
+}
+
+.refresh-progress.active {
+    width: 100%;
+    transition: width 2s ease-out;
+}
