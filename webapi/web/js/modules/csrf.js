@@ -149,11 +149,21 @@ const CSRFManager = (function() {
         // 添加 CSRF 令牌
         const headers = await addCsrfHeader(options.headers || {});
         
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers,
             credentials: 'same-origin',
         });
+
+        // POST/PUT/DELETE 请求成功后主动刷新令牌（增强安全性）
+        if (response.ok && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+            // 异步刷新令牌，不阻塞响应
+            fetchToken().catch(error => {
+                console.warn('[CSRF] Failed to refresh token after request:', error);
+            });
+        }
+
+        return response;
     }
 
     /**

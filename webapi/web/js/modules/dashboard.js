@@ -9,16 +9,17 @@ const MAX_RETRIES = 3;
 
 // ==================== 全局变量 ====================
 let statsPeriodDays = 7;
-let generalStatsAbortController = null;
-let generalStatsLoading = false;
 let currentAbortController = null;
-let upstreamStatsAbortController = null;
 
 // 数据缓存变量（用于乐观更新）
 let lastStatsData = null;
 let lastUpstreamData = null;
-let lastQueriesData = null;
-let lastBlockedData = null;
+
+// DOM 元素缓存（优化性能，避免重复查询）
+let statsElements = null;
+
+// 动画帧 ID 映射（用于取消动画，防止冲突）
+const animationFrameIds = new Map();
 
 // 添加清理函数
 let cleanupRegistered = false;
@@ -53,15 +54,11 @@ function cleanupAllResources() {
         currentAbortController = null;
     }
     
-    // 保留旧的 controller 清理（向后兼容）
-    if (generalStatsAbortController) {
-        generalStatsAbortController.abort();
-        generalStatsAbortController = null;
-    }
-    if (upstreamStatsAbortController) {
-        upstreamStatsAbortController.abort();
-        upstreamStatsAbortController = null;
-    }
+    // 清理所有动画帧
+    animationFrameIds.forEach((frameId) => {
+        cancelAnimationFrame(frameId);
+    });
+    animationFrameIds.clear();
 }
 
 // 添加带重试的 fetch 封装
@@ -119,19 +116,70 @@ async function fetchWithRetry(url, { signal, ...options } = {}, maxRetries = 3) 
     throw lastError;
 }
 
+// 初始化 DOM 元素缓存
+function initializeStatsElements() {
+    if (statsElements) return; // 已初始化
+    
+    statsElements = {
+        // 基础统计
+        total_queries: document.getElementById('total_queries'),
+        cache_hits: document.getElementById('cache_hits'),
+        cache_misses: document.getElementById('cache_misses'),
+        cache_stale_refresh: document.getElementById('cache_stale_refresh'),
+        cache_hit_rate: document.getElementById('cache_hit_rate'),
+        upstream_failures: document.getElementById('upstream_failures'),
+        
+        // 系统状态
+        cpu_usage_pct: document.getElementById('cpu_usage_pct'),
+        cpu_cores: document.getElementById('cpu_cores'),
+        mem_usage_pct: document.getElementById('mem_usage_pct'),
+        mem_usage_detail: document.getElementById('mem_usage_detail'),
+        goroutines: document.getElementById('goroutines'),
+        system_uptime: document.getElementById('system_uptime'),
+        
+        // 缓存内存统计
+        memory_usage_bar: document.getElementById('memory_usage_bar'),
+        memory_usage_text: document.getElementById('memory_usage_text'),
+        cache_entries: document.getElementById('cache_entries'),
+        expired_entries: document.getElementById('expired_entries'),
+        protected_entries: document.getElementById('protected_entries'),
+        evictions_per_min: document.getElementById('evictions_per_min'),
+        
+        // 表格
+        hot_domains_table: document.getElementById('hot_domains_table'),
+        blocked_domains_table: document.getElementById('blocked_domains_table'),
+        
+        // 网络状态
+        internet_status: document.getElementById('internet-status'),
+        ipPoolPausedBadge: document.getElementById('ipPoolPausedBadge'),
+        
+        // 错误和加载状态
+        dashboard_loading: document.getElementById('dashboard-loading'),
+        dashboard_error: document.getElementById('dashboard-error')
+    };
+}
+
 // 添加状态管理函数
 function showLoadingState() {
-    const loadingEl = document.getElementById('dashboard-loading');
-    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (statsElements?.dashboard_loading) {
+        statsElements.dashboard_loading.classList.remove('hidden');
+    }
 }
 
 function hideLoadingState() {
-    const loadingEl = document.getElementById('dashboard-loading');
-    if (loadingEl) loadingEl.classList.add('hidden');
+    if (statsElements?.dashboard_loading) {
+        statsElements.dashboard_loading.classList.add('hidden');
+    }
 }
 
-// 数字滚动动画函数
+// 数字滚动动画函数（带取消机制，防止动画冲突）
 function animateNumber(element, from, to, duration = 500) {
+    // 取消之前的动画
+    const prevId = animationFrameIds.get(element);
+    if (prevId) {
+        cancelAnimationFrame(prevId);
+    }
+    
     const startTime = performance.now();
     const diff = to - from;
     
@@ -146,14 +194,19 @@ function animateNumber(element, from, to, duration = 500) {
         element.textContent = current.toLocaleString();
         
         if (progress < 1) {
-            requestAnimationFrame(update);
+            const frameId = requestAnimationFrame(update);
+            animationFrameIds.set(element, frameId);
+        } else {
+            // 动画完成，移除映射
+            animationFrameIds.delete(element);
         }
     }
     
-    requestAnimationFrame(update);
+    const frameId = requestAnimationFrame(update);
+    animationFrameIds.set(element, frameId);
 }
 
-// 局部更新函数：只更新变化的数值
+// 局部更新函数：只更新变化的数值（使用缓存的 DOM 元素）
 function updateGeneralStats(newData, oldData) {
     if (!oldData) {
         // 首次加载，完整渲染
@@ -161,11 +214,16 @@ function updateGeneralStats(newData, oldData) {
         return;
     }
     
+    // 确保元素缓存已初始化
+    if (!statsElements) {
+        initializeStatsElements();
+    }
+    
     // 只更新变化的数值
     const fields = ['total_queries', 'cache_hits', 'cache_misses', 'cache_stale_refresh', 'upstream_failures'];
     fields.forEach(field => {
         if (newData[field] !== oldData[field]) {
-            const el = document.getElementById(field);
+            const el = statsElements[field];
             if (el) {
                 // 添加数字滚动动画
                 animateNumber(el, oldData[field] || 0, newData[field]);
@@ -175,7 +233,7 @@ function updateGeneralStats(newData, oldData) {
     
     // 更新缓存命中率
     if (newData.cache_hit_rate !== oldData.cache_hit_rate) {
-        const el = document.getElementById('cache_hit_rate');
+        const el = statsElements.cache_hit_rate;
         if (el) {
             el.textContent = newData.cache_hit_rate.toFixed(2) + '%';
         }
@@ -187,12 +245,12 @@ function updateGeneralStats(newData, oldData) {
         const newSys = newData.system_stats;
         
         if (newSys.cpu_usage_pct !== oldSys.cpu_usage_pct) {
-            const el = document.getElementById('cpu_usage_pct');
+            const el = statsElements.cpu_usage_pct;
             if (el) el.textContent = newSys.cpu_usage_pct.toFixed(1) + '%';
         }
         
         if (newSys.mem_usage_pct !== oldSys.mem_usage_pct) {
-            const el = document.getElementById('mem_usage_pct');
+            const el = statsElements.mem_usage_pct;
             if (el) el.textContent = newSys.mem_usage_pct.toFixed(1) + '%';
         }
         
@@ -200,21 +258,21 @@ function updateGeneralStats(newData, oldData) {
             const memTotalMB = newSys.mem_total_mb || 0;
             const memUsedMB = newSys.mem_used_mb || 0;
             const memAvailableMB = memTotalMB - memUsedMB;
-            const el = document.getElementById('mem_usage_detail');
+            const el = statsElements.mem_usage_detail;
             if (el) {
                 el.textContent = memUsedMB + ' MB / ' + memTotalMB + ' MB (Available: ' + memAvailableMB + ' MB)';
             }
         }
         
         if (newSys.goroutines !== oldSys.goroutines) {
-            const el = document.getElementById('goroutines');
+            const el = statsElements.goroutines;
             if (el) el.textContent = newSys.goroutines;
         }
     }
     
     // 更新运行时间
     if (newData.uptime_seconds !== oldData.uptime_seconds) {
-        const el = document.getElementById('system_uptime');
+        const el = statsElements.system_uptime;
         if (el) el.textContent = formatUptime(newData.uptime_seconds);
     }
     
@@ -224,39 +282,39 @@ function updateGeneralStats(newData, oldData) {
         const newMem = newData.cache_memory_stats;
         
         if (newMem.memory_percent !== oldMem.memory_percent) {
-            const bar = document.getElementById('memory_usage_bar');
+            const bar = statsElements.memory_usage_bar;
             if (bar) bar.style.width = `${newMem.memory_percent.toFixed(2)}%`;
         }
         
         if (newMem.current_memory_mb !== oldMem.current_memory_mb || newMem.max_memory_mb !== oldMem.max_memory_mb) {
-            const text = document.getElementById('memory_usage_text');
+            const text = statsElements.memory_usage_text;
             if (text) text.textContent = `${newMem.current_memory_mb} MB / ${newMem.max_memory_mb} MB`;
         }
         
         if (newMem.current_entries !== oldMem.current_entries || newMem.max_entries !== oldMem.max_entries) {
-            const el = document.getElementById('cache_entries');
+            const el = statsElements.cache_entries;
             if (el) el.textContent = `${newMem.current_entries.toLocaleString()} / ${newMem.max_entries.toLocaleString()}`;
         }
         
         if (newMem.expired_entries !== oldMem.expired_entries || newMem.expired_percent !== oldMem.expired_percent) {
-            const el = document.getElementById('expired_entries');
+            const el = statsElements.expired_entries;
             if (el) el.textContent = `${newMem.expired_entries.toLocaleString()} (${(newMem.expired_percent || 0).toFixed(1)}%)`;
         }
         
         if (newMem.protected_entries !== oldMem.protected_entries) {
-            const el = document.getElementById('protected_entries');
+            const el = statsElements.protected_entries;
             if (el) el.textContent = newMem.protected_entries.toLocaleString();
         }
         
         if (newMem.evictions_per_min !== oldMem.evictions_per_min) {
-            const el = document.getElementById('evictions_per_min');
+            const el = statsElements.evictions_per_min;
             if (el) el.textContent = (newMem.evictions_per_min || 0).toFixed(2);
         }
     }
     
-    // 更新热门域名
-    if (JSON.stringify(newData.top_domains) !== JSON.stringify(oldData.top_domains)) {
-        const hotDomainsTable = document.getElementById('hot_domains_table')?.getElementsByTagName('tbody')[0];
+    // 更新热门域名 - 使用浅对比优化性能
+    if (newData.top_domains !== oldData.top_domains) {
+        const hotDomainsTable = statsElements.hot_domains_table?.getElementsByTagName('tbody')[0];
         if (hotDomainsTable) {
             hotDomainsTable.innerHTML = '';
             if (newData.top_domains && newData.top_domains.length > 0) {
@@ -280,9 +338,9 @@ function updateGeneralStats(newData, oldData) {
         }
     }
     
-    // 更新被拦截域名
-    if (JSON.stringify(newData.top_blocked_domains) !== JSON.stringify(oldData.top_blocked_domains)) {
-        const blockedDomainsTable = document.getElementById('blocked_domains_table')?.getElementsByTagName('tbody')[0];
+    // 更新被拦截域名 - 使用浅对比优化性能
+    if (newData.top_blocked_domains !== oldData.top_blocked_domains) {
+        const blockedDomainsTable = statsElements.blocked_domains_table?.getElementsByTagName('tbody')[0];
         if (blockedDomainsTable) {
             blockedDomainsTable.innerHTML = '';
             if (newData.top_blocked_domains && newData.top_blocked_domains.length > 0) {
@@ -308,8 +366,8 @@ function updateGeneralStats(newData, oldData) {
     
     // 更新网络状态
     if (newData.network_online !== oldData.network_online) {
-        const internetStatusEl = document.getElementById('internet-status');
-        const ipPoolPausedBadge = document.getElementById('ipPoolPausedBadge');
+        const internetStatusEl = statsElements.internet_status;
+        const ipPoolPausedBadge = statsElements.ipPoolPausedBadge;
         if (internetStatusEl) {
             const internetStatusDot = internetStatusEl.querySelector('.status-dot');
             const internetStatusIcon = internetStatusEl.querySelector('.status-icon');
@@ -339,17 +397,15 @@ function updateGeneralStats(newData, oldData) {
 }
 
 function showErrorState(message) {
-    const errorEl = document.getElementById('dashboard-error');
-    if (errorEl) {
-        errorEl.textContent = `数据加载失败：${message}`;
-        errorEl.classList.remove('hidden');
+    if (statsElements?.dashboard_error) {
+        statsElements.dashboard_error.textContent = `数据加载失败：${message}`;
+        statsElements.dashboard_error.classList.remove('hidden');
     }
 }
 
 function hideErrorState() {
-    const errorEl = document.getElementById('dashboard-error');
-    if (errorEl) {
-        errorEl.classList.add('hidden');
+    if (statsElements?.dashboard_error) {
+        statsElements.dashboard_error.classList.add('hidden');
     }
 }
 
@@ -380,36 +436,8 @@ section.appendChild(errorDiv);
 }
 }
 
-// 统一的渲染函数
-function renderDashboard(statsData, upstreamData, queriesData, blockedData) {
-    // 核心统计优先渲染（即使其他数据失败）
-    if (statsData && statsData.success && statsData.data) {
-        updateGeneralStats(statsData.data);
-    } else {
-        showSectionError('general-stats', statsData?.error?.message || '统计数据获取失败');
-    }
-    
-    if (upstreamData && upstreamData.success && upstreamData.data && upstreamData.data.servers) {
-        renderEnhancedUpstreamTable(upstreamData.data.servers);
-    } else {
-        showSectionError('upstream-stats', upstreamData?.error?.message || '上游统计获取失败');
-    }
-    
-    if (queriesData && queriesData.success && queriesData.data) {
-        renderRecentQueries(queriesData.data);
-    } else {
-        showSectionError('recent-queries', queriesData?.error?.message || '最近查询获取失败');
-    }
-    
-    if (blockedData && blockedData.success && blockedData.data) {
-        renderRecentlyBlocked(blockedData.data);
-    } else {
-        showSectionError('recent-blocked', blockedData?.error?.message || '最近拦截获取失败');
-    }
-}
-
-function updateGeneralStats(data) {
-    document.getElementById('total_queries').textContent = data.total_queries || 0;
+function renderGeneralStats(data) {
+	document.getElementById('total_queries').textContent = data.total_queries || 0;
     document.getElementById('cache_hits').textContent = data.cache_hits || 0;
     document.getElementById('cache_misses').textContent = data.cache_misses || 0;
     document.getElementById('cache_stale_refresh').textContent = data.cache_stale_refresh || 0;
@@ -680,6 +708,7 @@ async function updateDashboard(isManualRefresh = false) {
     const progressBar = document.getElementById('refresh-progress');
     if (progressBar) {
         progressBar.classList.add('active');
+        progressBar.style.width = '10%'; // 初始进度
     }
     
     try {
@@ -688,20 +717,24 @@ async function updateDashboard(isManualRefresh = false) {
             showLoadingState();
         }
         
-        const results = await Promise.allSettled([
-            fetchWithRetry(`/api/stats?days=${period}`, { signal: currentAbortController.signal }),
-            fetchWithRetry(`/api/upstream-stats?days=${period}`, { signal: currentAbortController.signal }),
-            fetchWithRetry(`/api/recent-queries?days=${period}`, { signal: currentAbortController.signal }),
-            fetchWithRetry(`/api/recent-blocked?days=${period}`, { signal: currentAbortController.signal })
-        ]);
-
-        const [statsResult, upstreamResult, queriesResult, blockedResult] = results;
+        // 分阶段加载数据并更新进度条
+        const statsResult = await fetchWithRetry(`/api/stats?days=${period}`, { signal: currentAbortController.signal });
+        if (progressBar) progressBar.style.width = '35%'; // 第一个请求完成
         
+        const upstreamResult = await fetchWithRetry(`/api/upstream-stats?days=${period}`, { signal: currentAbortController.signal });
+        if (progressBar) progressBar.style.width = '60%'; // 第二个请求完成
+        
+        const queriesResult = await fetchWithRetry(`/api/recent-queries?days=${period}`, { signal: currentAbortController.signal });
+        if (progressBar) progressBar.style.width = '80%'; // 第三个请求完成
+        
+        const blockedResult = await fetchWithRetry(`/api/recent-blocked?days=${period}`, { signal: currentAbortController.signal });
+        if (progressBar) progressBar.style.width = '95%'; // 第四个请求完成
+
         // 提取成功的数据，失败的数据转换为错误对象
-        const statsData = statsResult.status === 'fulfilled' ? statsResult.value : { error: statsResult.reason };
-        const upstreamData = upstreamResult.status === 'fulfilled' ? upstreamResult.value : { error: upstreamResult.reason };
-        const queriesData = queriesResult.status === 'fulfilled' ? queriesResult.value : { error: queriesResult.reason };
-        const blockedData = blockedResult.status === 'fulfilled' ? blockedResult.value : { error: blockedResult.reason };
+        const statsData = statsResult.success ? statsResult : { error: new Error('Stats request failed') };
+        const upstreamData = upstreamResult.success ? upstreamResult : { error: new Error('Upstream request failed') };
+        const queriesData = queriesResult.success ? queriesResult : { error: new Error('Queries request failed') };
+        const blockedData = blockedResult.success ? blockedResult : { error: new Error('Blocked request failed') };
 
         // 乐观更新：只更新变化的部分
         if (statsData.success && statsData.data) {
@@ -709,7 +742,11 @@ async function updateDashboard(isManualRefresh = false) {
             lastStatsData = statsData.data;
         } else if (isManualRefresh) {
             // 手动刷新时，首次加载或错误时完整渲染
-            renderDashboard(statsData, upstreamData, queriesData, blockedData);
+            if (statsData && statsData.success && statsData.data) {
+                renderGeneralStats(statsData.data);
+            } else {
+                showSectionError('general-stats', statsData?.error?.message || '统计数据获取失败');
+            }
         }
         
         if (upstreamData.success && upstreamData.data && upstreamData.data.servers) {
@@ -720,17 +757,15 @@ async function updateDashboard(isManualRefresh = false) {
         }
         
         if (queriesData.success && queriesData.data) {
-            renderRecentQueries(queriesData.data);
-            lastQueriesData = queriesData.data;
+        	renderRecentQueries(queriesData.data);
         } else if (isManualRefresh) {
-            showSectionError('recent-queries', queriesData?.error?.message || '最近查询获取失败');
+        	showSectionError('recent-queries', queriesData?.error?.message || '最近查询获取失败');
         }
-        
+       
         if (blockedData.success && blockedData.data) {
-            renderRecentlyBlocked(blockedData.data);
-            lastBlockedData = blockedData.data;
+        	renderRecentlyBlocked(blockedData.data);
         } else if (isManualRefresh) {
-            showSectionError('recent-blocked', blockedData?.error?.message || '最近拦截获取失败');
+        	showSectionError('recent-blocked', blockedData?.error?.message || '最近拦截获取失败');
         }
         
         // 检查是否有失败，显示部分错误提示
@@ -765,10 +800,11 @@ async function updateDashboard(isManualRefresh = false) {
         }
         // 隐藏进度条
         if (progressBar) {
+            progressBar.style.width = '100%'; // 完成进度
             setTimeout(() => {
                 progressBar.classList.remove('active');
                 progressBar.style.width = '0%';
-            }, 100);
+            }, 300);
         }
     }
 }
@@ -876,6 +912,7 @@ function initializeDashboardButtons() {
 }
 
 document.addEventListener('componentsLoaded', () => {
+    initializeStatsElements();  // 初始化 DOM 元素缓存
     initializeDashboardButtons();
     registerCleanup();
 });
@@ -891,34 +928,6 @@ window.addEventListener('languageChanged', () => {
     }
 });
 
-
-function fetchRecentlyBlocked() {
-    fetch('/api/recent-blocked')
-        .then(response => response.ok ? response.json() : Promise.reject('Failed to load recently blocked'))
-        .then(data => {
-            const recentlyBlockedList = document.getElementById('recently_blocked_list');
-            recentlyBlockedList.innerHTML = '';
-            if (data && data.length > 0) {
-                data.forEach(domain => {
-                    const div = document.createElement('div');
-                    div.textContent = domain;
-                    recentlyBlockedList.appendChild(div);
-                });
-            } else {
-                recentlyBlockedList.innerHTML = `<div style="text-align:center;">${i18n.t('dashboard.noRecentlyBlocked')}</div>`;
-            }
-        })
-        .catch(error => {
-            const recentlyBlockedList = document.getElementById('recently_blocked_list');
-            recentlyBlockedList.innerHTML = `<div style="text-align:center; color: red;">${i18n.t('dashboard.errorLoadingData')}</div>`;
-        });
-}
-
-
-
-// 获取上游服务器详细状态
-// 使用标志防止并发请求和竞态条件
-let upstreamStatsLoading = false;
 
 function initializeStatsSelectors() {
     // 加载保存的时间范围
@@ -936,45 +945,6 @@ function initializeStatsSelectors() {
             updateDashboard(); // 使用新时间范围更新数据
         });
     }
-}
-
-function fetchUpstreamStats() {
-    // 防止并发请求
-    if (upstreamStatsLoading) {
-        return;
-    }
-    
-    // 取消之前的请求（如果有）
-    if (upstreamStatsAbortController) {
-        upstreamStatsAbortController.abort();
-    }
-    
-    upstreamStatsAbortController = new AbortController();
-    upstreamStatsLoading = true;
-    
-    // 使用全局统一的 statsPeriodDays
-    fetch(`/api/upstream-stats?days=${statsPeriodDays}`, { signal: upstreamStatsAbortController.signal })
-        .then(response => {
-            if (!response.ok) throw new Error('Failed to fetch upstream stats');
-            return response.json();
-        })
-        .then(data => {
-            if (data && data.data && data.data.servers) {
-                renderEnhancedUpstreamTable(data.data.servers);
-            } else {
-                showUpstreamLoadError();
-            }
-        })
-        .catch(error => {
-            // 忽略被中止的请求
-            if (error.name === 'AbortError') {
-                return;
-            }
-            showUpstreamLoadError();
-        })
-        .finally(() => {
-            upstreamStatsLoading = false;
-        });
 }
 
 // 添加行更新辅助函数

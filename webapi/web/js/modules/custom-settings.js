@@ -7,6 +7,8 @@ function initializeCounters() {
             updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
         });
         updateCounter('custom-blocked-content', 'blocked-line-count', 'blocked-char-count');
+    } else {
+        console.warn('initializeCounters: custom-blocked-content element not found');
     }
 
     const responseTextarea = document.getElementById('custom-response-content');
@@ -15,6 +17,8 @@ function initializeCounters() {
             updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
         });
         updateCounter('custom-response-content', 'response-line-count', 'response-char-count');
+    } else {
+        console.warn('initializeCounters: custom-response-content element not found');
     }
 
     const unboundTextarea = document.getElementById('unbound-config-content');
@@ -22,6 +26,8 @@ function initializeCounters() {
         unboundTextarea.addEventListener('input', () => {
             updateCounter('unbound-config-content', 'unbound-line-count', 'unbound-char-count');
         });
+    } else {
+        console.warn('initializeCounters: unbound-config-content element not found');
     }
 }
 

@@ -2,7 +2,7 @@
 
 // ==================== 常量定义 ====================
 const CONFIG_API_URL = '/api/config';
-const DEBOUNCE_DELAY_MS = 500;
+const DEBOUNCE_DELAY_MS = 300; // 优化：从 500ms 减少到 300ms，提升用户体验
 
 // 验证常量
 const VALIDATION = {

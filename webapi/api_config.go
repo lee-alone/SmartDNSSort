@@ -31,14 +31,14 @@ const (
 	MaxRacingMaxConcurrent = 10
 )
 
-// handleConfig 处理配置请求
+// handleConfig 处理配置请求（已废弃，保留用于向后兼容）
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if r.URL.Path == "/api/config/export" {
 			s.handleExportConfig(w, r)
 		} else {
-			s.handleGetConfig(w)
+			s.handleGetConfig(w, r)
 		}
 	case http.MethodPost:
 		if r.URL.Path == "/api/config/reset" {
@@ -64,7 +64,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleGetConfig 获取当前配置
-func (s *Server) handleGetConfig(w http.ResponseWriter) {
+func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	currentConfig := s.dnsServer.GetConfig()
 	s.writeJSONSuccess(w, "Configuration retrieved successfully", currentConfig)
 }

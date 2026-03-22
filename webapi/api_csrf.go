@@ -174,7 +174,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 
 		// 验证令牌
 		if !s.csrfManager.ValidateToken(token) {
-			logger.Warnf("CSRF validation failed for %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+			logger.Debugf("CSRF validation failed for %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 			s.writeJSONError(w, "Invalid or missing CSRF token", http.StatusForbidden)
 			return
 		}
