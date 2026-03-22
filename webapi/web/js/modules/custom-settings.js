@@ -233,5 +233,12 @@ document.addEventListener('componentsLoaded', initializeCounters);
 
 window.addEventListener('languageChanged', () => {
     loadCustomSettings();
-    initializeCounters();
+    loadUnboundConfig();
 });
+
+// 导出函数到全局作用域（供 HTML onclick 调用）
+window.saveCustomBlocked = saveCustomBlocked;
+window.saveCustomResponse = saveCustomResponse;
+window.saveUnboundConfig = saveUnboundConfig;
+window.reloadUnboundConfig = reloadUnboundConfig;
+window.loadCustomSettings = loadCustomSettings;

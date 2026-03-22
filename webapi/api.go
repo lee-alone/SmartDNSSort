@@ -95,7 +95,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/stats/clear", s.handleClearStats)
 	mux.HandleFunc("/api/cache/clear", s.handleClearCache)
 	mux.HandleFunc("/api/cache/memory", s.handleCacheMemoryStats)
-	mux.HandleFunc("/api/config", s.handleGetConfig)
+	mux.HandleFunc("/api/config", s.handleConfig)  // GET 和 POST 都支持
 	mux.HandleFunc("/api/config/reset", s.handleResetConfig)
 	mux.HandleFunc("/api/config/export", s.handleExportConfig)
 	mux.HandleFunc("/api/recent-queries", s.handleRecentQueries)
