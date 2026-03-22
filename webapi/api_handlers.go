@@ -142,12 +142,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// 添加网络在线状态
 	stats["network_online"] = connectivity.GetGlobalNetworkChecker().IsNetworkHealthy()
 
-	// 保持与原有格式兼容：直接返回统计 map，不包装 success/data (由 dashboard.js 决定)
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		logger.Errorf("Failed to encode stats: %v", err)
-		s.writeJSONError(w, "Failed to encode stats", http.StatusInternalServerError)
-	}
+	// 使用统一的 API 响应格式
+	s.writeJSONSuccess(w, "Statistics retrieved successfully", stats)
 }
 
 // handleCacheMemoryStats 处理缓存内存统计请求
@@ -196,8 +192,7 @@ func (s *Server) handleCacheMemoryStats(w http.ResponseWriter, r *http.Request) 
 
 // handleHealth 处理健康检查请求
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"healthy"}`))
+	s.writeJSONSuccess(w, "Service is healthy", map[string]string{"status": "healthy"})
 }
 
 // handleClearCache 处理清空缓存请求
@@ -256,8 +251,7 @@ func (s *Server) handleRecentQueries(w http.ResponseWriter, r *http.Request) {
 	if queries == nil {
 		queries = []string{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(queries)
+	s.writeJSONSuccess(w, "Recent queries retrieved successfully", queries)
 }
 
 // handleHotDomains 处理热点域名请求
@@ -365,8 +359,7 @@ func (s *Server) handleRecentlyBlocked(w http.ResponseWriter, r *http.Request) {
 		domains = []string{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(domains)
+	s.writeJSONSuccess(w, "Recently blocked domains retrieved successfully", domains)
 }
 
 // IPPoolResult IP 池结果

@@ -32,20 +32,10 @@ func (s *Server) writeJSONSuccess(w http.ResponseWriter, message string, data in
 	})
 }
 
-// corsMiddleware CORS 中间件
+// corsMiddleware CORS 中间件（保留向后兼容，使用增强版）
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+	// 使用增强的 CORS 中间件
+	return s.enhancedCORSMiddleware(s.securityMiddleware(next))
 }
 
 // findWebDirectory 查找 Web 目录

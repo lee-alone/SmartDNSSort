@@ -63,9 +63,17 @@ function loadCustomSettings() {
 function loadUnboundConfig() {
     fetch('/api/unbound/config')
         .then(response => response.json())
-        .then(data => {
+        .then(result => {
             const section = document.getElementById('unbound-config-section');
             const el = document.getElementById('unbound-config-content');
+            
+            // 检查响应格式
+            if (!result.success || !result.data) {
+                if (section) section.classList.add('hidden');
+                return;
+            }
+            
+            const data = result.data;
             
             // 检查递归是否启用
             if (data.enabled === false) {
@@ -109,7 +117,7 @@ function saveUnboundConfig(button) {
 
     button.disabled = true;
 
-    fetch('/api/unbound/config', {
+    CSRFManager.secureFetch('/api/unbound/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })
@@ -143,7 +151,7 @@ function saveCustomBlocked(button) {
 
     button.disabled = true;
 
-    fetch('/api/custom/blocked', {
+    CSRFManager.secureFetch('/api/custom/blocked', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })
@@ -177,7 +185,7 @@ function saveCustomResponse(button) {
 
     button.disabled = true;
 
-    fetch('/api/custom/response', {
+    CSRFManager.secureFetch('/api/custom/response', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })

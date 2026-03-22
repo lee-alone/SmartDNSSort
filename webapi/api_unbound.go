@@ -25,18 +25,14 @@ func (s *Server) handleUnboundConfig(w http.ResponseWriter, r *http.Request) {
 
 	if !recursorEnabled {
 		// 递归未启用时，返回空内容而不是错误
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"content": "", "enabled": false})
+		s.writeJSONSuccess(w, "Recursor not enabled", map[string]interface{}{"content": "", "enabled": false})
 		return
 	}
 
 	// Manager 必须存在才能继续
 	if mgr == nil {
 		// Manager 未初始化时，返回空内容
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"content": "", "enabled": false})
+		s.writeJSONSuccess(w, "Recursor manager not initialized", map[string]interface{}{"content": "", "enabled": false})
 		return
 	}
 
@@ -67,9 +63,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 	content, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"content": "", "enabled": true})
+			s.writeJSONSuccess(w, "Unbound config file not found", map[string]interface{}{"content": "", "enabled": true})
 			return
 		}
 		logger.Errorf("[Unbound] Failed to read config file %s: %v", configPath, err)
@@ -77,9 +71,7 @@ func (s *Server) handleUnboundConfigGet(w http.ResponseWriter) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"content": string(content), "enabled": true})
+	s.writeJSONSuccess(w, "Unbound config retrieved", map[string]interface{}{"content": string(content), "enabled": true})
 }
 
 // handleUnboundConfigPost 保存 Unbound 配置文件并重启

@@ -169,18 +169,29 @@ async function loadIPPoolData() {
 			throw new Error(result.message || 'Failed to parse IP pool data');
 		}
 	} catch (error) {
-		console.error('Failed to load IP pool data:', error);
-		const tbody = document.getElementById('ip_pool_table_body');
-		if (tbody) {
-			tbody.innerHTML = `
-				<tr>
-					<td colspan="6" class="px-6 py-4 text-center text-red-500">
-						<span class="material-symbols-outlined inline-block align-middle mr-2">error</span>
-						<span data-i18n="dashboard.errorLoadingData">Failed to load IP pool data</span>
-					</td>
-				</tr>
-			`;
-		}
+	console.error('Failed to load IP pool data:', error);
+	const tbody = document.getElementById('ip_pool_table_body');
+	if (tbody) {
+	// 安全：使用 DOM 操作替代 innerHTML
+	tbody.innerHTML = '';
+	const row = document.createElement('tr');
+	const cell = document.createElement('td');
+	cell.colSpan = 6;
+	cell.className = 'px-6 py-4 text-center text-red-500';
+	
+	const iconSpan = document.createElement('span');
+	iconSpan.className = 'material-symbols-outlined inline-block align-middle mr-2';
+	iconSpan.textContent = 'error';
+	
+	const textSpan = document.createElement('span');
+	textSpan.setAttribute('data-i18n', 'dashboard.errorLoadingData');
+	textSpan.textContent = 'Failed to load IP pool data';
+	
+	cell.appendChild(iconSpan);
+	cell.appendChild(textSpan);
+	row.appendChild(cell);
+	tbody.appendChild(row);
+	}
 		// Hide expand container on error
 		const expandContainer = document.getElementById('expand-container');
 		if (expandContainer) {
@@ -207,48 +218,88 @@ function renderIPPoolTable() {
 	const itemsToShow = isExpanded ? displayList : displayList.slice(0, 10);
 	
 	if (itemsToShow.length > 0) {
-		itemsToShow.forEach(ip => {
-			const row = document.createElement('tr');
-			row.className = 'hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-default';
-
-			// Format last access time
-			const lastAccess = new Date(ip.last_access);
-			const lastAccessStr = lastAccess.toLocaleString();
-
-			// RTT color coding
-			let rttClass = 'text-red-600 dark:text-red-400 font-bold';
-			if (ip.rtt < 9000) {
-				rttClass = 'text-green-600 dark:text-green-400';
-				if (ip.rtt > 100) rttClass = 'text-yellow-600 dark:text-yellow-400';
-				if (ip.rtt > 300) rttClass = 'text-orange-600 dark:text-orange-400';
-				if (ip.rtt > 1000) rttClass = 'text-red-600 dark:text-red-400';
-			}
-			if (ip.rtt <= 0) rttClass = 'text-gray-400';
-
-			row.innerHTML = `
-				<td class="px-6 py-3 font-mono text-xs md:text-sm">${ip.ip || '-'}</td>
-				<td class="px-6 py-3 truncate max-w-[120px] md:max-w-xs" title="${ip.rep_domain || ''}">${ip.rep_domain || '-'}</td>
-				<td class="px-6 py-3 text-center md:text-left">${ip.ref_count || 0}</td>
-				<td class="px-6 py-3 text-center md:text-left">${ip.access_heat || 0}</td>
-				<td class="px-6 py-3 font-mono ${rttClass}">${ip.rtt >= 9000 ? 'DEAD' : (ip.rtt >= 0 ? ip.rtt : '-')}</td>
-				<td class="px-6 py-3 text-xs opacity-80 hidden md:table-cell">${lastAccessStr}</td>
-			`;
-			tbody.appendChild(row);
-		});
+	itemsToShow.forEach(ip => {
+	const row = document.createElement('tr');
+	row.className = 'hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-default';
+	
+	// Format last access time
+	const lastAccess = new Date(ip.last_access);
+	const lastAccessStr = lastAccess.toLocaleString();
+	
+	// RTT color coding
+	let rttClass = 'text-red-600 dark:text-red-400 font-bold';
+	if (ip.rtt < 9000) {
+	rttClass = 'text-green-600 dark:text-green-400';
+	if (ip.rtt > 100) rttClass = 'text-yellow-600 dark:text-yellow-400';
+	if (ip.rtt > 300) rttClass = 'text-orange-600 dark:text-orange-400';
+	if (ip.rtt > 1000) rttClass = 'text-red-600 dark:text-red-400';
+	}
+	if (ip.rtt <= 0) rttClass = 'text-gray-400';
+	
+	// 安全：使用 DOM 操作替代 innerHTML
+	// 单元格 1: IP 地址
+	const cell1 = document.createElement('td');
+	cell1.className = 'px-6 py-3 font-mono text-xs md:text-sm';
+	cell1.textContent = ip.ip || '-';
+	row.appendChild(cell1);
+	
+	// 单元格 2: 代表域名
+	const cell2 = document.createElement('td');
+	cell2.className = 'px-6 py-3 truncate max-w-[120px] md:max-w-xs';
+	cell2.title = ip.rep_domain || ''; // 安全：通过 title 属性设置
+	cell2.textContent = ip.rep_domain || '-';
+	row.appendChild(cell2);
+	
+	// 单元格 3: 引用计数
+	const cell3 = document.createElement('td');
+	cell3.className = 'px-6 py-3 text-center md:text-left';
+	cell3.textContent = ip.ref_count || 0;
+	row.appendChild(cell3);
+	
+	// 单元格 4: 访问热度
+	const cell4 = document.createElement('td');
+	cell4.className = 'px-6 py-3 text-center md:text-left';
+	cell4.textContent = ip.access_heat || 0;
+	row.appendChild(cell4);
+	
+	// 单元格 5: RTT
+	const cell5 = document.createElement('td');
+	cell5.className = `px-6 py-3 font-mono ${rttClass}`;
+	cell5.textContent = ip.rtt >= 9000 ? 'DEAD' : (ip.rtt >= 0 ? ip.rtt : '-');
+	row.appendChild(cell5);
+	
+	// 单元格 6: 最后访问时间
+	const cell6 = document.createElement('td');
+	cell6.className = 'px-6 py-3 text-xs opacity-80 hidden md:table-cell';
+	cell6.textContent = lastAccessStr;
+	row.appendChild(cell6);
+	
+	tbody.appendChild(row);
+	});
 	} else {
-		const emptyMsg = showDeadIPsMode 
-			? 'dashboard.noDeadIPs' 
-			: 'dashboard.noIpData';
-		const defaultEmptyMsg = showDeadIPsMode ? 'No dead IPs detected' : 'No IP pool data available';
-		
-		tbody.innerHTML = `
-		<tr>
-			<td colspan="6" class="px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark">
-				<span class="material-symbols-outlined inline-block align-middle mr-2">check_circle</span>
-				<span data-i18n="${emptyMsg}">${defaultEmptyMsg}</span>
-			</td>
-		</tr>
-		`;
+	const emptyMsg = showDeadIPsMode
+	? 'dashboard.noDeadIPs'
+	: 'dashboard.noIpData';
+	const defaultEmptyMsg = showDeadIPsMode ? 'No dead IPs detected' : 'No IP pool data available';
+	
+	// 安全：使用 DOM 操作替代 innerHTML
+	const row = document.createElement('tr');
+	const cell = document.createElement('td');
+	cell.colSpan = 6;
+	cell.className = 'px-6 py-4 text-center text-text-sub-light dark:text-text-sub-dark';
+	
+	const iconSpan = document.createElement('span');
+	iconSpan.className = 'material-symbols-outlined inline-block align-middle mr-2';
+	iconSpan.textContent = 'check_circle';
+	
+	const textSpan = document.createElement('span');
+	textSpan.setAttribute('data-i18n', emptyMsg);
+	textSpan.textContent = defaultEmptyMsg;
+	
+	cell.appendChild(iconSpan);
+	cell.appendChild(textSpan);
+	row.appendChild(cell);
+	tbody.appendChild(row);
 	}
 	
 	const modeToggleBtn = document.getElementById('btn-toggle-ip-mode');
@@ -340,15 +391,15 @@ function initializeIPPoolMonitor() {
 	if (toggleMonitor) {
 		// Fetch current config to set initial state if data not loaded yet
 		fetch('/api/config').then(r => r.json()).then(result => {
-			if (result.ip_monitor) {
-				toggleMonitor.checked = result.ip_monitor.enabled;
+			if (result.data.ip_monitor) {
+				toggleMonitor.checked = result.data.ip_monitor.enabled;
 			}
 		});
 
 		toggleMonitor.addEventListener('change', async () => {
 			const enabled = toggleMonitor.checked;
 			try {
-				const response = await fetch(`/api/ip-pool/toggle?enabled=${enabled}`, {
+				const response = await CSRFManager.secureFetch(`/api/ip-pool/toggle?enabled=${enabled}`, {
 					method: 'POST'
 				});
 				if (!response.ok) throw new Error('Toggle failed');

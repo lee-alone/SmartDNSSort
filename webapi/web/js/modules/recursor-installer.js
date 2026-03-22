@@ -41,7 +41,11 @@ class RecursorInstaller {
                 throw new Error('Failed to fetch install status');
             }
 
-            const data = await response.json();
+            const result = await response.json();
+            const data = result.success ? result.data : null;
+            if (!data) {
+                throw new Error('Invalid response format');
+            }
             this.updateStatusUI(data);
 
             // If installation is complete or error, stop polling
@@ -78,8 +82,11 @@ class RecursorInstaller {
                 throw new Error('Failed to fetch system info');
             }
 
-            const data = await response.json();
-            this.updateSystemInfoUI(data);
+            const result = await response.json();
+            const data = result.success ? result.data : null;
+            if (data) {
+                this.updateSystemInfoUI(data);
+            }
         } catch (error) {
             // Silently fail - system info is optional
         }

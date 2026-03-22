@@ -1,22 +1,148 @@
 // Configuration Management Module
 
+// ==================== 常量定义 ====================
 const CONFIG_API_URL = '/api/config';
+const DEBOUNCE_DELAY_MS = 500;
+
+// 验证常量
+const VALIDATION = {
+MIN_PORT: 1,
+MAX_PORT: 65535,
+MIN_TIMEOUT_MS: 100,
+MAX_TIMEOUT_MS: 60000,
+MIN_CACHE_SIZE: 1,
+MAX_CACHE_SIZE: 102400,
+MIN_CONCURRENCY: 1,
+MAX_CONCURRENCY: 100,
+};
+
 let originalConfig = {};
+
+// ==================== 安全解析函数 ====================
+/**
+* 安全解析整数，避免 NaN
+*/
+function safeParseInt(value, defaultValue = 0) {
+const parsed = parseInt(value, 10);
+return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+* 安全解析浮点数，避免 NaN
+*/
+function safeParseFloat(value, defaultValue = 0) {
+const parsed = parseFloat(value);
+return isNaN(parsed) ? defaultValue : parsed;
+}
+
+// ==================== 输入验证 ====================
+const InputValidator = {
+/**
+* 验证端口号
+*/
+validatePort(port, fieldName) {
+const p = safeParseInt(port, -1);
+if (p < VALIDATION.MIN_PORT || p > VALIDATION.MAX_PORT) {
+return `${fieldName} 必须在 ${VALIDATION.MIN_PORT}-${VALIDATION.MAX_PORT} 之间`;
+}
+return null;
+},
+
+/**
+* 验证超时时间
+*/
+validateTimeout(timeout, fieldName) {
+const t = safeParseInt(timeout, -1);
+if (t < VALIDATION.MIN_TIMEOUT_MS || t > VALIDATION.MAX_TIMEOUT_MS) {
+return `${fieldName} 必须在 ${VALIDATION.MIN_TIMEOUT_MS}-${VALIDATION.MAX_TIMEOUT_MS}ms 之间`;
+}
+return null;
+},
+
+/**
+* 验证正整数
+*/
+validatePositiveInt(value, fieldName, min = 1, max = 1000000) {
+const v = safeParseInt(value, -1);
+if (v < min || v > max) {
+return `${fieldName} 必须在 ${min}-${max} 之间`;
+}
+return null;
+},
+
+/**
+* 验证配置数据
+*/
+validateConfig(data) {
+const errors = [];
+
+// DNS 配置验证
+if (data.dns) {
+const portError = this.validatePort(data.dns.listen_port, 'DNS 监听端口');
+if (portError) errors.push(portError);
+}
+
+// Upstream 配置验证
+if (data.upstream) {
+const timeoutError = this.validateTimeout(data.upstream.timeout_ms, '上游超时时间');
+if (timeoutError) errors.push(timeoutError);
+
+const concurrencyError = this.validatePositiveInt(data.upstream.concurrency, '并发数', VALIDATION.MIN_CONCURRENCY, VALIDATION.MAX_CONCURRENCY);
+if (concurrencyError) errors.push(concurrencyError);
+}
+
+// Ping 配置验证
+if (data.ping) {
+const pingTimeoutError = this.validateTimeout(data.ping.timeout_ms, 'Ping 超时时间');
+if (pingTimeoutError) errors.push(pingTimeoutError);
+}
+
+// Cache 配置验证
+if (data.cache) {
+const cacheSizeError = this.validatePositiveInt(data.cache.max_memory_mb, '缓存大小', VALIDATION.MIN_CACHE_SIZE, VALIDATION.MAX_CACHE_SIZE);
+if (cacheSizeError) errors.push(cacheSizeError);
+}
+
+// WebUI 配置验证
+if (data.webui) {
+const webuiPortError = this.validatePort(data.webui.listen_port, 'WebUI 端口');
+if (webuiPortError) errors.push(webuiPortError);
+}
+
+return {
+valid: errors.length === 0,
+errors
+};
+}
+};
+
+// ==================== 防抖函数 ====================
+function debounce(func, wait) {
+let timeout;
+return function executedFunction(...args) {
+const later = () => {
+clearTimeout(timeout);
+func(...args);
+};
+clearTimeout(timeout);
+timeout = setTimeout(later, wait);
+};
+}
 
 // Helper function to safely get form element value
 function getFormValue(form, fieldName, defaultValue = '') {
-    try {
-        const element = form.elements[fieldName];
-        if (!element) {
-            return defaultValue;
-        }
-        if (element.type === 'checkbox') {
-            return element.checked;
-        }
-        return element.value !== undefined ? element.value : defaultValue;
-    } catch (e) {
-        return defaultValue;
-    }
+try {
+const element = form.elements[fieldName];
+if (!element) {
+return defaultValue;
+}
+if (element.type === 'checkbox') {
+return element.checked;
+}
+return element.value !== undefined ? element.value : defaultValue;
+} catch (e) {
+return defaultValue;
+}
 }
 
 function populateForm(config) {
@@ -139,146 +265,159 @@ function loadConfig() {
             }
             return response.json();
         })
-        .then(config => {
-            // 延迟执行以确保所有组件都已加载
-            setTimeout(() => {
-                populateForm(config);
-            }, 100);
+        .then(result => {
+            // 解析统一响应格式 {success, message, data}
+            if (result.success && result.data) {
+                // 延迟执行以确保所有组件都已加载
+                setTimeout(() => {
+                    populateForm(result.data);
+                }, 100);
+            } else {
+                throw new Error(result.message || 'Invalid response format');
+            }
         })
         .catch(error => {
+            console.error('Failed to load configuration:', error);
             alert('Could not load configuration from server. Please open the browser developer console (F12) and check for errors.');
         });
 }
 
 function saveConfig(event) {
-    // 防止表单默认提交行为（防止 URL 参数化）
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-    
-    return new Promise((resolve, reject) => {
-        const form = document.getElementById('configForm');
-        if (!form) {
-            alert('Configuration form not found');
-            return reject('Form not found');
-        }
+// 防止表单默认提交行为（防止 URL 参数化）
+if (event) {
+event.preventDefault();
+event.stopPropagation();
+}
 
-        const data = {
-            dns: {
-                listen_port: parseInt(getFormValue(form, 'dns.listen_port', '53')) || 53,
-                enable_tcp: getFormValue(form, 'dns.enable_tcp', false),
-                enable_ipv6: getFormValue(form, 'dns.enable_ipv6', false),
-            },
-            upstream: {
-                servers: (getFormValue(form, 'upstream.servers', '') || '')
-                    .split('\n')
-                    .map(s => s.trim())
-                    .filter(s => s !== ''),
-                bootstrap_dns: (getFormValue(form, 'upstream.bootstrap_dns', '') || '')
-                    .split('\n')
-                    .map(s => s.trim())
-                    .filter(s => s !== ''),
-                strategy: getFormValue(form, 'upstream.strategy', 'auto') || 'auto',
-                timeout_ms: parseInt(getFormValue(form, 'upstream.timeout_ms', '5000')) || 5000,
-                concurrency: parseInt(getFormValue(form, 'upstream.concurrency', '3')) || 3,
-                max_connections: parseInt(getFormValue(form, 'upstream.max_connections', '0')) || 0,
-                sequential_timeout: parseInt(getFormValue(form, 'upstream.sequential_timeout', '300')) || 300,
-                racing_delay: parseInt(getFormValue(form, 'upstream.racing_delay', '100')) || 100,
-                racing_max_concurrent: parseInt(getFormValue(form, 'upstream.racing_max_concurrent', '2')) || 2,
-                dnssec: getFormValue(form, 'upstream.dnssec', false),
-                health_check: {
-                    enabled: getFormValue(form, 'upstream.health_check.enabled', false),
-                    failure_threshold: parseInt(getFormValue(form, 'upstream.health_check.failure_threshold', '3')) || 3,
-                    circuit_breaker_threshold: parseInt(getFormValue(form, 'upstream.health_check.circuit_breaker_threshold', '5')) || 5,
-                    circuit_breaker_timeout: parseInt(getFormValue(form, 'upstream.health_check.circuit_breaker_timeout', '30')) || 30,
-                    success_threshold: parseInt(getFormValue(form, 'upstream.health_check.success_threshold', '2')) || 2,
-                },
-                dynamic_param_optimization: {
-                    ewma_alpha: parseFloat(getFormValue(form, 'upstream.dynamic_param_optimization.ewma_alpha', '0.2')) || 0.2,
-                    max_step_ms: parseInt(getFormValue(form, 'upstream.dynamic_param_optimization.max_step_ms', '10')) || 10,
-                },
-                enable_recursor: getFormValue(form, 'upstream.enable_recursor', false),
-                recursor_port: parseInt(getFormValue(form, 'upstream.recursor_port', '5353')) || 5353,
-            },
-            ping: {
-                enabled: getFormValue(form, 'ping.enabled', false),
-                count: parseInt(getFormValue(form, 'ping.count', '3')) || 3,
-                timeout_ms: parseInt(getFormValue(form, 'ping.timeout_ms', '1000')) || 1000,
-                concurrency: parseInt(getFormValue(form, 'ping.concurrency', '16')) || 16,
-                strategy: getFormValue(form, 'ping.strategy', 'auto') || 'auto',
-                max_test_ips: parseInt(getFormValue(form, 'ping.max_test_ips', '0')) || 0,
-                rtt_cache_ttl_seconds: parseInt(getFormValue(form, 'ping.rtt_cache_ttl_seconds', '300')) || 300,
-                enable_http_fallback: getFormValue(form, 'ping.enable_http_fallback', false),
-            },
-            cache: {
-                fast_response_ttl: parseInt(getFormValue(form, 'cache.fast_response_ttl', '15')) || 15,
-                user_return_ttl: parseInt(getFormValue(form, 'cache.user_return_ttl', '600')) || 600,
-                min_ttl_seconds: parseInt(getFormValue(form, 'cache.min_ttl_seconds', '3600')) || 3600,
-                max_ttl_seconds: parseInt(getFormValue(form, 'cache.max_ttl_seconds', '84600')) || 84600,
-                negative_ttl_seconds: parseInt(getFormValue(form, 'cache.negative_ttl_seconds', '300')) || 300,
-                error_cache_ttl_seconds: parseInt(getFormValue(form, 'cache.error_cache_ttl_seconds', '30')) || 30,
-                max_memory_mb: parseInt(getFormValue(form, 'cache.max_memory_mb', '128')) || 128,
-                eviction_threshold: parseFloat(getFormValue(form, 'cache.eviction_threshold', '0.9')) || 0.9,
-                eviction_batch_percent: parseFloat(getFormValue(form, 'cache.eviction_batch_percent', '0.1')) || 0.1,
-                keep_expired_entries: getFormValue(form, 'cache.keep_expired_entries', false),
-                protect_prefetch_domains: getFormValue(form, 'cache.protect_prefetch_domains', false),
-                save_to_disk_interval_minutes: parseInt(getFormValue(form, 'cache.save_to_disk_interval_minutes', '60')) || 60,
-            },
-            prefetch: {
-                enabled: getFormValue(form, 'prefetch.enabled', false),
-            },
-            webui: {
-                enabled: getFormValue(form, 'webui.enabled', false),
-                listen_port: parseInt(getFormValue(form, 'webui.listen_port', '8080')) || 8080,
-            },
-            system: {
-                max_cpu_cores: parseInt(getFormValue(form, 'system.max_cpu_cores', '0')) || 0,
-                sort_queue_workers: parseInt(getFormValue(form, 'system.sort_queue_workers', '4')) || 4,
-                refresh_workers: parseInt(getFormValue(form, 'system.refresh_workers', '4')) || 4,
-            },
-        };
+return new Promise((resolve, reject) => {
+const form = document.getElementById('configForm');
+if (!form) {
+alert('Configuration form not found');
+return reject('Form not found');
+}
 
-        // Handle AdBlock settings from form if they exist
-        if (originalConfig && originalConfig.adblock) {
-            data.adblock = originalConfig.adblock;
-            // Update from form if elements exist
-            const updateInterval = getFormValue(form, 'adblock_update_interval_hours', '');
-            const maxCacheAge = getFormValue(form, 'adblock_max_cache_age_hours', '');
-            const maxCacheSize = getFormValue(form, 'adblock_max_cache_size_mb', '');
-            const blockedTtl = getFormValue(form, 'adblock_blocked_ttl', '');
-            const blockMode = getFormValue(form, 'adblock_block_mode', '');
+// 使用 safeParseInt 和 safeParseFloat 构建配置数据
+const data = {
+dns: {
+listen_port: safeParseInt(getFormValue(form, 'dns.listen_port', '53'), 53),
+enable_tcp: getFormValue(form, 'dns.enable_tcp', false),
+enable_ipv6: getFormValue(form, 'dns.enable_ipv6', false),
+},
+upstream: {
+servers: (getFormValue(form, 'upstream.servers', '') || '')
+.split('\n')
+.map(s => s.trim())
+.filter(s => s !== ''),
+bootstrap_dns: (getFormValue(form, 'upstream.bootstrap_dns', '') || '')
+.split('\n')
+.map(s => s.trim())
+.filter(s => s !== ''),
+strategy: getFormValue(form, 'upstream.strategy', 'auto') || 'auto',
+timeout_ms: safeParseInt(getFormValue(form, 'upstream.timeout_ms', '5000'), 5000),
+concurrency: safeParseInt(getFormValue(form, 'upstream.concurrency', '3'), 3),
+max_connections: safeParseInt(getFormValue(form, 'upstream.max_connections', '0'), 0),
+sequential_timeout: safeParseInt(getFormValue(form, 'upstream.sequential_timeout', '300'), 300),
+racing_delay: safeParseInt(getFormValue(form, 'upstream.racing_delay', '100'), 100),
+racing_max_concurrent: safeParseInt(getFormValue(form, 'upstream.racing_max_concurrent', '2'), 2),
+dnssec: getFormValue(form, 'upstream.dnssec', false),
+health_check: {
+enabled: getFormValue(form, 'upstream.health_check.enabled', false),
+failure_threshold: safeParseInt(getFormValue(form, 'upstream.health_check.failure_threshold', '3'), 3),
+circuit_breaker_threshold: safeParseInt(getFormValue(form, 'upstream.health_check.circuit_breaker_threshold', '5'), 5),
+circuit_breaker_timeout: safeParseInt(getFormValue(form, 'upstream.health_check.circuit_breaker_timeout', '30'), 30),
+success_threshold: safeParseInt(getFormValue(form, 'upstream.health_check.success_threshold', '2'), 2),
+},
+dynamic_param_optimization: {
+ewma_alpha: safeParseFloat(getFormValue(form, 'upstream.dynamic_param_optimization.ewma_alpha', '0.2'), 0.2),
+max_step_ms: safeParseInt(getFormValue(form, 'upstream.dynamic_param_optimization.max_step_ms', '10'), 10),
+},
+enable_recursor: getFormValue(form, 'upstream.enable_recursor', false),
+recursor_port: safeParseInt(getFormValue(form, 'upstream.recursor_port', '5353'), 5353),
+},
+ping: {
+enabled: getFormValue(form, 'ping.enabled', false),
+count: safeParseInt(getFormValue(form, 'ping.count', '3'), 3),
+timeout_ms: safeParseInt(getFormValue(form, 'ping.timeout_ms', '1000'), 1000),
+concurrency: safeParseInt(getFormValue(form, 'ping.concurrency', '16'), 16),
+strategy: getFormValue(form, 'ping.strategy', 'auto') || 'auto',
+max_test_ips: safeParseInt(getFormValue(form, 'ping.max_test_ips', '0'), 0),
+rtt_cache_ttl_seconds: safeParseInt(getFormValue(form, 'ping.rtt_cache_ttl_seconds', '300'), 300),
+enable_http_fallback: getFormValue(form, 'ping.enable_http_fallback', false),
+},
+cache: {
+fast_response_ttl: safeParseInt(getFormValue(form, 'cache.fast_response_ttl', '15'), 15),
+user_return_ttl: safeParseInt(getFormValue(form, 'cache.user_return_ttl', '600'), 600),
+min_ttl_seconds: safeParseInt(getFormValue(form, 'cache.min_ttl_seconds', '3600'), 3600),
+max_ttl_seconds: safeParseInt(getFormValue(form, 'cache.max_ttl_seconds', '84600'), 84600),
+negative_ttl_seconds: safeParseInt(getFormValue(form, 'cache.negative_ttl_seconds', '300'), 300),
+error_cache_ttl_seconds: safeParseInt(getFormValue(form, 'cache.error_cache_ttl_seconds', '30'), 30),
+max_memory_mb: safeParseInt(getFormValue(form, 'cache.max_memory_mb', '128'), 128),
+eviction_threshold: safeParseFloat(getFormValue(form, 'cache.eviction_threshold', '0.9'), 0.9),
+eviction_batch_percent: safeParseFloat(getFormValue(form, 'cache.eviction_batch_percent', '0.1'), 0.1),
+keep_expired_entries: getFormValue(form, 'cache.keep_expired_entries', false),
+protect_prefetch_domains: getFormValue(form, 'cache.protect_prefetch_domains', false),
+save_to_disk_interval_minutes: safeParseInt(getFormValue(form, 'cache.save_to_disk_interval_minutes', '60'), 60),
+},
+prefetch: {
+enabled: getFormValue(form, 'prefetch.enabled', false),
+},
+webui: {
+enabled: getFormValue(form, 'webui.enabled', false),
+listen_port: safeParseInt(getFormValue(form, 'webui.listen_port', '8080'), 8080),
+},
+system: {
+max_cpu_cores: safeParseInt(getFormValue(form, 'system.max_cpu_cores', '0'), 0),
+sort_queue_workers: safeParseInt(getFormValue(form, 'system.sort_queue_workers', '4'), 4),
+refresh_workers: safeParseInt(getFormValue(form, 'system.refresh_workers', '4'), 4),
+},
+};
 
-            if (updateInterval) {
-                data.adblock.update_interval_hours = parseInt(updateInterval);
-            }
-            if (maxCacheAge) {
-                data.adblock.max_cache_age_hours = parseInt(maxCacheAge);
-            }
-            if (maxCacheSize) {
-                data.adblock.max_cache_size_mb = parseInt(maxCacheSize);
-            }
-            if (blockedTtl) {
-                data.adblock.blocked_ttl = parseInt(blockedTtl);
-            }
-            if (blockMode) {
-                data.adblock.block_mode = blockMode;
-            }
-        }
-        if (originalConfig && originalConfig.stats) {
-            data.stats = originalConfig.stats;
-        }
+// 前端输入验证
+const validation = InputValidator.validateConfig(data);
+if (!validation.valid) {
+alert(i18n.t('messages.validationError') + '\n\n' + validation.errors.join('\n'));
+return reject('Validation failed');
+}
 
-        fetch(CONFIG_API_URL, {
+// Handle AdBlock settings from form if they exist
+if (originalConfig && originalConfig.adblock) {
+data.adblock = originalConfig.adblock;
+// Update from form if elements exist
+const updateInterval = getFormValue(form, 'adblock_update_interval_hours', '');
+const maxCacheAge = getFormValue(form, 'adblock_max_cache_age_hours', '');
+const maxCacheSize = getFormValue(form, 'adblock_max_cache_size_mb', '');
+const blockedTtl = getFormValue(form, 'adblock_blocked_ttl', '');
+const blockMode = getFormValue(form, 'adblock_block_mode', '');
+
+if (updateInterval) {
+data.adblock.update_interval_hours = safeParseInt(updateInterval, 0);
+}
+if (maxCacheAge) {
+data.adblock.max_cache_age_hours = safeParseInt(maxCacheAge, 0);
+}
+if (maxCacheSize) {
+data.adblock.max_cache_size_mb = safeParseInt(maxCacheSize, 0);
+}
+if (blockedTtl) {
+data.adblock.blocked_ttl = safeParseInt(blockedTtl, 0);
+}
+if (blockMode) {
+data.adblock.block_mode = blockMode;
+}
+}
+if (originalConfig && originalConfig.stats) {
+data.stats = originalConfig.stats;
+}
+
+        CSRFManager.secureFetch(CONFIG_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         })
-            .then(response => {
+            .then(async response => {
                 if (!response.ok) {
-                    return response.text().then(text => {
-                        throw new Error(text || `HTTP ${response.status}`);
-                    });
+                    const text = await response.text();
+                    throw new Error(text || `HTTP ${response.status}`);
                 }
                 return response.json();
             })
@@ -453,16 +592,15 @@ function importConfig(input) {
 
             const confirmMsg = i18n.t('config.maintenance.importConfirm') || "Confirm import?";
             if (confirm(confirmMsg)) {
-                fetch(CONFIG_API_URL, {
+                CSRFManager.secureFetch(CONFIG_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
                 })
-                    .then(response => {
+                    .then(async response => {
                         if (!response.ok) {
-                            return response.text().then(text => {
-                                throw new Error(text || `HTTP ${response.status}`);
-                            });
+                            const text = await response.text();
+                            throw new Error(text || `HTTP ${response.status}`);
                         }
                         return response.json();
                     })
@@ -488,7 +626,7 @@ function importConfig(input) {
 
 function resetConfig() {
     if (confirm(i18n.t('config.maintenance.resetConfirm'))) {
-        fetch(CONFIG_API_URL + '/reset', {
+        CSRFManager.secureFetch(CONFIG_API_URL + '/reset', {
             method: 'POST'
         })
             .then(response => {

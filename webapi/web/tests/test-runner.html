@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDNSSort Frontend Tests</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .test-result {
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .test-result.pass {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .test-result.fail {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .summary {
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .summary .passed {
+            color: #10b981;
+            font-weight: bold;
+        }
+        .summary .failed {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .run-button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .run-button:hover {
+            background: #2563eb;
+        }
+        .run-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        #console-output {
+            background: #1f2937;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .progress-bar .progress {
+            height: 100%;
+            background: #3b82f6;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 SmartDNSSort Frontend Unit Tests</h1>
+    
+    <div class="summary" id="summary">
+        <p>Click "Run All Tests" to start testing.</p>
+    </div>
+
+    <button class="run-button" id="runButton" onclick="startTests()">Run All Tests</button>
+
+    <div class="progress-bar" id="progressBar" style="display: none;">
+        <div class="progress" id="progress" style="width: 0%;"></div>
+    </div>
+
+    <div id="testResults"></div>
+
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <div id="console-output"></div>
+    </div>
+
+    <!-- 加载被测试的模块 -->
+    <script src="../js/modules/utils.js"></script>
+    <script src="../js/modules/api-config.js"></script>
+    <script src="../js/modules/virtual-list.js"></script>
+    <script src="../js/modules/csrf.js"></script>
+    <script src="../js/modules/accessibility.js"></script>
+    
+    <!-- 加载测试文件 -->
+    <script src="test-utils.js"></script>
+
+    <script>
+        // 重写 console.log 以显示在页面上
+        const consoleOutput = document.getElementById('console-output');
+        const originalLog = console.log;
+        const originalError = console.error;
+
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const line = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' ');
+            consoleOutput.textContent += line + '\n';
+        };
+
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            const line = '❌ ' + args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' ');
+            consoleOutput.textContent += line + '\n';
+        };
+
+        function startTests() {
+            const runButton = document.getElementById('runButton');
+            const progressBar = document.getElementById('progressBar');
+            const progress = document.getElementById('progress');
+            const summary = document.getElementById('summary');
+            const testResults = document.getElementById('testResults');
+
+            // 禁用按钮
+            runButton.disabled = true;
+            runButton.textContent = 'Running...';
+
+            // 清空之前的结果
+            consoleOutput.textContent = '';
+            testResults.innerHTML = '';
+
+            // 显示进度条
+            progressBar.style.display = 'block';
+            progress.style.width = '0%';
+
+            // 延迟执行以允许 UI 更新
+            setTimeout(() => {
+                try {
+                    const results = runAllTests();
+                    
+                    // 更新进度条
+                    progress.style.width = '100%';
+
+                    // 显示汇总
+                    summary.innerHTML = `
+                        <h3>Test Results Summary</h3>
+                        <p><span class="passed">${results.totalPassed} passed</span>, 
+                           <span class="failed">${results.totalFailed} failed</span></p>
+                    `;
+
+                    // 显示详细结果
+                    displayTestResults('InputValidator Tests', results.validatorResults);
+                    displayTestResults('API_CONFIG Tests', results.apiConfigResults);
+                    displayTestResults('VirtualList Tests', results.virtualListResults);
+                    displayTestResults('CSRFManager Tests', results.csrfResults);
+                    displayTestResults('Accessibility Tests', results.a11yResults);
+
+                } catch (error) {
+                    console.error('Test execution failed:', error);
+                    summary.innerHTML = `<p class="failed">Test execution failed: ${error.message}</p>`;
+                } finally {
+                    runButton.disabled = false;
+                    runButton.textContent = 'Run All Tests';
+                }
+            }, 100);
+        }
+
+        function displayTestResults(sectionName, results) {
+            const testResults = document.getElementById('testResults');
+            
+            const section = document.createElement('div');
+            section.className = 'test-section';
+            
+            const title = document.createElement('h2');
+            title.textContent = `${sectionName} (${results.passed}/${results.passed + results.failed})`;
+            section.appendChild(title);
+
+            results.results.forEach(result => {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = `test-result ${result.status.toLowerCase()}`;
+                resultDiv.textContent = `${result.status === 'PASS' ? '✓' : '✗'} ${result.name}`;
+                if (result.error) {
+                    resultDiv.textContent += ` - ${result.error}`;
+                }
+                section.appendChild(resultDiv);
+            });
+
+            testResults.appendChild(section);
+        }
+
+        // 页面加载时显示就绪状态
+        window.onload = function() {
+            console.log('Test runner ready. Click "Run All Tests" to start.');
+            console.log('Available test modules:');
+            console.log('  - InputValidator Tests');
+            console.log('  - API_CONFIG Tests');
+            console.log('  - VirtualList Tests');
+            console.log('  - CSRFManager Tests');
+            console.log('  - Accessibility Tests');
+        };
+    </script>
+</body>
+</html>

@@ -1,7 +1,6 @@
 package webapi
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"smartdnssort/logger"
@@ -24,11 +23,9 @@ func (s *Server) handleRecursorStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
 	// 1. 检查 Server 实例
 	if s.dnsServer == nil {
-		json.NewEncoder(w).Encode(RecursorStatus{
+		s.writeJSONSuccess(w, "Recursor status retrieved", RecursorStatus{
 			Enabled: false,
 		})
 		return
@@ -38,7 +35,7 @@ func (s *Server) handleRecursorStatus(w http.ResponseWriter, r *http.Request) {
 	mgr := s.dnsServer.GetRecursorManager()
 	if mgr == nil {
 		// Manager 未初始化（说明配置未启用）
-		json.NewEncoder(w).Encode(RecursorStatus{
+		s.writeJSONSuccess(w, "Recursor status retrieved", RecursorStatus{
 			Enabled: false,
 		})
 		return
@@ -59,9 +56,7 @@ func (s *Server) handleRecursorStatus(w http.ResponseWriter, r *http.Request) {
 		status.Uptime = int64(time.Since(startTime).Seconds())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(status)
+	s.writeJSONSuccess(w, "Recursor status retrieved", status)
 }
 
 // RecursorInstallStatus 安装状态
@@ -90,10 +85,8 @@ func (s *Server) handleRecursorInstallStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
 	if s.dnsServer == nil {
-		json.NewEncoder(w).Encode(RecursorInstallStatus{
+		s.writeJSONSuccess(w, "Recursor install status retrieved", RecursorInstallStatus{
 			State: "not_installed",
 		})
 		return
@@ -101,7 +94,7 @@ func (s *Server) handleRecursorInstallStatus(w http.ResponseWriter, r *http.Requ
 
 	mgr := s.dnsServer.GetRecursorManager()
 	if mgr == nil {
-		json.NewEncoder(w).Encode(RecursorInstallStatus{
+		s.writeJSONSuccess(w, "Recursor install status retrieved", RecursorInstallStatus{
 			State: "not_installed",
 		})
 		return
@@ -132,8 +125,7 @@ func (s *Server) handleRecursorInstallStatus(w http.ResponseWriter, r *http.Requ
 		status.Progress = 0
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(status)
+	s.writeJSONSuccess(w, "Recursor install status retrieved", status)
 }
 
 // handleRecursorSystemInfo 获取系统信息
@@ -143,16 +135,14 @@ func (s *Server) handleRecursorSystemInfo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
 	if s.dnsServer == nil {
-		json.NewEncoder(w).Encode(RecursorSystemInfo{})
+		s.writeJSONSuccess(w, "Recursor system info retrieved", RecursorSystemInfo{})
 		return
 	}
 
 	mgr := s.dnsServer.GetRecursorManager()
 	if mgr == nil {
-		json.NewEncoder(w).Encode(RecursorSystemInfo{})
+		s.writeJSONSuccess(w, "Recursor system info retrieved", RecursorSystemInfo{})
 		return
 	}
 
@@ -167,8 +157,7 @@ func (s *Server) handleRecursorSystemInfo(w http.ResponseWriter, r *http.Request
 		IsRunning:   sysInfo.IsRunning,
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	s.writeJSONSuccess(w, "Recursor system info retrieved", response)
 }
 
 // RecursorConfig 配置文件内容
@@ -183,8 +172,6 @@ func (s *Server) handleRecursorConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
 
 	if s.dnsServer == nil {
 		s.writeJSONError(w, "DNS server not initialized", http.StatusInternalServerError)
@@ -212,8 +199,7 @@ func (s *Server) handleRecursorConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(RecursorConfig{
+	s.writeJSONSuccess(w, "Recursor config retrieved", RecursorConfig{
 		Path:    configPath,
 		Content: string(content),
 	})

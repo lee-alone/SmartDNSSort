@@ -1,31 +1,44 @@
 /**
- * Component Loader Module
- * Dynamically loads HTML components into the page
- */
+* Component Loader Module
+* Dynamically loads HTML components into the page
+*/
+
+// 常量定义
+const COMPONENT_LOAD_TIMEOUT_MS = 10000;
 
 const ComponentLoader = {
-    /**
-     * Load a component from file and insert into container
-     * @param {string} componentPath - Path to component file
-     * @param {string} containerId - ID of container element
-     */
-    async loadComponent(componentPath, containerId) {
-        try {
-            const response = await fetch(componentPath);
-            if (!response.ok) {
-                throw new Error(`Failed to load ${componentPath}: ${response.statusText}`);
-            }
-            const html = await response.text();
-            const container = document.getElementById(containerId);
-            if (container) {
-                container.innerHTML = html;
-            } else {
-                console.warn(`Container with ID "${containerId}" not found`);
-            }
-        } catch (error) {
-            console.error(`Error loading component ${componentPath}:`, error);
-        }
-    },
+/**
+* Load a component from file and insert into container
+* @param {string} componentPath - Path to component file
+* @param {string} containerId - ID of container element
+* @param {number} timeout - 超时时间（毫秒），默认 10 秒
+*/
+async loadComponent(componentPath, containerId, timeout = COMPONENT_LOAD_TIMEOUT_MS) {
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+try {
+const response = await fetch(componentPath, { signal: controller.signal });
+if (!response.ok) {
+throw new Error(`Failed to load ${componentPath}: ${response.statusText}`);
+}
+const html = await response.text();
+const container = document.getElementById(containerId);
+if (container) {
+container.innerHTML = html;
+} else {
+console.warn(`Container with ID "${containerId}" not found`);
+}
+} catch (error) {
+if (error.name === 'AbortError') {
+console.error(`Component load timeout: ${componentPath}`);
+} else {
+console.error(`Error loading component ${componentPath}:`, error);
+}
+} finally {
+clearTimeout(timeoutId);
+}
+},
 
     /**
      * Load multiple components in parallel

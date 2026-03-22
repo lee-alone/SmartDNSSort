@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,12 +66,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, _ *http.Request) {
 // handleGetConfig 获取当前配置
 func (s *Server) handleGetConfig(w http.ResponseWriter) {
 	currentConfig := s.dnsServer.GetConfig()
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(currentConfig); err != nil {
-		logger.Errorf("Failed to encode config for API: %v", err)
-		s.writeJSONError(w, "Failed to encode config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	s.writeJSONSuccess(w, "Configuration retrieved successfully", currentConfig)
 }
 
 // handlePostConfig 处理配置更新请求
@@ -378,7 +376,202 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 		return fmt.Errorf("blocked_domains_window_hours cannot be negative")
 	}
 
+	// 验证上游服务器地址格式
+	for i, server := range cfg.Upstream.Servers {
+		if err := validateServerAddress(server); err != nil {
+			logger.Errorf("Validation failed: invalid upstream server at index %d: %v", i, err)
+			return fmt.Errorf("invalid upstream server at index %d: %v", i, err)
+		}
+	}
+
+	// 验证 Bootstrap DNS 地址格式
+	for i, server := range cfg.Upstream.BootstrapDNS {
+		if err := validateServerAddress(server); err != nil {
+			logger.Errorf("Validation failed: invalid bootstrap DNS at index %d: %v", i, err)
+			return fmt.Errorf("invalid bootstrap DNS at index %d: %v", i, err)
+		}
+	}
+
+	// 验证 AdBlock 配置
+	if cfg.AdBlock.Enable && cfg.AdBlock.BlockMode != "" {
+		validBlockModes := []string{"nxdomain", "zero_ip", "refused", "custom_ip"}
+		if !contains(validBlockModes, cfg.AdBlock.BlockMode) {
+			logger.Errorf("Validation failed: invalid adblock block mode: %s", cfg.AdBlock.BlockMode)
+			return fmt.Errorf("invalid adblock block mode: %s (must be one of: nxdomain, zero_ip, refused, custom_ip)", cfg.AdBlock.BlockMode)
+		}
+	}
+
+	// 验证端口冲突：DNS 和 WebUI 不能使用相同端口
+	if cfg.DNS.ListenPort == cfg.WebUI.ListenPort {
+		logger.Error("Validation failed: DNS and WebUI cannot use the same port")
+		return fmt.Errorf("DNS and WebUI cannot use the same port: %d", cfg.DNS.ListenPort)
+	}
+
+	// 验证缓存配置的合理性
+	if cfg.Cache.MaxMemoryMB > 0 && cfg.Cache.MaxMemoryMB < 10 {
+		logger.Error("Validation failed: cache max memory should be at least 10MB")
+		return fmt.Errorf("cache max memory should be at least 10MB if specified")
+	}
+
+	// 验证 Ping 配置的合理性
+	if cfg.Ping.TimeoutMs > 30000 {
+		logger.Error("Validation failed: ping timeout should not exceed 30 seconds")
+		return fmt.Errorf("ping timeout should not exceed 30 seconds (30000ms)")
+	}
+
 	return nil
+}
+
+// validateServerAddress 验证服务器地址格式
+// 支持格式: IP:Port, Domain:Port, [IPv6]:Port
+func validateServerAddress(server string) error {
+	if server == "" {
+		return fmt.Errorf("server address cannot be empty")
+	}
+
+	// 检查是否是 IPv6 格式 [::1]:53
+	if strings.HasPrefix(server, "[") {
+		// IPv6 格式
+		closeBracket := strings.Index(server, "]")
+		if closeBracket == -1 {
+			return fmt.Errorf("invalid IPv6 format: missing closing bracket")
+		}
+		ipPart := server[1:closeBracket]
+		if ipPart == "" {
+			return fmt.Errorf("invalid IPv6 format: empty IP")
+		}
+		// 验证 IPv6 地址
+		if err := validateIPv6Address(ipPart); err != nil {
+			return err
+		}
+		// 检查端口部分
+		if len(server) > closeBracket+1 {
+			if server[closeBracket+1] != ':' {
+				return fmt.Errorf("invalid format: expected ':' after IPv6 address")
+			}
+			portStr := server[closeBracket+2:]
+			if portStr == "" {
+				return fmt.Errorf("port cannot be empty")
+			}
+			return validatePortString(portStr)
+		}
+		return nil
+	}
+
+	// 检查是否是 IP:Port 或 Domain:Port
+	lastColon := strings.LastIndex(server, ":")
+	if lastColon == -1 {
+		// 没有端口，只有地址
+		return validateHostOrIP(server)
+	}
+
+	host := server[:lastColon]
+	port := server[lastColon+1:]
+
+	if host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	if err := validateHostOrIP(host); err != nil {
+		return err
+	}
+
+	return validatePortString(port)
+}
+
+// validateHostOrIP 验证主机名或 IP 地址
+func validateHostOrIP(host string) error {
+	if host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	// 尝试解析为 IP 地址
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+
+	// 验证域名格式
+	return validateDomainName(host)
+}
+
+// validateDomainName 验证域名格式
+func validateDomainName(domain string) error {
+	if domain == "" {
+		return fmt.Errorf("domain cannot be empty")
+	}
+
+	if len(domain) > 253 {
+		return fmt.Errorf("domain name too long")
+	}
+
+	// 域名正则表达式
+	domainRegex := regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
+	if !domainRegex.MatchString(domain) {
+		return fmt.Errorf("invalid domain format: %s", domain)
+	}
+
+	return nil
+}
+
+// validateIPAddress 验证 IP 地址格式
+func validateIPAddress(ip string) error {
+	if ip == "" {
+		return fmt.Errorf("IP address cannot be empty")
+	}
+
+	if net.ParseIP(ip) == nil {
+		return fmt.Errorf("invalid IP address: %s", ip)
+	}
+
+	return nil
+}
+
+// validateIPv6Address 验证 IPv6 地址格式
+func validateIPv6Address(ip string) error {
+	if ip == "" {
+		return fmt.Errorf("IPv6 address cannot be empty")
+	}
+
+	// 使用 net.ParseIP 验证
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return fmt.Errorf("invalid IPv6 address: %s", ip)
+	}
+
+	// 确保是 IPv6
+	if parsed.To4() != nil {
+		return fmt.Errorf("expected IPv6 address, got IPv4: %s", ip)
+	}
+
+	return nil
+}
+
+// validatePortString 验证端口字符串
+func validatePortString(portStr string) error {
+	if portStr == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("invalid port number: %s", portStr)
+	}
+
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port out of range: %d (must be 1-65535)", port)
+	}
+
+	return nil
+}
+
+// contains 检查字符串切片是否包含指定字符串
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // derefOrDefaultVal returns the dereferenced value of an *int, or a default if nil.

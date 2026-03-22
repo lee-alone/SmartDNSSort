@@ -48,6 +48,10 @@ type Server struct {
 	configPath  string // Store the path to the config file
 	restartFunc func() // 重启服务的回调函数
 
+	// 安全相关
+	csrfManager    *CSRFManager   // CSRF 令牌管理器
+	securityConfig SecurityConfig // 安全配置
+
 	// 并发控制
 	cfgMutex            sync.RWMutex // 保护配置文件读写
 	restartMutex        sync.Mutex   // 保护重启操作
@@ -62,13 +66,15 @@ type Server struct {
 // NewServer 创建新的 Web API 服务器
 func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.Server, configPath string, restartFunc func()) *Server {
 	return &Server{
-		cfg:           cfg,
-		dnsCache:      dnsCache,
-		dnsServer:     dnsServer,
-		configPath:    configPath,
-		restartFunc:   restartFunc,
-		isRestarting:  false,
-		isAdblockBusy: false,
+		cfg:            cfg,
+		dnsCache:       dnsCache,
+		dnsServer:      dnsServer,
+		configPath:     configPath,
+		restartFunc:    restartFunc,
+		isRestarting:   false,
+		isAdblockBusy:  false,
+		csrfManager:    NewCSRFManager(DefaultCSRFConfig),
+		securityConfig: DefaultSecurityConfig,
 	}
 }
 
@@ -98,6 +104,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/blocked-domains", s.handleBlockedDomains)
 	mux.HandleFunc("/api/restart", s.handleRestart)
 	mux.HandleFunc("/health", s.handleHealth)
+
+	// CSRF Token 路由（不需要 CSRF 保护）
+	mux.HandleFunc("/api/csrf-token", s.handleCSRFToken)
 
 	// AdBlock API 路由
 	mux.HandleFunc("/api/adblock/status", s.handleAdBlockStatus)
@@ -144,8 +153,9 @@ func (s *Server) Start() error {
 	}
 
 	s.listener = http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr: addr,
+		// 使用组合安全中间件（包含 CSP、CORS 和 CSRF 保护）
+		Handler: s.combinedSecurityMiddleware(mux),
 	}
 
 	logger.Infof("Web API server started on http://localhost:%d", s.cfg.WebUI.ListenPort)
@@ -154,6 +164,11 @@ func (s *Server) Start() error {
 
 // Stop 停止 Web API 服务
 func (s *Server) Stop() error {
+	// 停止 CSRF 管理器
+	if s.csrfManager != nil {
+		s.csrfManager.Stop()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	logger.Info("Shutting down Web API server...")

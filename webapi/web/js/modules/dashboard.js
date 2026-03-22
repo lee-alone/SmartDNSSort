@@ -1,12 +1,18 @@
 // Dashboard / Stats Logic Module
 
-const API_URL = '/api/stats';
+// ==================== 常量定义 ====================
 const STATS_PERIOD_STORAGE_KEY = 'dashboard_stats_period';
+const RELOAD_DELAY_MS = 5000;
+const INITIAL_RETRY_DELAY_MS = 1000;
+const RETRY_BACKOFF_MULTIPLIER = 2;
+const MAX_RETRIES = 3;
 
-// 全局变量：统一的时间范围
+// ==================== 全局变量 ====================
 let statsPeriodDays = 7;
 let generalStatsAbortController = null;
 let generalStatsLoading = false;
+let currentAbortController = null;
+let upstreamStatsAbortController = null;
 
 // 添加清理函数
 let cleanupRegistered = false;
@@ -143,40 +149,48 @@ function showPartialErrorState(failureCount) {
     }
 }
 
-// 新增：区域级错误显示
+// 新增：区域级错误显示 - 使用安全的 DOM 操作
 function showSectionError(sectionId, message) {
-    const section = document.getElementById(sectionId);
-    if (section) {
-        section.innerHTML = `
-            <div class="p-4 text-center text-red-600">
-                <span class="material-symbols-outlined">error</span>
-                ${message}
-            </div>
-        `;
-    }
+const section = document.getElementById(sectionId);
+if (section) {
+section.innerHTML = '';
+const errorDiv = document.createElement('div');
+errorDiv.className = 'p-4 text-center text-red-600';
+const iconSpan = document.createElement('span');
+iconSpan.className = 'material-symbols-outlined';
+iconSpan.textContent = 'error';
+errorDiv.appendChild(iconSpan);
+errorDiv.appendChild(document.createTextNode(' '));
+errorDiv.appendChild(document.createTextNode(message)); // 安全：使用 DOM 操作
+section.appendChild(errorDiv);
+}
 }
 
 // 统一的渲染函数
 function renderDashboard(statsData, upstreamData, queriesData, blockedData) {
     // 核心统计优先渲染（即使其他数据失败）
-    if (statsData) {
-        updateGeneralStats(statsData);
+    if (statsData && statsData.success && statsData.data) {
+        updateGeneralStats(statsData.data);
     } else {
-        showSectionError('general-stats', '统计数据获取失败');
+        showSectionError('general-stats', statsData?.error?.message || '统计数据获取失败');
     }
     
-    if (upstreamData && upstreamData.data && upstreamData.data.servers) {
+    if (upstreamData && upstreamData.success && upstreamData.data && upstreamData.data.servers) {
         renderEnhancedUpstreamTable(upstreamData.data.servers);
     } else {
-        showSectionError('upstream-stats', '上游统计获取失败');
+        showSectionError('upstream-stats', upstreamData?.error?.message || '上游统计获取失败');
     }
     
-    if (queriesData) {
-        renderRecentQueries(queriesData);
+    if (queriesData && queriesData.success && queriesData.data) {
+        renderRecentQueries(queriesData.data);
+    } else {
+        showSectionError('recent-queries', queriesData?.error?.message || '最近查询获取失败');
     }
     
-    if (blockedData) {
-        renderRecentlyBlocked(blockedData);
+    if (blockedData && blockedData.success && blockedData.data) {
+        renderRecentlyBlocked(blockedData.data);
+    } else {
+        showSectionError('recent-blocked', blockedData?.error?.message || '最近拦截获取失败');
     }
 }
 
@@ -221,28 +235,48 @@ function updateGeneralStats(data) {
         protectedEntries.textContent = mem.protected_entries.toLocaleString();
         evictionsPerMin.textContent = (mem.evictions_per_min || 0).toFixed(2);
     }
-    // 热门域名
+    // 热门域名 - 使用安全的 DOM 操作防止 XSS
     const hotDomainsTable = document.getElementById('hot_domains_table').getElementsByTagName('tbody')[0];
     hotDomainsTable.innerHTML = '';
     if (data.top_domains && data.top_domains.length > 0) {
-        data.top_domains.forEach(item => {
-            const row = hotDomainsTable.insertRow();
-            row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-        });
+    data.top_domains.forEach(item => {
+    const row = hotDomainsTable.insertRow();
+    const cell1 = row.insertCell(0);
+    cell1.className = 'px-6 py-3';
+    cell1.textContent = item.Domain; // 安全：使用 textContent
+    const cell2 = row.insertCell(1);
+    cell2.className = 'px-6 py-3 value';
+    cell2.textContent = item.Count; // 安全：使用 textContent
+    });
     } else {
-        hotDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noDomainData')}</td></tr>`;
+    const row = hotDomainsTable.insertRow();
+    const cell = row.insertCell(0);
+    cell.colSpan = 2;
+    cell.className = 'px-6 py-3';
+    cell.style.textAlign = 'center';
+    cell.textContent = i18n.t('dashboard.noDomainData'); // 安全：使用 textContent
     }
-
-    // 被拦截域名
+    
+    // 被拦截域名 - 使用安全的 DOM 操作防止 XSS
     const blockedDomainsTable = document.getElementById('blocked_domains_table').getElementsByTagName('tbody')[0];
     blockedDomainsTable.innerHTML = '';
     if (data.top_blocked_domains && data.top_blocked_domains.length > 0) {
-        data.top_blocked_domains.forEach(item => {
-            const row = blockedDomainsTable.insertRow();
-            row.innerHTML = `<td class="px-6 py-3">${item.Domain}</td><td class="px-6 py-3 value">${item.Count}</td>`;
-        });
+    data.top_blocked_domains.forEach(item => {
+    const row = blockedDomainsTable.insertRow();
+    const cell1 = row.insertCell(0);
+    cell1.className = 'px-6 py-3';
+    cell1.textContent = item.Domain; // 安全：使用 textContent
+    const cell2 = row.insertCell(1);
+    cell2.className = 'px-6 py-3 value';
+    cell2.textContent = item.Count; // 安全：使用 textContent
+    });
     } else {
-        blockedDomainsTable.innerHTML = `<tr><td colspan="2" class="px-6 py-3" style="text-align:center;">${i18n.t('dashboard.noBlockedDomainData')}</td></tr>`;
+    const row = blockedDomainsTable.insertRow();
+    const cell = row.insertCell(0);
+    cell.colSpan = 2;
+    cell.className = 'px-6 py-3';
+    cell.style.textAlign = 'center';
+    cell.textContent = i18n.t('dashboard.noBlockedDomainData'); // 安全：使用 textContent
     }
     // Update status indicator
     const statusEl = document.getElementById('status');
@@ -286,31 +320,119 @@ function updateGeneralStats(data) {
     }
 }
 
+// 虚拟列表实例缓存
+let recentQueriesVirtualList = null;
+let recentlyBlockedVirtualList = null;
+
 function renderRecentQueries(data) {
     const recentQueriesList = document.getElementById('recent_queries_list');
-    recentQueriesList.innerHTML = '';
-    if (data && data.length > 0) {
-        data.forEach(domain => {
-            const div = document.createElement('div');
-            div.textContent = domain;
-            recentQueriesList.appendChild(div);
+    
+    // 如果数据量大，使用分页列表
+    if (data && data.length > 100) {
+        // 清理之前的实例
+        if (recentQueriesVirtualList) {
+            recentQueriesVirtualList.destroy();
+        }
+        recentQueriesList.innerHTML = '';
+        
+        // 创建分页列表
+        recentQueriesVirtualList = VirtualList.createPaginated({
+            container: recentQueriesList,
+            pageSize: 50,
+            renderItem: (domain, index) => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.style.cssText = 'padding: 4px 8px; border-bottom: 1px solid #eee;';
+                div.textContent = domain;
+                return div;
+            },
+            renderEmpty: () => {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.style.textAlign = 'center';
+                emptyDiv.textContent = i18n.t('dashboard.noRecentQueries');
+                return emptyDiv;
+            }
         });
+        
+        recentQueriesVirtualList.setData(data);
     } else {
-        recentQueriesList.innerHTML = `<div style="text-align:center;">${i18n.t('dashboard.noRecentQueries')}</div>`;
+        // 小数据量直接渲染
+        if (recentQueriesVirtualList) {
+            recentQueriesVirtualList.destroy();
+            recentQueriesVirtualList = null;
+        }
+        recentQueriesList.innerHTML = '';
+        
+        if (data && data.length > 0) {
+            data.forEach(domain => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.style.cssText = 'padding: 4px 8px; border-bottom: 1px solid #eee;';
+                div.textContent = domain;
+                recentQueriesList.appendChild(div);
+            });
+        } else {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.style.textAlign = 'center';
+            emptyDiv.textContent = i18n.t('dashboard.noRecentQueries');
+            recentQueriesList.appendChild(emptyDiv);
+        }
     }
 }
 
 function renderRecentlyBlocked(data) {
     const recentlyBlockedList = document.getElementById('recently_blocked_list');
-    recentlyBlockedList.innerHTML = '';
-    if (data && data.length > 0) {
-        data.forEach(domain => {
-            const div = document.createElement('div');
-            div.textContent = domain;
-            recentlyBlockedList.appendChild(div);
+    
+    // 如果数据量大，使用分页列表
+    if (data && data.length > 100) {
+        // 清理之前的实例
+        if (recentlyBlockedVirtualList) {
+            recentlyBlockedVirtualList.destroy();
+        }
+        recentlyBlockedList.innerHTML = '';
+        
+        // 创建分页列表
+        recentlyBlockedVirtualList = VirtualList.createPaginated({
+            container: recentlyBlockedList,
+            pageSize: 50,
+            renderItem: (domain, index) => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.style.cssText = 'padding: 4px 8px; border-bottom: 1px solid #eee;';
+                div.textContent = domain;
+                return div;
+            },
+            renderEmpty: () => {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.style.textAlign = 'center';
+                emptyDiv.textContent = i18n.t('dashboard.noRecentlyBlocked');
+                return emptyDiv;
+            }
         });
+        
+        recentlyBlockedVirtualList.setData(data);
     } else {
-        recentlyBlockedList.innerHTML = `<div style="text-align:center;">${i18n.t('dashboard.noRecentlyBlocked')}</div>`;
+        // 小数据量直接渲染
+        if (recentlyBlockedVirtualList) {
+            recentlyBlockedVirtualList.destroy();
+            recentlyBlockedVirtualList = null;
+        }
+        recentlyBlockedList.innerHTML = '';
+        
+        if (data && data.length > 0) {
+            data.forEach(domain => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.style.cssText = 'padding: 4px 8px; border-bottom: 1px solid #eee;';
+                div.textContent = domain;
+                recentlyBlockedList.appendChild(div);
+            });
+        } else {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.style.textAlign = 'center';
+            emptyDiv.textContent = i18n.t('dashboard.noRecentlyBlocked');
+            recentlyBlockedList.appendChild(emptyDiv);
+        }
     }
 }
 
@@ -329,9 +451,6 @@ function loadStatsPeriod() {
     }
 }
 
-// 当前请求的 AbortController
-let currentAbortController = null;
-
 async function updateDashboard() {
     const period = statsPeriodDays;
     
@@ -345,19 +464,19 @@ async function updateDashboard() {
         showLoadingState(); // 显示加载指示器
         
         const results = await Promise.allSettled([
-            fetchWithRetry(`/api/stats?days=${period}`, { signal: currentAbortController.signal }).catch(e => ({ error: e })),
-            fetchWithRetry(`/api/upstream-stats?days=${period}`, { signal: currentAbortController.signal }).catch(e => ({ error: e })),
-            fetchWithRetry(`/api/recent-queries?days=${period}`, { signal: currentAbortController.signal }).catch(e => ({ error: e })),
-            fetchWithRetry(`/api/recent-blocked?days=${period}`, { signal: currentAbortController.signal }).catch(e => ({ error: e }))
+            fetchWithRetry(`/api/stats?days=${period}`, { signal: currentAbortController.signal }),
+            fetchWithRetry(`/api/upstream-stats?days=${period}`, { signal: currentAbortController.signal }),
+            fetchWithRetry(`/api/recent-queries?days=${period}`, { signal: currentAbortController.signal }),
+            fetchWithRetry(`/api/recent-blocked?days=${period}`, { signal: currentAbortController.signal })
         ]);
 
         const [statsResult, upstreamResult, queriesResult, blockedResult] = results;
         
-        // 提取成功的数据
-        const statsData = statsResult.status === 'fulfilled' ? statsResult.value : null;
-        const upstreamData = upstreamResult.status === 'fulfilled' ? upstreamResult.value : null;
-        const queriesData = queriesResult.status === 'fulfilled' ? queriesResult.value : null;
-        const blockedData = blockedResult.status === 'fulfilled' ? blockedResult.value : null;
+        // 提取成功的数据，失败的数据转换为错误对象
+        const statsData = statsResult.status === 'fulfilled' ? statsResult.value : { error: statsResult.reason };
+        const upstreamData = upstreamResult.status === 'fulfilled' ? upstreamResult.value : { error: upstreamResult.reason };
+        const queriesData = queriesResult.status === 'fulfilled' ? queriesResult.value : { error: queriesResult.reason };
+        const blockedData = blockedResult.status === 'fulfilled' ? blockedResult.value : { error: blockedResult.reason };
 
         // 部分渲染：成功的数据正常显示，失败的部分显示错误
         renderDashboard(statsData, upstreamData, queriesData, blockedData);
@@ -390,42 +509,42 @@ function initializeDashboardButtons() {
     // 初始化时间范围选择器
     initializeStatsSelectors();
     
-    document.getElementById('clearCacheButton').addEventListener('click', () => {
+    document.getElementById('clearCacheButton').addEventListener('click', async () => {
         if (!confirm(i18n.t('messages.confirmClearCache'))) return;
-        fetch('/api/cache/clear', { method: 'POST' })
-            .then(response => {
-                if (response.ok) {
-                    alert(i18n.t('messages.cacheCleared'));
-                    updateDashboard();
-                } else {
-                    alert(i18n.t('messages.cacheClearFailed'));
-                }
-            })
-            .catch(error => alert(i18n.t('messages.cacheClearError')));
+        try {
+            const response = await CSRFManager.secureFetch('/api/cache/clear', { method: 'POST' });
+            if (response.ok) {
+                alert(i18n.t('messages.cacheCleared'));
+                updateDashboard();
+            } else {
+                alert(i18n.t('messages.cacheClearFailed'));
+            }
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            alert(i18n.t('messages.cacheClearError'));
+        }
     });
 
-    document.getElementById('clearStatsButton').addEventListener('click', () => {
+    document.getElementById('clearStatsButton').addEventListener('click', async () => {
         if (!confirm(i18n.t('messages.confirmClearStats'))) return;
         
-        // 清除常规统计
-        fetch('/api/stats/clear', { method: 'POST' })
-            .then(response => {
-                if (!response.ok) throw new Error('Failed to clear stats');
-                // 清除上游服务器统计
-                return fetch('/api/upstream-stats/clear', { method: 'POST' });
-            })
-            .then(response => {
-                if (response.ok) {
-                    alert(i18n.t('messages.statsCleared'));
-                    updateDashboard();
-                } else {
-                    alert(i18n.t('messages.statsClearFailed'));
-                }
-            })
-            .catch(error => {
-                console.error('Error clearing stats:', error);
-                alert(i18n.t('messages.statsClearError'));
-            });
+        try {
+            // 清除常规统计
+            const statsResponse = await CSRFManager.secureFetch('/api/stats/clear', { method: 'POST' });
+            if (!statsResponse.ok) throw new Error('Failed to clear stats');
+            
+            // 清除上游服务器统计
+            const upstreamResponse = await CSRFManager.secureFetch('/api/upstream-stats/clear', { method: 'POST' });
+            if (upstreamResponse.ok) {
+                alert(i18n.t('messages.statsCleared'));
+                updateDashboard();
+            } else {
+                alert(i18n.t('messages.statsClearFailed'));
+            }
+        } catch (error) {
+            console.error('Error clearing stats:', error);
+            alert(i18n.t('messages.statsClearError'));
+        }
     });
 
     document.getElementById('refreshButton').addEventListener('click', () => {
@@ -442,25 +561,26 @@ function initializeDashboardButtons() {
             return;
         }
         
-        const performRestart = () => {
-            fetch('/api/restart', { method: 'POST' })
-                .then(response => {
-                    if (response.ok) {
-                        alert(i18n.t('messages.restarting'));
-                        setTimeout(() => {
-                            location.reload();
-                        }, 5000);
-                    } else {
-                        response.json().then(data => {
-                            alert(i18n.t('messages.restartFailed'));
-                        }).catch(() => {
-                            alert(i18n.t('messages.restartFailed'));
-                        });
-                    }
-                })
-                .catch(error => {
-                    alert(i18n.t('messages.restartError', { error: error }));
-                });
+        const performRestart = async () => {
+        	try {
+        		await ServiceMonitor.restartWithMonitor({
+        			restartEndpoint: '/api/restart',
+        			onSuccess: () => {
+        				// 服务已恢复，刷新页面
+        				location.reload();
+        			},
+        			onFailure: (error) => {
+        				console.error('Restart failed:', error);
+        				alert(i18n.t('messages.restartFailed'));
+        			},
+        			onStatusChange: (status) => {
+        				console.log('Restart status:', status);
+        			}
+        		});
+        	} catch (error) {
+        		console.error('Restart error:', error);
+        		alert(i18n.t('messages.restartError', { error: error.message || error }));
+        	}
         };
         
         const form = document.getElementById('configForm');
@@ -531,10 +651,7 @@ function fetchRecentlyBlocked() {
 // 获取上游服务器详细状态
 // 使用标志防止并发请求和竞态条件
 let upstreamStatsLoading = false;
-let upstreamStatsAbortController = null;
 
-// 获取上游服务器详细状态
-// 使用标志防止并发请求和竞态条件
 function initializeStatsSelectors() {
     // 加载保存的时间范围
     loadStatsPeriod();
@@ -671,30 +788,76 @@ function renderEnhancedUpstreamTable(upstreamData) {
     });
 }
 
-// 创建服务器行
+// 创建服务器行 - 使用安全的 DOM 操作防止 XSS
 function createServerRow(server) {
-    const row = document.createElement('tr');
-    row.className = 'divide-y divide-[#e9e8ce] dark:divide-[#3a3922]';
-    row.dataset.serverAddress = server.address; // 添加唯一标识
-    row.innerHTML = `
-        <td class="px-6 py-3 font-medium">${server.address}</td>
-        <td class="px-6 py-3">${getProtocolBadge(server.protocol)}</td>
-        <td class="px-6 py-3">
-            <div class="flex items-center gap-2">
-                <div class="w-20 bg-gray-200 rounded-full h-2">
-                    <div class="h-2 rounded-full ${getRateColor(server.success_rate)}" style="width: ${server.success_rate}%"></div>
-                </div>
-                <span class="text-sm font-medium">${server.success_rate.toFixed(1)}%</span>
-            </div>
-        </td>
-        <td class="px-6 py-3">${getStatusIcon(server.status)} ${getStatusText(server.status)}</td>
-        <td class="px-6 py-3 ${getLatencyClass(server.latency_ms)}">${server.latency_ms.toFixed(1)} ms</td>
-        <td class="px-6 py-3 text-gray-500">${server.total}</td>
-        <td class="px-6 py-3 text-green-600">${server.success}</td>
-        <td class="px-6 py-3 text-red-600">${server.failure}</td>
-    `;
-    
-    return row;
+const row = document.createElement('tr');
+row.className = 'divide-y divide-[#e9e8ce] dark:divide-[#3a3922]';
+row.dataset.serverAddress = server.address;
+
+// 单元格 1: 地址
+const cell1 = document.createElement('td');
+cell1.className = 'px-6 py-3 font-medium';
+cell1.textContent = server.address; // 安全：使用 textContent
+row.appendChild(cell1);
+
+// 单元格 2: 协议徽章（getProtocolBadge 返回静态 HTML）
+const cell2 = document.createElement('td');
+cell2.className = 'px-6 py-3';
+cell2.innerHTML = getProtocolBadge(server.protocol); // 静态函数，安全
+row.appendChild(cell2);
+
+// 单元格 3: 成功率进度条
+const cell3 = document.createElement('td');
+cell3.className = 'px-6 py-3';
+const progressContainer = document.createElement('div');
+progressContainer.className = 'flex items-center gap-2';
+const progressBg = document.createElement('div');
+progressBg.className = 'w-20 bg-gray-200 rounded-full h-2';
+const progressBar = document.createElement('div');
+progressBar.className = `h-2 rounded-full ${getRateColor(server.success_rate)}`;
+progressBar.style.width = `${server.success_rate}%`;
+progressBg.appendChild(progressBar);
+progressContainer.appendChild(progressBg);
+const rateSpan = document.createElement('span');
+rateSpan.className = 'text-sm font-medium';
+rateSpan.textContent = `${server.success_rate.toFixed(1)}%`; // 安全：使用 textContent
+progressContainer.appendChild(rateSpan);
+cell3.appendChild(progressContainer);
+row.appendChild(cell3);
+
+// 单元格 4: 状态（getStatusIcon 返回静态 HTML，getStatusText 返回文本）
+const cell4 = document.createElement('td');
+cell4.className = 'px-6 py-3';
+cell4.innerHTML = `${getStatusIcon(server.status)} `; // 静态函数，安全
+const statusText = document.createTextNode(getStatusText(server.status));
+cell4.appendChild(statusText);
+row.appendChild(cell4);
+
+// 单元格 5: 延迟
+const cell5 = document.createElement('td');
+cell5.className = `px-6 py-3 ${getLatencyClass(server.latency_ms)}`;
+cell5.textContent = `${server.latency_ms.toFixed(1)} ms`; // 安全：使用 textContent
+row.appendChild(cell5);
+
+// 单元格 6: 总数
+const cell6 = document.createElement('td');
+cell6.className = 'px-6 py-3 text-gray-500';
+cell6.textContent = server.total; // 安全：使用 textContent
+row.appendChild(cell6);
+
+// 单元格 7: 成功数
+const cell7 = document.createElement('td');
+cell7.className = 'px-6 py-3 text-green-600';
+cell7.textContent = server.success; // 安全：使用 textContent
+row.appendChild(cell7);
+
+// 单元格 8: 失败数
+const cell8 = document.createElement('td');
+cell8.className = 'px-6 py-3 text-red-600';
+cell8.textContent = server.failure; // 安全：使用 textContent
+row.appendChild(cell8);
+
+return row;
 }
 
 // 更新服务器行（增量）
@@ -719,8 +882,10 @@ function updateServerRow(row, server) {
         const rateText = cells[2].querySelector('.text-sm');
         if (rateText) rateText.textContent = `${server.success_rate.toFixed(1)}%`;
         
-        // 更新状态
-        cells[3].innerHTML = `${getStatusIcon(server.status)} ${getStatusText(server.status)}`;
+        // 更新状态 - 使用安全的 DOM 操作
+        cells[3].innerHTML = getStatusIcon(server.status); // 静态函数，安全
+        const statusTextNode = document.createTextNode(' ' + getStatusText(server.status));
+        cells[3].appendChild(statusTextNode);
         
         // 更新延迟
         cells[4].className = `px-6 py-3 ${getLatencyClass(server.latency_ms)}`;
@@ -737,28 +902,30 @@ function updateServerRow(row, server) {
     }
 }
 
-// 显示加载失败提示
+// 显示加载失败提示 - 使用安全的 DOM 操作
 function showUpstreamLoadError() {
-    const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
-    if (tbody) {
-        // 确保 i18n 已初始化，否则使用默认英文消息
-        let errorMsg = 'Failed to load upstream server data - Retrying in next update cycle';
-        if (window.i18n && typeof window.i18n.t === 'function') {
-            try {
-                errorMsg = `${i18n.t('upstream.dataLoadFailed')} - ${i18n.t('upstream.retryingNextCycle')}`;
-            } catch (e) {
-                // i18n translation failed, use default message
-            }
-        }
-        
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="px-6 py-4 text-center text-red-600">
-                    ${errorMsg}
-                </td>
-            </tr>
-        `;
-    }
+const tbody = document.getElementById('upstream_stats')?.getElementsByTagName('tbody')[0];
+if (tbody) {
+// 确保 i18n 已初始化，否则使用默认英文消息
+let errorMsg = 'Failed to load upstream server data - Retrying in next update cycle';
+if (window.i18n && typeof window.i18n.t === 'function') {
+try {
+errorMsg = `${i18n.t('upstream.dataLoadFailed')} - ${i18n.t('upstream.retryingNextCycle')}`;
+} catch (e) {
+// i18n translation failed, use default message
+}
+}
+
+// 安全：使用 DOM 操作替代 innerHTML
+tbody.innerHTML = '';
+const row = document.createElement('tr');
+const cell = document.createElement('td');
+cell.colSpan = 8;
+cell.className = 'px-6 py-4 text-center text-red-600';
+cell.textContent = errorMsg; // 安全：使用 textContent
+row.appendChild(cell);
+tbody.appendChild(row);
+}
 }
 
 // 获取成功率进度条颜色
