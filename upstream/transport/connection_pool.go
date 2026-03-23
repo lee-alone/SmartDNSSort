@@ -32,6 +32,38 @@ var (
 	ErrRequestThrottled = fmt.Errorf("transport request throttled")
 )
 
+// maskAddress 脱敏地址信息，用于日志输出
+// 将 IP 地址部分隐藏，只保留最后一部分，端口保留
+// 例如: "192.168.1.1:53" -> "192.168.*.*:53", "8.8.8.8:53" -> "8.*.*.*:53"
+func maskAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// 无法解析，返回通用脱敏
+		return "[upstream]"
+	}
+
+	// 处理 IP 地址
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// 不是 IP，可能是域名，脱敏处理
+		if len(host) > 3 {
+			return host[:2] + "***:" + port
+		}
+		return "***:" + port
+	}
+
+	// IPv4 脱敏：保留第一段，其余用 * 替代
+	if ip.To4() != nil {
+		parts := strings.Split(host, ".")
+		if len(parts) == 4 {
+			return parts[0] + ".*.*.*:" + port
+		}
+	}
+
+	// IPv6 脱敏：保留第一段
+	return host[:4] + "***:" + port
+}
+
 // ConnectionPool 管理到单个上游服务器的连接池
 type ConnectionPool struct {
 	address string
@@ -280,7 +312,7 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 			}
 		} else if isBrokenPipe && p.network == "tcp" {
 			// TCP broken pipe 特殊处理：关闭连接，然后重试一次
-			logger.Warnf("[ConnectionPool] TCP 连接被远端关闭 (broken pipe)，销毁连接并重试: %s", p.address)
+			logger.Warnf("[ConnectionPool] TCP 连接被远端关闭 (broken pipe)，销毁连接并重试: %s", maskAddress(p.address))
 			poolConn.conn.Close()
 			poolConn.closed = true
 			p.mu.Lock()
@@ -338,7 +370,7 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 				return reply, nil
 			} else {
 				p.mu.Unlock()
-				logger.Warnf("[ConnectionPool] 连接池已满，无法重试: %s", p.address)
+				logger.Warnf("[ConnectionPool] 连接池已满，无法重试: %s", maskAddress(p.address))
 				return nil, err
 			}
 		} else {
@@ -478,7 +510,7 @@ func (p *ConnectionPool) validateMessageSize(msgLen int) error {
 	}
 
 	if msgLen > WarnLargeMsgSize {
-		logger.Warnf("[ConnectionPool] 大型 DNS 消息: %d 字节 (来自 %s)", msgLen, p.address)
+		logger.Warnf("[ConnectionPool] 大型 DNS 消息: %d 字节 (来自 %s)", msgLen, maskAddress(p.address))
 	}
 
 	return nil
@@ -845,7 +877,7 @@ func (p *ConnectionPool) Warmup(ctx context.Context, count int) error {
 	if successCount > 0 {
 		logger.Debugf("[ConnectionPool] 预热完成: %s, 成功连接数: %d/%d", p.address, successCount, count)
 	} else if count > 0 {
-		logger.Warnf("[ConnectionPool] 预热失败: %s, 无法建立任何连接 (可能 unbound 还未启动)", p.address)
+		logger.Warnf("[ConnectionPool] 预热失败: %s, 无法建立任何连接 (可能 unbound 还未启动)", maskAddress(p.address))
 	}
 	return nil
 }

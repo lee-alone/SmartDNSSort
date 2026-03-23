@@ -89,6 +89,12 @@ func (t *DoH) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 		return nil, fmt.Errorf("doh request failed with status: %d", resp.StatusCode)
 	}
 
+	// 验证 Content-Type 响应头，防止中间人攻击注入恶意内容
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "application/dns-message" {
+		return nil, fmt.Errorf("invalid content-type: expected application/dns-message, got %s", contentType)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

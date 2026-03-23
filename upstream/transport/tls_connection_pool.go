@@ -367,7 +367,7 @@ func (p *TLSConnectionPool) validateMessageSize(msgLen int) error {
 	}
 
 	if msgLen > WarnLargeMsgSize {
-		logger.Warnf("[TLSConnectionPool] 大型 DNS 消息: %d 字节 (来自 %s)", msgLen, p.address)
+		logger.Warnf("[TLSConnectionPool] 大型 DNS 消息: %d 字节 (来自 %s)", msgLen, maskAddress(p.address))
 	}
 
 	return nil
