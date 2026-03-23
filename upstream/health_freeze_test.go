@@ -97,7 +97,7 @@ func TestCircuitBreakerFrozenWhenNetworkUnhealthy(t *testing.T) {
 	health.status = HealthStatusHealthy
 
 	// 连续调用 MarkFailure，即使达到熔断阈值，也不应该进入熔断状态
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		health.MarkFailure()
 	}
 
