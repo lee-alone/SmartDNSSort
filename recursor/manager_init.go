@@ -25,18 +25,18 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to detect system: %w", err)
 	}
 
-	logger.Infof("[Recursor] System detected: OS=%s, Distro=%s", m.sysManager.osType, m.sysManager.distro)
+	logger.Debugf("[Recursor] System detected: OS=%s, Distro=%s", m.sysManager.osType, m.sysManager.distro)
 
 	// 2. 检查 unbound 是否已安装
 	if !m.sysManager.IsUnboundInstalled() {
-		logger.Infof("[Recursor] Unbound not installed, installing...")
+		logger.Debugf("[Recursor] Unbound not installed, installing...")
 		// 3. 安装 unbound
 		if err := m.sysManager.InstallUnbound(); err != nil {
 			return fmt.Errorf("failed to install unbound: %w", err)
 		}
 		logger.Infof("[Recursor] Unbound installed successfully")
 	} else {
-		logger.Infof("[Recursor] Unbound already installed")
+		logger.Debugf("[Recursor] Unbound already installed")
 		// 4. 处理已存在的 unbound
 		if err := m.sysManager.handleExistingUnbound(); err != nil {
 			logger.Warnf("[Recursor] Failed to handle existing unbound: %v", err)
@@ -49,7 +49,7 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to get unbound version: %w", err)
 	}
 
-	logger.Infof("[Recursor] Unbound version: %s", version)
+	logger.Debugf("[Recursor] Unbound version: %s", version)
 
 	// 6. 获取 unbound 路径
 	path, err := m.sysManager.getUnboundPath()
@@ -59,7 +59,7 @@ func (m *Manager) Initialize() error {
 
 	m.sysManager.unboundPath = path
 	m.sysManager.unboundVer = version
-	logger.Infof("[Recursor] Unbound path: %s", path)
+	logger.Debugf("[Recursor] Unbound path: %s", path)
 
 	// 7. 创建配置生成器
 	sysInfo := m.sysManager.GetSystemInfo()
@@ -73,7 +73,7 @@ func (m *Manager) Initialize() error {
 	// 9. 确定是否为系统级
 	m.isSystemLevel = runtime.GOOS == "linux"
 
-	logger.Infof("[Recursor] Initialization complete: OS=%s, Version=%s, SystemLevel=%v",
+	logger.Debugf("[Recursor] Initialization complete: OS=%s, Version=%s, SystemLevel=%v",
 		sysInfo.OS, version, m.isSystemLevel)
 
 	return nil

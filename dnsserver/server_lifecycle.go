@@ -70,7 +70,7 @@ func (s *Server) Shutdown() {
 	// 停止 IP 主动巡检调度器
 	if s.ipMonitor != nil {
 		s.ipMonitor.Stop()
-		logger.Info("[IPMonitor] IP Monitor stopped.")
+		logger.Debug("[IPMonitor] IP Monitor stopped.")
 	}
 
 	// 关闭停止通道，通知所有后台 goroutine 停止
@@ -81,34 +81,34 @@ func (s *Server) Shutdown() {
 		if err := s.recursorMgr.Stop(); err != nil {
 			logger.Warnf("[Recursor] Failed to stop recursor: %v", err)
 		} else {
-			logger.Info("[Recursor] Recursor stopped successfully.")
+			logger.Debug("[Recursor] Recursor stopped successfully.")
 		}
 	}
 
 	// 关闭上游连接池
-	logger.Info("[Upstream] Closing upstream connection pools...")
+	logger.Debug("[Upstream] Closing upstream connection pools...")
 	if s.upstream != nil {
 		if err := s.upstream.Close(); err != nil {
 			logger.Errorf("[Upstream] Failed to close upstream: %v", err)
 		} else {
-			logger.Info("[Upstream] Upstream connection pools closed successfully.")
+			logger.Debug("[Upstream] Upstream connection pools closed successfully.")
 		}
 	}
 
 	// 保存缓存到磁盘
-	logger.Info("[Cache] Saving cache to disk...")
+	logger.Debug("[Cache] Saving cache to disk...")
 	if err := s.cache.SaveToDisk("dns_cache.json"); err != nil {
 		logger.Errorf("[Cache] Failed to save cache: %v", err)
 	} else {
-		logger.Info("[Cache] Cache saved successfully.")
+		logger.Debug("[Cache] Cache saved successfully.")
 	}
 
 	// 关闭缓存系统，清理异步处理 goroutine
-	logger.Info("[Cache] Closing cache system...")
+	logger.Debug("[Cache] Closing cache system...")
 	if err := s.cache.Close(); err != nil {
 		logger.Errorf("[Cache] Failed to close cache: %v", err)
 	} else {
-		logger.Info("[Cache] Cache system closed successfully.")
+		logger.Debug("[Cache] Cache system closed successfully.")
 	}
 
 	if s.udpServer != nil {

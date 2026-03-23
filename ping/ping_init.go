@@ -90,12 +90,12 @@ func (p *Pinger) initICMPDispatcher() error {
 			logger.Warnf("[Pinger] IPv4 ICMP listener initialization failed: %v", err)
 		} else {
 			p.v4Conn = v4Conn
-			logger.Info("[Pinger] IPv4 ICMP listener initialized (ip4:icmp mode)")
+			logger.Debug("[Pinger] IPv4 ICMP listener initialized (ip4:icmp mode)")
 		}
 	} else {
 		p.v4Conn = v4Conn
 		p.v4IsUDP = true
-		logger.Info("[Pinger] IPv4 ICMP listener initialized (udp4 mode)")
+		logger.Debug("[Pinger] IPv4 ICMP listener initialized (udp4 mode)")
 	}
 
 	// 尝试初始化 IPv6 监听器
@@ -109,12 +109,12 @@ func (p *Pinger) initICMPDispatcher() error {
 		} else {
 			p.v6Conn = v6Conn
 			p.v6IsUDP = false
-			logger.Info("[Pinger] IPv6 ICMP listener initialized (ip6:ipv6-icmp mode)")
+			logger.Debug("[Pinger] IPv6 ICMP listener initialized (ip6:ipv6-icmp mode)")
 		}
 	} else {
 		p.v6Conn = v6Conn
 		p.v6IsUDP = true
-		logger.Info("[Pinger] IPv6 ICMP listener initialized (udp6 mode)")
+		logger.Debug("[Pinger] IPv6 ICMP listener initialized (udp6 mode)")
 	}
 
 	// 如果至少有一个监听器初始化成功，启动接收协程
@@ -130,7 +130,7 @@ func (p *Pinger) initICMPDispatcher() error {
 // startICMPReceiver 启动常驻接收协程
 // 专门循环 ReadFrom，每读到一个包，解析其回传的 ID，并将时间戳扔进对应的 chan 中
 func (p *Pinger) startICMPReceiver() {
-	logger.Info("[Pinger] Starting ICMP receiver goroutines")
+	logger.Debug("[Pinger] Starting ICMP receiver goroutines")
 
 	// IPv4 接收协程
 	if p.v4Conn != nil {
@@ -140,7 +140,7 @@ func (p *Pinger) startICMPReceiver() {
 			for {
 				select {
 				case <-p.stopChan:
-					logger.Info("[Pinger] IPv4 ICMP receiver stopped")
+					logger.Debug("[Pinger] IPv4 ICMP receiver stopped")
 					return
 				default:
 					p.v4Conn.SetReadDeadline(time.Now().Add(1 * time.Second))
@@ -208,7 +208,7 @@ func (p *Pinger) startICMPReceiver() {
 			for {
 				select {
 				case <-p.stopChan:
-					logger.Info("[Pinger] IPv6 ICMP receiver stopped")
+					logger.Debug("[Pinger] IPv6 ICMP receiver stopped")
 					return
 				default:
 					p.v6Conn.SetReadDeadline(time.Now().Add(1 * time.Second))

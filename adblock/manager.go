@@ -51,11 +51,11 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 
 	// Initial rule load
 	go func() {
-		logger.Info("[AdBlock] Loading existing rules from cache...")
+		logger.Debugf("[AdBlock] Loading existing rules from cache...")
 		if err := m.LoadRulesFromCache(); err != nil {
 			logger.Warnf("[AdBlock] Failed to load rules from cache: %v", err)
 			// If no cached rules exist, force download on first start
-			logger.Info("[AdBlock] No cached rules found, performing initial download...")
+			logger.Debugf("[AdBlock] No cached rules found, performing initial download...")
 			result, err := m.UpdateRules(true)
 			if err != nil {
 				logger.Errorf("[AdBlock] Initial rules update failed: %v", err)
@@ -66,7 +66,7 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 				}
 			}
 		} else {
-			logger.Info("[AdBlock] Successfully loaded rules from cache")
+			logger.Debugf("[AdBlock] Successfully loaded rules from cache")
 		}
 	}()
 
@@ -77,7 +77,7 @@ func (m *AdBlockManager) Start(ctx context.Context) {
 			for {
 				select {
 				case <-ticker.C:
-					logger.Info("[AdBlock] Periodic rules update triggered")
+					logger.Debug("[AdBlock] Periodic rules update triggered")
 					if _, err := m.UpdateRules(false); err != nil {
 						logger.Errorf("[AdBlock] Periodic update failed: %v", err)
 					}
@@ -239,7 +239,7 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 	}
 
 	if !hasCachedFiles {
-		logger.Info("[AdBlock] No cached files found, will download rules on first update")
+		logger.Debug("[AdBlock] No cached files found, will download rules on first update")
 		return fmt.Errorf("no cached files found")
 	}
 
@@ -258,7 +258,7 @@ func (m *AdBlockManager) LoadRulesFromCache() error {
 		return fmt.Errorf("cache has insufficient rules: %d", len(allRules))
 	}
 
-	logger.Infof("[AdBlock] Loaded %d rules from cache", len(allRules))
+	logger.Debugf("[AdBlock] Loaded %d rules from cache", len(allRules))
 
 	// Phase 3: Load rules into engine and update state (with minimal lock time)
 	m.mu.Lock()

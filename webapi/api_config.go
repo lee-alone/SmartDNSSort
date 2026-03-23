@@ -118,7 +118,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 	if err := s.backupConfigFile(s.configPath, backupPath); err != nil {
 		logger.Warnf("Failed to create config backup: %v", err)
 	} else {
-		logger.Infof("✓ Current configuration backed up to %s", backupPath)
+		logger.Debugf("✓ Current configuration backed up to %s", backupPath)
 	}
 
 	// 5. 使用正确的YAML标签将配置序列化为YAML
@@ -136,7 +136,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Infof("✓ Configuration written to %s successfully", s.configPath)
+	logger.Debugf("✓ Configuration written to %s successfully", s.configPath)
 
 	// 7. 应用新配置到运行中的服务器
 	if err := s.dnsServer.ApplyConfig(newCfg); err != nil {
@@ -145,7 +145,7 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("✓ Configuration applied to DNS server successfully")
+	logger.Debug("✓ Configuration applied to DNS server successfully")
 	s.writeJSONSuccess(w, "Configuration saved and applied successfully", nil)
 }
 
@@ -159,7 +159,7 @@ func (s *Server) handleResetConfig(w http.ResponseWriter, _ *http.Request) {
 	if err := s.backupConfigFile(s.configPath, backupPath); err != nil {
 		logger.Warnf("Failed to create config backup: %v", err)
 	} else {
-		logger.Infof("✓ Current configuration backed up to %s", backupPath)
+		logger.Debugf("✓ Current configuration backed up to %s", backupPath)
 	}
 
 	// 从默认内容解析配置
@@ -183,7 +183,7 @@ func (s *Server) handleResetConfig(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	logger.Infof("✓ Configuration reset to defaults successfully")
+	logger.Debug("✓ Configuration reset to defaults successfully")
 	s.writeJSONSuccess(w, "Configuration reset to defaults successfully", nil)
 }
 

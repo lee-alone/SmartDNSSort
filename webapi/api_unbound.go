@@ -106,7 +106,7 @@ func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	logger.Infof("[Unbound] Config file saved: %s", configPath)
+	logger.Debugf("[Unbound] Config file saved: %s", configPath)
 
 	// 重启 Unbound 进程
 	recursorMgr := s.dnsServer.GetRecursorManager()
@@ -123,7 +123,7 @@ func (s *Server) handleUnboundConfigPost(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		logger.Infof("[Unbound] Process restarted successfully")
+		logger.Debugf("[Unbound] Process restarted successfully")
 	}
 
 	s.writeJSONSuccess(w, "Unbound config saved and process restarted", nil)

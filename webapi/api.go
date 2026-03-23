@@ -81,7 +81,7 @@ func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.S
 // Start 启动 Web API 服务
 func (s *Server) Start() error {
 	if !s.cfg.WebUI.Enabled {
-		logger.Info("WebAPI is disabled")
+		logger.Debug("WebAPI is disabled")
 		return nil
 	}
 
@@ -139,14 +139,14 @@ func (s *Server) Start() error {
 	// Web 文件服务
 	webSubFS, err := fs.Sub(webFilesFS, "web")
 	if err == nil {
-		logger.Info("Using embedded web files")
+		logger.Debug("Using embedded web files")
 		mux.Handle("/", s.corsMiddleware(http.FileServer(http.FS(webSubFS))))
 	} else {
 		webDir := s.findWebDirectory()
 		if webDir == "" {
 			logger.Warn("Warning: Could not find web directory. Web UI may not work properly.")
 		} else {
-			logger.Infof("Using web directory: %s", webDir)
+			logger.Debugf("Using web directory: %s", webDir)
 			fsServer := http.FileServer(http.Dir(webDir))
 			mux.Handle("/", s.corsMiddleware(fsServer))
 		}
@@ -158,7 +158,7 @@ func (s *Server) Start() error {
 		Handler: s.combinedSecurityMiddleware(mux),
 	}
 
-	logger.Infof("Web API server started on http://localhost:%d", s.cfg.WebUI.ListenPort)
+	logger.Debugf("Web API server started on http://localhost:%d", s.cfg.WebUI.ListenPort)
 	return s.listener.ListenAndServe()
 }
 
@@ -171,7 +171,7 @@ func (s *Server) Stop() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	logger.Info("Shutting down Web API server...")
+	logger.Debug("Shutting down Web API server...")
 	return s.listener.Shutdown(ctx)
 }
 

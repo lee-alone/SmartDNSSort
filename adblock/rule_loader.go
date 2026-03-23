@@ -194,7 +194,7 @@ func (rl *RuleLoader) downloadRemoteFile(ctx context.Context, source *SourceInfo
 	source.LastModified = resp.Header.Get("Last-Modified")
 
 	// Log success info
-	logger.Infof("[AdBlock] Successfully downloaded %d bytes and %d rules from %s", bytesReceived, ruleCount, source.URL)
+	logger.Debugf("[AdBlock] Successfully downloaded %d bytes and %d rules from %s", bytesReceived, ruleCount, source.URL)
 
 	return cachePath, ruleCount, nil
 }

@@ -70,9 +70,9 @@ func (s *Server) deleteCacheFile(cacheFile string) error {
 			return fmt.Errorf("Memory cache cleared, but failed to delete disk cache file: %v", err)
 		}
 		// 文件不存在,这是正常的
-		logger.Infof("Disk cache file %s does not exist, skipping deletion.", cacheFile)
+		logger.Debugf("Disk cache file %s does not exist, skipping deletion.", cacheFile)
 	} else {
-		logger.Infof("Disk cache file %s deleted successfully.", cacheFile)
+		logger.Debugf("Disk cache file %s deleted successfully.", cacheFile)
 	}
 	return nil
 }

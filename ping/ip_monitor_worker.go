@@ -12,7 +12,7 @@ import (
 // 第四阶段优化：添加探测冷却时间、稳定性退避、滑动窗口、全局配额
 func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 	if len(ips) == 0 {
-		logger.Infof("[IPMonitor] %s pool: No IPs to refresh", poolName)
+		logger.Debugf("[IPMonitor] %s pool: No IPs to refresh", poolName)
 		return
 	}
 
@@ -141,7 +141,7 @@ func (m *IPMonitor) refreshIPs(ips []string, poolName string) {
 	m.stats.LastRefreshTime = time.Now()
 	m.mu.Unlock()
 
-	logger.Infof("[IPMonitor] %s pool: Refreshed %d IPs, %d successful, %d skipped (cooldown)",
+	logger.Debugf("[IPMonitor] %s pool: Refreshed %d IPs, %d successful, %d skipped (cooldown)",
 		poolName, len(ips), successCount, skippedCount)
 }
 
@@ -169,7 +169,7 @@ func (m *IPMonitor) updateStabilityRecord(ip string, rtt int, poolName string) {
 
 				// 如果达到稳定阈值且未降级，记录日志并标记为已降级
 				if record.StableCount >= m.config.StabilityThreshold && !record.IsDowngraded {
-					logger.Infof("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), marking as downgraded",
+					logger.Debugf("[IPMonitor] IP %s in %s pool reached stability threshold (%d times), marking as downgraded",
 						ip, poolName, record.StableCount)
 					record.IsDowngraded = true // 标记为已降级，防止日志刷屏并闭合逻辑
 				}
@@ -208,7 +208,7 @@ func (m *IPMonitor) checkHourlyQuota() {
 		m.hourlyPingCount = 0
 		m.hourlyResetTime = now
 		m.mu.Unlock()
-		logger.Infof("[IPMonitor] Hourly quota reset, starting new hour")
+		logger.Debugf("[IPMonitor] Hourly quota reset, starting new hour")
 	}
 }
 

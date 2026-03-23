@@ -188,7 +188,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 	// 第二阶段改造：三段式过期判定
 	// 优雅期：只要数据还在缓存中（未被清理），就允许通过 Stale-While-Revalidate 返回
 	// 自动优化：如果内存压力极低（<50%），即使配置关闭了 KeepExpiredEntries，也自动允许使用陈旧数据以加速响应
-	gracePeriod := uint32(cache.AncientLimitLowPressure) 
+	gracePeriod := uint32(cache.AncientLimitLowPressure)
 	useKeepExpired := cfg.Cache.KeepExpiredEntries || s.cache.GetMemoryUsagePercent() < 0.5
 	cacheState := raw.GetStateWithConfig(useKeepExpired, gracePeriod)
 
@@ -209,7 +209,7 @@ func (s *Server) handleRawCacheHit(w dns.ResponseWriter, r *dns.Msg, domain stri
 		// Stale 状态：立即返回陈旧数据，但强制响应中的 TTL 为 FastResponseTTL
 		// 同时触发后台异步任务去上游刷新 IP 并重新测速
 		userTTL = uint32(cfg.Cache.FastResponseTTL)
-		logger.Infof("[handleQuery] 原始缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %v, CNAMEs=%v, TTL=%d [STALE-HIT]",
+		logger.Debugf("[handleQuery] 原始缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %v, CNAMEs=%v, TTL=%d [STALE-HIT]",
 			domain, dns.TypeToString[qtype], raw.IPs, raw.CNAMEs, userTTL)
 
 		// 触发后台异步刷新
@@ -312,7 +312,7 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 	stats.RecordDomainQuery(domain)
 
 	// 审计修复：应用三段式过期判定逻辑
-	gracePeriod := uint32(cache.AncientLimitLowPressure) 
+	gracePeriod := uint32(cache.AncientLimitLowPressure)
 	useKeepExpired := cfg.Cache.KeepExpiredEntries || s.cache.GetMemoryUsagePercent() < 0.5
 	cacheState := raw.GetStateWithConfig(useKeepExpired, gracePeriod)
 
@@ -329,7 +329,7 @@ func (s *Server) handleRawCacheHitGeneric(w dns.ResponseWriter, r *dns.Msg, doma
 	case cache.STALE:
 		// Stale 状态：立即返回陈旧数据，但强制响应中的 TTL 为 FastResponseTTL
 		userTTL = uint32(cfg.Cache.FastResponseTTL)
-		logger.Infof("[handleRawCacheHitGeneric] 通用记录缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %d 条记录, CNAMEs=%v, TTL=%d [STALE-HIT]",
+		logger.Debugf("[handleRawCacheHitGeneric] 通用记录缓存命中 (Stale-While-Revalidate): %s (type=%s) -> %d 条记录, CNAMEs=%v, TTL=%d [STALE-HIT]",
 			domain, dns.TypeToString[qtype], len(raw.Records), raw.CNAMEs, userTTL)
 
 		// 触发后台异步刷新

@@ -7,6 +7,7 @@ import (
 	"smartdnssort/adblock"
 	"smartdnssort/cache"
 	"smartdnssort/config"
+	"smartdnssort/connectivity"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/prefetch"
@@ -14,7 +15,6 @@ import (
 	"smartdnssort/stats"
 	"smartdnssort/upstream"
 	"smartdnssort/upstream/bootstrap"
-	"smartdnssort/connectivity"
 )
 
 // NewServer 创建新的 DNS 服务器
@@ -32,7 +32,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 这样 bootstrap resolver 就可以在断网时熔断引导解析，避免无效的 DNS 请求
 	checker := connectivity.GetGlobalNetworkChecker()
 	boot.SetNetworkHealthChecker(checker)
-	logger.Info("[Server] Network health checker injected to Bootstrap Resolver for silent isolation.")
+	logger.Debugf("[Server] Network health checker injected to Bootstrap Resolver for silent isolation.")
 
 	// Initialize Upstream Interfaces
 	var upstreams []upstream.Upstream
@@ -53,7 +53,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 			logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
 		} else {
 			upstreams = append(upstreams, u)
-			logger.Infof("Added recursor as upstream: %s", recursorAddr)
+			logger.Debugf("Added recursor as upstream: %s", recursorAddr)
 		}
 	}
 
@@ -76,20 +76,20 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 静默隔离改造：将全局网络健康检查器注入给 pinger 实例
 	// 这样 pinger 就可以在断网时拒绝更新缓存，防止缓存污染
 	server.pinger.SetHealthChecker(checker)
-	logger.Info("[Server] Network health checker injected to Pinger for silent isolation.")
+	logger.Debugf("[Server] Network health checker injected to Pinger for silent isolation.")
 
 	// 静默隔离改造：将全局网络健康检查器注入给 server 实例
 	// 这样 refresh queue 就可以在断网时跳过背景更新任务，避免无效的队列占用
 	server.networkChecker = checker
-	logger.Info("[Server] Network health checker injected to Server for silent isolation.")
+	logger.Debugf("[Server] Network health checker injected to Server for silent isolation.")
 
 	// 静默隔离改造：将全局网络健康检查器注入给 stats 实例
 	// 这样 stats 就可以在断网时熔断外部行为统计，避免统计污染
 	s.SetNetworkChecker(checker)
-	logger.Info("[Server] Network health checker injected to Stats for silent isolation.")
+	logger.Debugf("[Server] Network health checker injected to Stats for silent isolation.")
 
 	// 尝试加载持久化缓存
-	logger.Info("[Cache] Loading cache from disk...")
+	logger.Debugf("[Cache] Loading cache from disk...")
 	if err := server.cache.LoadFromDisk("dns_cache.bin"); err != nil {
 		logger.Errorf("[Cache] Failed to load cache: %v", err)
 	} else {
@@ -97,7 +97,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	// 初始化 AdBlock 管理器
-	logger.Info("[AdBlock] Initializing AdBlock Manager...")
+	logger.Debugf("[AdBlock] Initializing AdBlock Manager...")
 	adblockMgr, err := adblock.NewManager(&cfg.AdBlock, checker)
 	if err != nil {
 		logger.Errorf("[AdBlock] Failed to initialize manager: %v", err)
@@ -115,12 +115,12 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	}
 
 	// Initialize Custom Response Manager
-	logger.Info("[Ref] Initializing Custom Response Manager...")
+	logger.Debugf("[Ref] Initializing Custom Response Manager...")
 	customRespMgr := NewCustomResponseManager(cfg.AdBlock.CustomResponseFile)
 	if err := customRespMgr.Load(); err != nil {
 		logger.Errorf("[Ref] Failed to load custom response rules: %v", err)
 	} else {
-		logger.Info("[Ref] Custom response rules loaded.")
+		logger.Debug("[Ref] Custom response rules loaded.")
 	}
 	server.customRespManager = customRespMgr
 
@@ -134,13 +134,13 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 	// 静默隔离改造：将全局网络健康检查器注入给 prefetcher 实例
 	// 这样 prefetcher 就可以在断网时跳过预取，避免无效的上游请求
 	server.prefetcher.SetNetworkChecker(checker)
-	logger.Info("[Server] Network health checker injected to Prefetcher for silent isolation.")
+	logger.Debugf("[Server] Network health checker injected to Prefetcher for silent isolation.")
 
 	// 设置 IP 池更新器，用于维护全局 IP 资源
 	server.cache.SetIPPoolUpdater(server.pinger.GetIPPool())
 
 	// 初始化 IP 主动巡检调度器
-	logger.Info("[IPMonitor] Initializing IP Monitor...")
+	logger.Debugf("[IPMonitor] Initializing IP Monitor...")
 	monitorConfig := ping.DefaultIPMonitorConfig()
 	// 从配置文件读取自定义配置
 	if cfg.IPMonitor.Enabled {
@@ -171,7 +171,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 		monitorConfig.RefreshConcurrency = cfg.IPMonitor.RefreshConcurrency
 	}
 	server.ipMonitor = ping.NewIPMonitor(server.pinger, monitorConfig)
-	logger.Info("[IPMonitor] IP Monitor initialized.")
+	logger.Debug("[IPMonitor] IP Monitor initialized.")
 
 	// 设置排序函数：使用 ping 进行 IP 排序
 	sortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
@@ -188,7 +188,7 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 			recursorPort = 5353
 		}
 		server.recursorMgr = recursor.NewManager(recursorPort)
-		logger.Infof("[Recursor] Manager initialized for port %d", recursorPort)
+		logger.Debugf("[Recursor] Manager initialized for port %d", recursorPort)
 	}
 
 	return server

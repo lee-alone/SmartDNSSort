@@ -170,7 +170,7 @@ func (m *Manager) Start() error {
 	// 平台特定的进程管理配置
 	m.configureProcessManagement()
 
-	logger.Infof("[Recursor] Starting unbound: %s -c %s -d", m.unboundPath, m.configPath)
+	logger.Debugf("[Recursor] Starting unbound: %s -c %s -d", m.unboundPath, m.configPath)
 
 	if err := m.cmd.Start(); err != nil {
 		// 提供更详细的错误信息
@@ -186,7 +186,7 @@ func (m *Manager) Start() error {
 	m.enabled = true
 	m.startTime = time.Now()
 	m.lastHealthCheck = time.Now()
-	logger.Infof("[Recursor] Unbound process started (PID: %d)", m.cmd.Process.Pid)
+	logger.Debugf("[Recursor] Unbound process started (PID: %d)", m.cmd.Process.Pid)
 
 	// 4. 等待 Unbound 启动完成（检查端口是否可用）
 	// 获取平台特定的启动超时
@@ -202,7 +202,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("unbound startup timeout: %w", err)
 	}
 
-	logger.Infof("[Recursor] Unbound is ready and listening on port %d", m.port)
+	logger.Debugf("[Recursor] Unbound is ready and listening on port %d", m.port)
 
 	// 5. 启动进程监控 goroutine
 	m.exitCh = make(chan error, 1)
@@ -224,18 +224,18 @@ func (m *Manager) Start() error {
 	// Unbound 会通过 auth-zone 配置自动从根服务器同步 root.zone
 	// 这样更高效，无需我们手动更新
 	m.rootZoneMgr = NewRootZoneManager()
-	logger.Infof("[Recursor] Ensuring root.zone file...")
+	logger.Debugf("[Recursor] Ensuring root.zone file...")
 	rootZonePath, isNew, err := m.rootZoneMgr.EnsureRootZone()
 	if err != nil {
 		logger.Warnf("[Recursor] Failed to ensure root.zone file: %v", err)
 		// 非致命错误，继续启动
 	} else {
 		if isNew {
-			logger.Infof("[Recursor] New root.zone file created: %s", rootZonePath)
+			logger.Debugf("[Recursor] New root.zone file created: %s", rootZonePath)
 		} else {
-			logger.Infof("[Recursor] Using existing root.zone file: %s", rootZonePath)
+			logger.Debugf("[Recursor] Using existing root.zone file: %s", rootZonePath)
 		}
-		logger.Infof("[Recursor] Unbound will automatically sync root.zone from root servers")
+		logger.Debugf("[Recursor] Unbound will automatically sync root.zone from root servers")
 	}
 
 	return nil
@@ -315,7 +315,7 @@ func (m *Manager) Stop() error {
 	m.startTime = time.Time{} // 重置启动时间
 	m.mu.Unlock()
 
-	logger.Infof("[Recursor] Unbound process stopped")
+	logger.Debug("[Recursor] Unbound process stopped")
 	return nil
 }
 
@@ -352,7 +352,7 @@ func (m *Manager) generateConfig() (string, error) {
 
 	// 检查配置文件是否已存在
 	if fileExists(configPath) {
-		logger.Infof("[Recursor] Using existing config file: %s", configPath)
+		logger.Debugf("[Recursor] Using existing config file: %s", configPath)
 		return configPath, nil
 	}
 
@@ -361,7 +361,7 @@ func (m *Manager) generateConfig() (string, error) {
 		return "", fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	logger.Infof("[Recursor] Generated new config file: %s", configPath)
+	logger.Debugf("[Recursor] Generated new config file: %s", configPath)
 	return configPath, nil
 }
 
@@ -382,7 +382,7 @@ func (m *Manager) waitForReady(timeout time.Duration) error {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", m.port), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
-			logger.Infof("[Recursor] Unbound is ready on port %d (after %d attempts, %.1fs)", m.port, attempts, time.Since(deadline.Add(-timeout)).Seconds())
+			logger.Debugf("[Recursor] Unbound is ready on port %d (after %d attempts, %.1fs)", m.port, attempts, time.Since(deadline.Add(-timeout)).Seconds())
 			return nil
 		}
 
@@ -487,7 +487,7 @@ func (m *Manager) ResetState() {
 	m.enabled = false
 	m.restartAttempts = 0
 	m.startTime = time.Time{}
-	logger.Infof("[Recursor] Manager state reset, can attempt re-initialization")
+	logger.Debug("[Recursor] Manager state reset, can attempt re-initialization")
 }
 
 // containsIgnoreCase 检查字符串是否包含子串（忽略大小写）

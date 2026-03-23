@@ -29,7 +29,7 @@ func (s *Server) startIPMonitorRoutine() {
 		return
 	}
 
-	logger.Info("[IPMonitor] Starting IP Monitor routine...")
+	logger.Debug("[IPMonitor] Starting IP Monitor routine...")
 	s.ipMonitor.Start()
 }
 
@@ -47,11 +47,11 @@ func (s *Server) saveCacheRoutine() {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			logger.Info("[Cache] Saving cache to disk...")
+			logger.Debug("[Cache] Saving cache to disk...")
 			if err := s.cache.SaveToDisk("dns_cache.bin"); err != nil {
 				logger.Errorf("[Cache] Failed to save cache: %v", err)
 			} else {
-				logger.Info("[Cache] Cache saved successfully.")
+				logger.Debug("[Cache] Cache saved successfully.")
 			}
 		}
 	}

@@ -109,17 +109,17 @@ func main() {
 	logger.SetLevel(cfg.System.LogLevel)
 
 	// 确保配置文件存在（如不存在则创建默认配置）
-	logger.Infof("Checking config file: %s", effectiveConfigPath)
+	logger.Debugf("Checking config file: %s", effectiveConfigPath)
 	if err := config.CreateDefaultConfigIfMissing(effectiveConfigPath); err != nil {
 		logger.Fatalf("Failed to create default config: %v", err)
 	}
 
-	logger.Infof("Log level set to: %s", cfg.System.LogLevel)
+	logger.Debugf("Log level set to: %s", cfg.System.LogLevel)
 
 	// 设置 GOMAXPROCS
 	if cfg.System.MaxCPUCores > 0 {
 		runtime.GOMAXPROCS(cfg.System.MaxCPUCores)
-		logger.Infof("Set GOMAXPROCS to %d", cfg.System.MaxCPUCores)
+		logger.Debugf("Set GOMAXPROCS to %d", cfg.System.MaxCPUCores)
 	}
 
 	// 初始化统计模块

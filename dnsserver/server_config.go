@@ -37,12 +37,12 @@ const (
 
 // ApplyConfig applies a new configuration to the running server (hot-reload).
 func (s *Server) ApplyConfig(newCfg *config.Config) error {
-	logger.Info("Applying new configuration...")
+	logger.Debug("Applying new configuration...")
 
 	// Create new components outside the lock to avoid blocking.
 	var newUpstream *upstream.Manager
 	if !reflect.DeepEqual(s.cfg.Upstream, newCfg.Upstream) {
-		logger.Info("Reloading Upstream client due to configuration changes.")
+		logger.Debug("Reloading Upstream client due to configuration changes.")
 
 		// Re-initialize bootstrap resolver
 		boot := bootstrap.NewResolver(newCfg.Upstream.BootstrapDNS)
@@ -69,7 +69,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 				logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
 			} else {
 				upstreams = append(upstreams, u)
-				logger.Infof("Added recursor as upstream: %s", recursorAddr)
+				logger.Debugf("Added recursor as upstream: %s", recursorAddr)
 			}
 		}
 
@@ -83,13 +83,13 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	var newPinger *ping.Pinger
 	if !reflect.DeepEqual(s.cfg.Ping, newCfg.Ping) {
-		logger.Info("Reloading Pinger due to configuration changes.")
+		logger.Debug("Reloading Pinger due to configuration changes.")
 		newPinger = ping.NewPinger(newCfg.Ping.Count, newCfg.Ping.TimeoutMs, newCfg.Ping.Concurrency, newCfg.Ping.MaxTestIPs, newCfg.Ping.RttCacheTtlSeconds, newCfg.Ping.EnableHttpFallback, "adblock_cache/ip_failure_weights.json")
 	}
 
 	var newSortQueue *cache.SortQueue
 	if s.cfg.System.SortQueueWorkers != newCfg.System.SortQueueWorkers {
-		logger.Infof("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
+		logger.Debugf("Reloading SortQueue from %d to %d workers.", s.cfg.System.SortQueueWorkers, newCfg.System.SortQueueWorkers)
 		newSortQueue = cache.NewSortQueue(newCfg.System.SortQueueWorkers, DefaultSortQueueSize, DefaultSortTimeout)
 		newSortQueue.SetSortFunc(func(ctx context.Context, domain string, ips []string) ([]string, []int, error) {
 			return s.performPingSort(ctx, domain, ips)
@@ -98,14 +98,14 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	var newRefreshQueue *RefreshQueue
 	if s.cfg.System.RefreshWorkers != newCfg.System.RefreshWorkers {
-		logger.Infof("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
+		logger.Debugf("Reloading RefreshQueue from %d to %d workers.", s.cfg.System.RefreshWorkers, newCfg.System.RefreshWorkers)
 		newRefreshQueue = NewRefreshQueue(newCfg.System.RefreshWorkers, DefaultRefreshQueueSize)
 		newRefreshQueue.SetWorkFunc(s.refreshCacheAsync)
 	}
 
 	var newPrefetcher *prefetch.Prefetcher
 	if !reflect.DeepEqual(s.cfg.Prefetch, newCfg.Prefetch) {
-		logger.Info("Reloading Prefetcher due to configuration changes.")
+		logger.Debug("Reloading Prefetcher due to configuration changes.")
 		newPrefetcher = prefetch.NewPrefetcher(&newCfg.Prefetch, s.stats, s.cache, s)
 	}
 
@@ -119,11 +119,11 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 		s.cfg.Upstream.RecursorPort != newCfg.Upstream.RecursorPort
 
 	if recursorChanged {
-		logger.Info("Recursor configuration changed, updating manager...")
+		logger.Debug("Recursor configuration changed, updating manager...")
 
 		// 1. 停止现有的 Recursor (如果存在)
 		if s.recursorMgr != nil {
-			logger.Info("Stopping existing recursor...")
+			logger.Debug("Stopping existing recursor...")
 			if err := s.recursorMgr.Stop(); err != nil {
 				logger.Warnf("Failed to stop existing recursor: %v", err)
 			}
@@ -137,7 +137,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 				recursorPort = 5353
 			}
 
-			logger.Infof("Initializing new recursor on port %d...", recursorPort)
+			logger.Debugf("Initializing new recursor on port %d...", recursorPort)
 			newMgr := recursor.NewManager(recursorPort)
 
 			// 尝试启动
@@ -145,7 +145,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 				logger.Errorf("Failed to start new recursor: %v", err)
 				// 即使启动失败也保留 manager 引用，以便后续可以查询状态或重试
 			} else {
-				logger.Infof("New recursor started successfully on port %d", recursorPort)
+				logger.Debugf("New recursor started successfully on port %d", recursorPort)
 			}
 			s.recursorMgr = newMgr
 		}
@@ -182,7 +182,7 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 
 	// Handle AdBlock configuration changes
 	if !reflect.DeepEqual(s.cfg.AdBlock, newCfg.AdBlock) {
-		logger.Info("AdBlock configuration changed, updating manager...")
+		logger.Debug("AdBlock configuration changed, updating manager...")
 		if s.adblockManager != nil {
 			s.adblockManager.SetEnabled(newCfg.AdBlock.Enable)
 		}
@@ -191,6 +191,6 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 	// Update the config reference
 	s.cfg = newCfg
 
-	logger.Info("New configuration applied successfully.")
+	logger.Debug("New configuration applied successfully.")
 	return nil
 }

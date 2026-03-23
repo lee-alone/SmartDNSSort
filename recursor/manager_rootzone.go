@@ -83,7 +83,7 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			logger.Infof("[RootZone] Retry attempt %d/%d after %v", attempt, maxRetries, RetryDelay)
+			logger.Debugf("[RootZone] Retry attempt %d/%d after %v", attempt, maxRetries, RetryDelay)
 			time.Sleep(RetryDelay)
 		}
 
@@ -96,14 +96,14 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 
 		if !exists {
 			// 文件不存在，优先尝试从嵌入数据解压
-			logger.Infof("[RootZone] root.zone not found, attempting to extract from embedded data")
+			logger.Debugf("[RootZone] root.zone not found, attempting to extract from embedded data")
 			if err := rm.extractEmbeddedRootZone(); err == nil {
-				logger.Infof("[RootZone] root.zone extracted successfully from embedded data")
+				logger.Debugf("[RootZone] root.zone extracted successfully from embedded data")
 				return rm.rootZonePath, true, nil
 			}
 
 			// 如果解压失败，尝试从网络下载
-			logger.Infof("[RootZone] Failed to extract from embedded data, downloading from %s", RootZoneURL)
+			logger.Debugf("[RootZone] Failed to extract from embedded data, downloading from %s", RootZoneURL)
 			if err := rm.downloadRootZone(); err != nil {
 				lastErr = fmt.Errorf("failed to download root.zone: %w", err)
 				// 如果是临时错误，继续重试
@@ -115,7 +115,7 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 				logger.Errorf("[RootZone] Permanent download error: %v", err)
 				return "", false, lastErr
 			}
-			logger.Infof("[RootZone] root.zone downloaded successfully")
+			logger.Debugf("[RootZone] root.zone downloaded successfully")
 			return rm.rootZonePath, true, nil
 		}
 
@@ -133,7 +133,7 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 		}
 
 		// 文件需要更新，下载新版本
-		logger.Infof("[RootZone] root.zone is outdated, updating...")
+		logger.Debugf("[RootZone] root.zone is outdated, updating...")
 		if err := rm.downloadRootZone(); err != nil {
 			lastErr = fmt.Errorf("failed to update root.zone: %w", err)
 			// 如果是临时错误，继续重试
@@ -145,7 +145,7 @@ func (rm *RootZoneManager) ensureRootZoneWithRetry(maxRetries int) (string, bool
 			logger.Warnf("[RootZone] Failed to update root.zone (attempt %d), using existing file: %v", attempt, err)
 			return rm.rootZonePath, false, nil
 		}
-		logger.Infof("[RootZone] root.zone updated successfully")
+		logger.Debugf("[RootZone] root.zone updated successfully")
 		return rm.rootZonePath, true, nil
 	}
 
@@ -204,7 +204,7 @@ func (rm *RootZoneManager) extractEmbeddedRootZone() error {
 		return fmt.Errorf("root.zone size mismatch after extraction: expected %d, got %d", len(data), info.Size())
 	}
 
-	logger.Infof("[RootZone] root.zone extracted from embedded data: %s (%d bytes)", rm.rootZonePath, info.Size())
+	logger.Debugf("[RootZone] root.zone extracted from embedded data: %s (%d bytes)", rm.rootZonePath, info.Size())
 	return nil
 }
 
@@ -407,7 +407,7 @@ func (rm *RootZoneManager) UpdateRootZonePeriodically(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(RootZoneUpdateInterval)
 	defer ticker.Stop()
 
-	logger.Infof("[RootZone] Started periodic root.zone update (interval: %v)", RootZoneUpdateInterval)
+	logger.Debugf("[RootZone] Started periodic root.zone update (interval: %v)", RootZoneUpdateInterval)
 
 	var lastUpdateTime time.Time
 	var consecutiveFailures int
@@ -416,7 +416,7 @@ func (rm *RootZoneManager) UpdateRootZonePeriodically(stopCh <-chan struct{}) {
 	for {
 		select {
 		case <-stopCh:
-			logger.Infof("[RootZone] Stopping periodic update")
+			logger.Debugf("[RootZone] Stopping periodic update")
 			return
 		case <-ticker.C:
 			logger.Debugf("[RootZone] Checking for root.zone update...")
@@ -439,7 +439,7 @@ func (rm *RootZoneManager) UpdateRootZonePeriodically(stopCh <-chan struct{}) {
 
 			if updated {
 				lastUpdateTime = time.Now()
-				logger.Infof("[RootZone] root.zone updated successfully at %s", lastUpdateTime.Format(time.RFC3339))
+				logger.Debugf("[RootZone] root.zone updated successfully at %s", lastUpdateTime.Format(time.RFC3339))
 			} else {
 				logger.Debugf("[RootZone] root.zone is already up to date")
 			}

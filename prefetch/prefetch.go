@@ -6,10 +6,10 @@ import (
 
 	"smartdnssort/cache"
 	"smartdnssort/config"
+	"smartdnssort/connectivity"
 	"smartdnssort/logger"
 	"smartdnssort/ping"
 	"smartdnssort/stats"
-	"smartdnssort/connectivity"
 )
 
 // Constants for math model
@@ -111,12 +111,12 @@ func NewPrefetcher(cfg *config.PrefetchConfig, s Stats, c Cache, r Refresher) *P
 // Start begins the prefetcher background tasks.
 func (p *Prefetcher) Start() {
 	if !p.cfg.Enabled {
-		logger.Info("[Prefetcher] Disabled.")
+		logger.Debug("[Prefetcher] Disabled.")
 		return
 	}
 	p.wg.Add(1)
 	go p.prefetchLoop()
-	logger.Info("[Prefetcher] Started with math model (Cap: 60k).")
+	logger.Debug("[Prefetcher] Started with math model (Cap: 60k).")
 }
 
 // Stop gracefully stops the prefetcher.
@@ -145,7 +145,7 @@ func (p *Prefetcher) Stop() {
 	p.failureCounts = make(map[string]int)
 	p.failureCountsMu.Unlock()
 
-	logger.Info("[Prefetcher] Stopped and data cleared.")
+	logger.Debug("[Prefetcher] Stopped and data cleared.")
 }
 
 // prefetchLoop handles periodic sampling and refreshing.

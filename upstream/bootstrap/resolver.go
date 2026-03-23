@@ -9,8 +9,9 @@ import (
 
 	"smartdnssort/logger"
 
-	"github.com/miekg/dns"
 	"smartdnssort/connectivity"
+
+	"github.com/miekg/dns"
 )
 
 type Resolver struct {
@@ -99,7 +100,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (string, error) {
 			// Reset circuit breaker on success
 			r.circuitMu.Lock()
 			if r.circuitOpen {
-				logger.Info("[Bootstrap] Circuit breaker reset after successful resolution")
+				logger.Debug("[Bootstrap] Circuit breaker reset after successful resolution")
 				r.circuitOpen = false
 			}
 			r.circuitMu.Unlock()

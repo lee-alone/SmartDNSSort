@@ -66,7 +66,7 @@ func (s *Server) handleAdBlockSources(w http.ResponseWriter, r *http.Request) {
 
 		// Trigger an update in the background
 		go func() {
-			logger.Infof("[AdBlock] Auto-updating rules after adding new source: %s", payload.URL)
+			logger.Debugf("[AdBlock] Auto-updating rules after adding new source: %s", payload.URL)
 			if _, err := adblockMgr.UpdateRules(true); err != nil {
 				logger.Errorf("[AdBlock] Auto-update failed after adding source: %v", err)
 			}
@@ -168,7 +168,7 @@ func (s *Server) handleAdBlockUpdate(w http.ResponseWriter, r *http.Request) {
 			logger.Errorf("[AdBlock] Manual update failed: %v", err)
 			return
 		}
-		logger.Infof("[AdBlock] Manual update completed: %+v", result)
+		logger.Debugf("[AdBlock] Manual update completed: %+v", result)
 	}()
 
 	s.writeJSONSuccess(w, "AdBlock rule update started", nil)
@@ -227,7 +227,7 @@ func (s *Server) handleAdBlockToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Infof("[AdBlock] Status toggled to: %v", payload.Enabled)
+	logger.Debugf("[AdBlock] Status toggled to: %v", payload.Enabled)
 	s.writeJSONSuccess(w, "AdBlock status updated successfully", nil)
 }
 
@@ -317,7 +317,7 @@ func (s *Server) handleAdBlockBlockMode(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	logger.Infof("[AdBlock] Block mode changed to: %s", payload.BlockMode)
+	logger.Debugf("[AdBlock] Block mode changed to: %s", payload.BlockMode)
 	s.writeJSONSuccess(w, "Block mode updated successfully", nil)
 }
 
@@ -403,6 +403,6 @@ func (s *Server) handlePostAdBlockSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	logger.Info("[AdBlock] Settings updated via API")
+	logger.Debug("[AdBlock] Settings updated via API")
 	s.writeJSONSuccess(w, "AdBlock settings updated successfully", nil)
 }

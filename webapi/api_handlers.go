@@ -204,7 +204,7 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 
 	// 清空内存缓存
 	s.dnsCache.Clear()
-	logger.Info("DNS cache (memory) cleared via API request.")
+	logger.Debug("DNS cache (memory) cleared via API request.")
 
 	// 删除磁盘缓存文件
 	cacheFile := "dns_cache.json"
@@ -224,7 +224,7 @@ func (s *Server) handleClearStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dnsServer.ClearStats()
-	logger.Info("Statistics cleared via API request.")
+	logger.Debug("Statistics cleared via API request.")
 	s.writeJSONSuccess(w, "All stats cleared successfully", nil)
 }
 
@@ -312,7 +312,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	s.isRestarting = true
 	s.restartMutex.Unlock()
 
-	logger.Info("Service restart requested via API.")
+	logger.Debug("Service restart requested via API.")
 	s.writeJSONSuccess(w, "Service restart initiated", nil)
 
 	if s.restartFunc != nil {
@@ -323,7 +323,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 				s.isRestarting = false
 				s.restartMutex.Unlock()
 			}()
-			logger.Info("Executing restart function...")
+			logger.Debug("Executing restart function...")
 			s.restartFunc()
 		}()
 	} else {

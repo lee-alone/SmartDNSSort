@@ -12,13 +12,13 @@ func (m *IPMonitor) Start() {
 		return
 	}
 
-	logger.Info("[IPMonitor] Starting IP Monitor...")
+	logger.Debug("[IPMonitor] Starting IP Monitor...")
 	go m.run()
 }
 
 // Stop 停止监控器
 func (m *IPMonitor) Stop() {
-	logger.Info("[IPMonitor] Stopping IP Monitor...")
+	logger.Debug("[IPMonitor] Stopping IP Monitor...")
 	close(m.stopCh)
 }
 
@@ -154,7 +154,7 @@ func (m *IPMonitor) cleanupStaleIPs() {
 	// 清理 24 小时未被访问且无引用的 IP
 	cleanedCount := m.pinger.ipPool.CleanStaleIPs(24 * time.Hour)
 	if cleanedCount > 0 {
-		logger.Infof("[IPMonitor] Cleaned %d stale IPs from pool", cleanedCount)
+		logger.Debugf("[IPMonitor] Cleaned %d stale IPs from pool", cleanedCount)
 	}
 
 	// === 修复内存泄露：同步清理 stabilityRecords 中的孤立记录 ===

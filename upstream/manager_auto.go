@@ -20,7 +20,7 @@ func selectInitialStrategy(cfg *config.UpstreamConfig, numServers int) string {
 		default:
 			strategy = "parallel"
 		}
-		logger.Infof("[Manager] Auto-selected strategy: %s (based on %d servers)", strategy, numServers)
+		logger.Debugf("[Manager] Auto-selected strategy: %s (based on %d servers)", strategy, numServers)
 	}
 	return strategy
 }

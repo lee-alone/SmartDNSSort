@@ -174,13 +174,13 @@ func (c *networkHealthChecker) performProbe() {
 	if healthy {
 		// 探测成功，重置失败计数
 		if c.consecutiveFailures > 0 {
-			logger.Infof("Network health check passed, failures reset from %d", c.consecutiveFailures)
+			logger.Debugf("Network health check passed, failures reset from %d", c.consecutiveFailures)
 		}
 		c.consecutiveFailures = 0
 
 		// 如果之前网络异常，现在恢复，记录日志（快恢复机制）
 		if !c.networkHealthy.Load() {
-			logger.Info("Network health recovered, statistics unfrozen")
+			logger.Debug("Network health recovered, statistics unfrozen")
 			c.networkHealthy.Store(true)
 		}
 	} else {

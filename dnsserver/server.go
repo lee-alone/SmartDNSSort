@@ -83,7 +83,7 @@ func (s *Server) CalculateEvictionsPerMinute(currentEvictionCount int64) float64
 func (s *Server) ClearStats() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	logger.Info("Clearing all statistics via API request.")
+	logger.Debug("Clearing all statistics via API request.")
 	s.stats.Reset()
 
 	// 清除上游服务器的统计数据
@@ -179,7 +179,7 @@ func (s *Server) SetAdBlockEnabled(enabled bool) {
 	defer s.mu.Unlock()
 
 	s.cfg.AdBlock.Enable = enabled
-	logger.Infof("[AdBlock] Filtering status changed to: %v", enabled)
+	logger.Debugf("[AdBlock] Filtering status changed to: %v", enabled)
 }
 
 // GetRecursorManager returns the recursor manager instance

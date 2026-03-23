@@ -132,6 +132,6 @@ func (s *Server) handleClearUpstreamStats(w http.ResponseWriter, r *http.Request
 	}
 
 	upstreamMgr.ClearStats()
-	logger.Info("Upstream servers statistics cleared via API request.")
+	logger.Debug("Upstream servers statistics cleared via API request.")
 	s.writeJSONSuccess(w, "Upstream servers statistics cleared successfully", nil)
 }
