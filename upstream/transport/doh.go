@@ -59,7 +59,8 @@ func NewDoH(urlStr string, boot *bootstrap.Resolver) (*DoH, error) {
 		bootstrap: boot,
 		client: &http.Client{
 			Transport: transport,
-			Timeout:   5 * time.Second, // Default timeout, will be overridden by context
+			// 不设置 Timeout，完全依赖 context 控制超时
+			// 这样可以让调用方（如 Manager）通过 context 精确控制超时时间
 		},
 	}, nil
 }

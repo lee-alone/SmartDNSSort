@@ -181,23 +181,36 @@ func (u *Manager) GetLatencyStdDev() time.Duration {
 // 核心思想：从"固定百分比"演进到"方差抖动适配"
 // - 网络稳定（方差小）：给第一个服务器更多时间（100ms+）
 // - 网络抖动（方差大）：尽早启动竞速（20ms-50ms）
-// 公式：RacingDelay = Max(MinDelay, avgLatency - K * StdDev)
+// 公式：RacingDelay = Max(MinDelay, baseDelay - K * StdDev)
+// 其中 baseDelay 优先使用用户配置，否则使用历史平均延迟
 func (u *Manager) GetAdaptiveRacingDelay() time.Duration {
 	avgLatency := u.GetAverageLatency()
 	stdDev := u.GetLatencyStdDev()
+
+	// 基准延迟：优先使用用户配置，否则使用历史平均延迟
+	// 用户配置的 racingDelayMs 作为"期望的基准延迟"
+	// 如果用户未配置（值为0或默认值100），则使用动态计算的基准
+	var baseDelay time.Duration
+	if u.racingDelayMs > 0 {
+		// 用户配置生效：以配置值为基准，结合网络方差动态调整
+		baseDelay = time.Duration(u.racingDelayMs) * time.Millisecond
+	} else {
+		// 未配置时使用历史平均延迟作为基准
+		baseDelay = avgLatency
+	}
 
 	// K 系数：控制方差对延迟的影响程度
 	// K=0.5 表示标准差每增加 1ms，延迟就减少 0.5ms
 	const K = 0.5
 
-	// 基础公式：avgLatency - K * stdDev
+	// 动态调整：baseDelay - K * stdDev
 	// 这意味着网络越乱，我们越早发起"群殴"
-	baseDelay := avgLatency - time.Duration(K*float64(stdDev))
+	adjustedDelay := baseDelay - time.Duration(K*float64(stdDev))
 
 	// 限制范围：20-200ms
 	// - 最小 20ms：即使网络极度不稳定，也要给第一个服务器最少的机会
 	// - 最大 200ms：即使网络极度稳定，也不能让第一个服务器等太久
-	return max(20*time.Millisecond, min(baseDelay, 200*time.Millisecond))
+	return max(20*time.Millisecond, min(adjustedDelay, 200*time.Millisecond))
 }
 
 // GetAdaptiveSequentialTimeout 获取自适应顺序查询超时

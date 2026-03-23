@@ -90,7 +90,15 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			}
 		}
 
-		// 收集结果
+		// 收集结果 - 使用非阻塞发送 + select 模式确保安全退出
+		// 优先检查 context 是否已取消，避免向已关闭的 channel 发送数据
+		select {
+		case <-queryCtx.Done():
+			return
+		default:
+		}
+
+		// 尝试发送结果，如果 context 在发送期间取消则放弃
 		select {
 		case resultChan <- result:
 		case <-queryCtx.Done():
@@ -188,6 +196,12 @@ func (u *Manager) queryParallel(ctx context.Context, domain string, qtype uint16
 			close(resultChan)
 			close(fastResponseChan)
 		}()
+
+		// 清空 fastResponseChan 中可能残留的数据，避免 goroutine 泄漏
+		// 注意：由于 fastResponse == nil，说明前面的 select 没有收到有效结果
+		// 但可能有延迟到达的结果在 channel 中，需要清空
+		for range fastResponseChan {
+		}
 
 		var firstError error
 		for res := range resultChan {
