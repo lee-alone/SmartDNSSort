@@ -2,6 +2,7 @@ package cache
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"smartdnssort/config"
@@ -83,7 +84,7 @@ func NewCache(cfg *config.CacheConfig) *Cache {
 	c := &Cache{
 		config:          cfg,
 		maxEntries:      maxEntries,
-		rawCache:        NewShardedCache(maxEntries, 64), // 使用分片缓存获得 10x+ 性能提升
+		rawCache:        NewShardedCache(maxEntries, 64),    // 使用分片缓存获得 10x+ 性能提升
 		sortedCache:     NewShardedLRUCache(maxEntries, 64), // 使用分片 LRU 缓存，消除全局锁瓶颈
 		sortingState:    make(map[string]*SortingState),
 		errorCache:      NewLRUCache(maxEntries),
@@ -172,7 +173,7 @@ func (c *Cache) Clear() {
 	c.expiredHeap = make(expireHeap, 0)
 	c.actualExpiredCount = 0
 	c.staleHeapCount = 0
-	c.heapChannelFullCount = 0
+	atomic.StoreInt64(&c.heapChannelFullCount, 0)
 }
 
 // Close 关闭缓存，清理资源
@@ -205,9 +206,15 @@ func (c *Cache) Close() error {
 
 // GetHeapChannelFullCount 获取 channel 满的次数（用于监控）
 func (c *Cache) GetHeapChannelFullCount() int64 {
+	return atomic.LoadInt64(&c.heapChannelFullCount)
+}
+
+// GetExpiredHeapSize 获取过期堆的大小（用于测试）
+// 此方法使用读锁保护，确保线程安全
+func (c *Cache) GetExpiredHeapSize() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.heapChannelFullCount
+	return len(c.expiredHeap)
 }
 
 // timeNow 返回当前时间（便于测试 mock）

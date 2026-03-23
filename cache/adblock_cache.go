@@ -89,10 +89,10 @@ func (c *Cache) SetAllowed(domain string, entry *AllowedCacheEntry) {
 }
 
 // cleanAdBlockCaches 清理过期的 AdBlock 缓存
-// 这个方法应该被 CleanExpired 调用 (在持有锁的情况下)
-// 或者我们提供一个公开的方法
+// ⚠️ 调用此方法前必须持有 c.mu 锁！
+// 此方法由 CleanExpired 在持有锁的情况下调用，不要在其他地方直接调用
+// 调用链: CleanExpired -> cleanAuxiliaryCaches -> cleanAdBlockCaches
 func (c *Cache) cleanAdBlockCaches() {
-	// 注意：调用此方法前必须持有锁
 
 	// 清理拦截缓存
 	for key, entry := range c.blockedCache {

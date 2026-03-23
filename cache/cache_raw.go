@@ -2,6 +2,29 @@ package cache
 
 import "github.com/miekg/dns"
 
+// extractIPsFromRecords 从 DNS 记录中提取 A/AAAA 记录的 IP 字符串（去重）
+// 这是一个公共函数，用于消除 SetRawRecordsWithDNSSEC 和 SetRawRecordsWithDNSSECAndVersion 中的重复逻辑
+func extractIPsFromRecords(records []dns.RR) []string {
+	ipSet := make(map[string]bool)
+	var ips []string
+	for _, r := range records {
+		var ipStr string
+		switch rec := r.(type) {
+		case *dns.A:
+			ipStr = rec.A.String()
+		case *dns.AAAA:
+			ipStr = rec.AAAA.String()
+		default:
+			continue
+		}
+		if !ipSet[ipStr] {
+			ipSet[ipStr] = true
+			ips = append(ips, ipStr)
+		}
+	}
+	return ips
+}
+
 // GetRaw 获取原始缓存（上游 DNS 响应）
 // 注意:此方法不检查过期,调用方需要自行判断是否过期
 // 即使过期也返回缓存,用于阶段三:返回旧数据+异步刷新
@@ -87,25 +110,8 @@ func (c *Cache) SetRawRecordsWithVersion(domain string, qtype uint16, records []
 // 同时进行IP级别去重，确保IPs列表中没有重复
 // 注意：rawCache 内部已实现线程安全，无需全局锁
 func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []dns.RR, cnames []string, upstreamTTL uint32, authData bool) {
-	// 从 records 中提取 A/AAAA 记录的 IP 字符串（去重）
-	ipSet := make(map[string]bool)
-	var ips []string
-	for _, r := range records {
-		switch rec := r.(type) {
-		case *dns.A:
-			ipStr := rec.A.String()
-			if !ipSet[ipStr] {
-				ipSet[ipStr] = true
-				ips = append(ips, ipStr)
-			}
-		case *dns.AAAA:
-			ipStr := rec.AAAA.String()
-			if !ipSet[ipStr] {
-				ipSet[ipStr] = true
-				ips = append(ips, ipStr)
-			}
-		}
-	}
+	// 使用公共函数提取 IP（去重）
+	ips := extractIPsFromRecords(records)
 
 	key := cacheKey(domain, qtype)
 	effTTL := c.calculateEffectiveTTL(upstreamTTL)
@@ -130,25 +136,8 @@ func (c *Cache) SetRawRecordsWithDNSSEC(domain string, qtype uint16, records []d
 
 // SetRawRecordsWithDNSSECAndVersion 设置带 DNSSEC 标记和版本号的通用记录原始缓存
 func (c *Cache) SetRawRecordsWithDNSSECAndVersion(domain string, qtype uint16, records []dns.RR, cnames []string, upstreamTTL uint32, authData bool, queryVersion int64) {
-	// 从 records 中提取 A/AAAA 记录的 IP 字符串（去重）
-	ipSet := make(map[string]bool)
-	var ips []string
-	for _, r := range records {
-		switch rec := r.(type) {
-		case *dns.A:
-			ipStr := rec.A.String()
-			if !ipSet[ipStr] {
-				ipSet[ipStr] = true
-				ips = append(ips, ipStr)
-			}
-		case *dns.AAAA:
-			ipStr := rec.AAAA.String()
-			if !ipSet[ipStr] {
-				ipSet[ipStr] = true
-				ips = append(ips, ipStr)
-			}
-		}
-	}
+	// 使用公共函数提取 IP（去重）
+	ips := extractIPsFromRecords(records)
 
 	key := cacheKey(domain, qtype)
 	effTTL := c.calculateEffectiveTTL(upstreamTTL)

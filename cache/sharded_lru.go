@@ -10,10 +10,10 @@ import (
 // ShardedLRUCache 分片 LRU 缓存，结合了 ShardedCache 和 LRUCache 的优点
 // 使用分片锁降低竞争，同时保持 LRU 驱逐策略
 type ShardedLRUCache struct {
-	shards   []*ShardedLRUShard
-	mask     uint32
-	onEvict  func(key string, value any)
-	dirty    uint64
+	shards  []*ShardedLRUShard
+	mask    uint32
+	onEvict func(key string, value any)
+	dirty   uint64
 }
 
 // ShardedLRUShard 单个分片
@@ -27,7 +27,6 @@ type ShardedLRUShard struct {
 	accessChan chan string
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
-	pending    int32
 }
 
 // shardedLRUNode 链表节点
@@ -267,7 +266,6 @@ func (shard *ShardedLRUShard) processAccessRecords() {
 	for {
 		select {
 		case key := <-shard.accessChan:
-			atomic.AddInt32(&shard.pending, -1)
 			shard.mu.Lock()
 			if elem, exists := shard.cache[key]; exists {
 				shard.list.MoveToFront(elem)
@@ -278,7 +276,6 @@ func (shard *ShardedLRUShard) processAccessRecords() {
 			for {
 				select {
 				case key := <-shard.accessChan:
-					atomic.AddInt32(&shard.pending, -1)
 					shard.mu.Lock()
 					if elem, exists := shard.cache[key]; exists {
 						shard.list.MoveToFront(elem)
@@ -294,15 +291,9 @@ func (shard *ShardedLRUShard) processAccessRecords() {
 
 // recordAccess 记录访问
 func (shard *ShardedLRUShard) recordAccess(key string) {
-	atomic.AddInt32(&shard.pending, 1)
 	select {
 	case shard.accessChan <- key:
 	default:
-		atomic.AddInt32(&shard.pending, -1)
+		// channel 满，丢弃此次记录
 	}
-}
-
-// GetPendingAccess 获取待处理访问数
-func (shard *ShardedLRUShard) GetPendingAccess() int32 {
-	return atomic.LoadInt32(&shard.pending)
 }

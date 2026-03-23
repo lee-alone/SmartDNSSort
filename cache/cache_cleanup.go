@@ -309,9 +309,7 @@ func (c *Cache) addToExpiredHeap(key string, expiryTime int64, queryVersion int6
 	select {
 	case c.addHeapChan <- entry:
 	default:
-		// channel 满，记录监控指标
-		c.mu.Lock()
-		c.heapChannelFullCount++
-		c.mu.Unlock()
+		// channel 满，记录监控指标（原子操作，无需锁）
+		atomic.AddInt64(&c.heapChannelFullCount, 1)
 	}
 }

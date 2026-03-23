@@ -49,14 +49,23 @@ type SortQueue struct {
 
 // NewSortQueue 创建新的排序队列
 // workers: 并发工作线程数
-// queueSize: 任务队列缓冲大小（避免阻塞）
+// queueSize: 任务队列缓冲大小（避免阻塞），若 <= 0 则根据 workers 动态计算
 // sortTimeout: 单个排序任务的超时时间
 func NewSortQueue(workers int, queueSize int, sortTimeout time.Duration) *SortQueue {
 	if workers <= 0 {
 		workers = 1
 	}
+	// 动态缓冲：若未指定队列大小，根据 workers 数量动态调整
+	// 策略：每个 worker 对应 10 个缓冲槽位，最小 100，最大 1000
+	// 这样可以在突发流量下提供足够的缓冲，同时避免内存浪费
 	if queueSize <= 0 {
-		queueSize = 100
+		queueSize = workers * 10
+		if queueSize < 100 {
+			queueSize = 100
+		}
+		if queueSize > 1000 {
+			queueSize = 1000
+		}
 	}
 	if sortTimeout <= 0 {
 		sortTimeout = 10 * time.Second

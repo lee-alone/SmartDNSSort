@@ -36,8 +36,8 @@ func TestCleanupStrategy(t *testing.T) {
 
 	// 验证堆已更新（给异步 worker 一点时间）
 	time.Sleep(100 * time.Millisecond)
-	if len(c.expiredHeap) != 2 {
-		t.Errorf("Expected 2 entries in heap, got %d", len(c.expiredHeap))
+	if c.GetExpiredHeapSize() != 2 {
+		t.Errorf("Expected 2 entries in heap, got %d", c.GetExpiredHeapSize())
 	}
 
 	// 测试清理逻辑

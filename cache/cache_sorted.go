@@ -109,7 +109,13 @@ func (c *Cache) CancelSort(domain string, qtype uint16) {
 		// 如果排序任务还在进行中，标记为不再进行
 		if state.InProgress {
 			state.InProgress = false
-			// 不关闭 Done channel，因为可能有其他 goroutine 在等待
+		}
+		// 安全地关闭 channel，防止重复关闭
+		select {
+		case <-state.Done:
+			// 已经关闭，不做任何事
+		default:
+			close(state.Done)
 		}
 		// 删除排序状态，允许创建新的排序任务
 		delete(c.sortingState, key)
