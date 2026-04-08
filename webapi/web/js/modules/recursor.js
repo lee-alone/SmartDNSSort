@@ -84,4 +84,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // 语言变更时更新状态显示
-window.addEventListener('languageChanged', updateRecursorStatus);
+window.addEventListener('languageChanged', () => {
+    // 只有在已认证的情况下才触发
+    if (window.isAuthenticated) {
+        updateRecursorStatus();
+    }
+});

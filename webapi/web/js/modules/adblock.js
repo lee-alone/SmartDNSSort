@@ -293,5 +293,8 @@ function initializeAdBlockHandlers() {
 document.addEventListener('componentsLoaded', initializeAdBlockHandlers);
 
 window.addEventListener('languageChanged', () => {
-    updateAdBlockTab();
+    // 只有在已认证的情况下才触发
+    if (window.isAuthenticated) {
+        updateAdBlockTab();
+    }
 });

@@ -435,12 +435,15 @@ setInterval(() => {
 
 // Listen for language changes
 window.addEventListener('languageChanged', () => {
-	// Re-render table to update language-dependent text
-	if (allDeadIPs.length > 0 || allHealthyIPs.length > 0) {
-		renderIPPoolTable();
-	}
-	// Re-apply translations when language changes
-	if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
-		window.i18n.applyTranslations();
+	// 只有在已认证的情况下才触发
+	if (window.isAuthenticated) {
+		// Re-render table to update language-dependent text
+		if (allDeadIPs.length > 0 || allHealthyIPs.length > 0) {
+			renderIPPoolTable();
+		}
+		// Re-apply translations when language changes
+		if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
+			window.i18n.applyTranslations();
+		}
 	}
 });

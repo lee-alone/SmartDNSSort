@@ -67,6 +67,14 @@ func setDefaultValues(cfg *Config, rawData []byte) {
 
 	// IPMonitor 配置默认值
 	setIPMonitorDefaults(cfg, rawData)
+
+	// WebUI 凭据校验：如果 Username 或 Password 为空，强制重置 Initialized
+	// 防止用户手动清空 config.yaml 中的凭据后导致无法登录
+	if cfg.WebUI.Initialized {
+		if cfg.WebUI.Username == "" || cfg.WebUI.Password == "" {
+			cfg.WebUI.Initialized = false
+		}
+	}
 }
 
 // setUpstreamDefaults 设置上游配置的默认值

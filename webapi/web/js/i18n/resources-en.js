@@ -4,6 +4,24 @@ const resourcesEn = {
     "app": {
         "title": "SmartDNSSort"
     },
+    "setup": {
+        "title": "SmartDNSSort Initial Setup",
+        "subtitle": "Please configure your administrator account and web service port",
+        "username": "Username",
+        "password": "Password",
+        "confirmPassword": "Confirm Password",
+        "port": "Web Service Port",
+        "submit": "Complete Setup",
+        "restarting": "Service Restarting...",
+        "restartingDesc": "Please wait 3 seconds before automatically redirecting to the new port"
+    },
+    "login": {
+        "title": "SmartDNSSort Login",
+        "subtitle": "Please enter administrator credentials",
+        "username": "Username",
+        "password": "Password",
+        "submit": "Login"
+    },
     "tabs": {
         "dashboard": "Dashboard",
         "config": "Configuration",

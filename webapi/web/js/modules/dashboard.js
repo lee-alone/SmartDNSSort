@@ -913,13 +913,16 @@ document.addEventListener('componentsLoaded', () => {
 });
 
 window.addEventListener('languageChanged', () => {
-    // 应用翻译到所有 DOM 元素
-    if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
-        window.i18n.applyTranslations();
-    }
-    updateDashboard(true);  // 语言切换时手动刷新
-    if (!window.dashboardInterval) {
-        window.dashboardInterval = setInterval(() => updateDashboard(false), 5000);  // 自动刷新，传入 false
+    // 只有在已认证的情况下才触发
+    if (window.isAuthenticated) {
+        // 应用翻译到所有 DOM 元素
+        if (window.i18n && typeof window.i18n.applyTranslations === 'function') {
+            window.i18n.applyTranslations();
+        }
+        updateDashboard(true);  // 语言切换时手动刷新
+        if (!window.dashboardInterval) {
+            window.dashboardInterval = setInterval(() => updateDashboard(false), 5000);  // 自动刷新，传入 false
+        }
     }
 });
 

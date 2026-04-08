@@ -130,8 +130,11 @@ type PrefetchConfig struct {
 
 // WebUIConfig Web UI 管理界面配置
 type WebUIConfig struct {
-	Enabled    bool `yaml:"enabled" json:"enabled"`
-	ListenPort int  `yaml:"listen_port,omitempty" json:"listen_port"`
+	Enabled     bool   `yaml:"enabled" json:"enabled"`
+	ListenPort  int    `yaml:"listen_port,omitempty" json:"listen_port"`
+	Username    string `yaml:"username,omitempty" json:"username"`    // 管理员用户名
+	Password    string `yaml:"password,omitempty" json:"password"`    // 混淆后的密码 (bcrypt)
+	Initialized bool   `yaml:"initialized" json:"initialized"`       // 是否完成初始化设置
 }
 
 // AdBlockConfig 广告拦截配置

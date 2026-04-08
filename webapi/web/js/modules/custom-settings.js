@@ -232,8 +232,11 @@ function saveCustomResponse(button) {
 document.addEventListener('componentsLoaded', initializeCounters);
 
 window.addEventListener('languageChanged', () => {
-    loadCustomSettings();
-    loadUnboundConfig();
+    // 只有在已认证的情况下才触发
+    if (window.isAuthenticated) {
+        loadCustomSettings();
+        loadUnboundConfig();
+    }
 });
 
 // 导出函数到全局作用域（供 HTML onclick 调用）

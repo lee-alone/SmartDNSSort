@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"smartdnssort/logger"
@@ -163,6 +164,8 @@ func (s *Server) isCSRFExemptPath(path string) bool {
 	// 这些路径不需要 CSRF 保护
 	exemptPaths := []string{
 		"/api/csrf-token",
+		"/api/setup",        // 豁免初始化接口（设置前无安全上下文）
+		"/api/auth-status",   // 豁免认证状态检查接口
 		"/health",
 	}
 
@@ -174,6 +177,121 @@ func (s *Server) isCSRFExemptPath(path string) bool {
 
 	// GET 请求通常不需要 CSRF 保护
 	return false
+}
+
+// allowedStaticExtensions 允许的静态文件扩展名白名单
+var allowedStaticExtensions = map[string]bool{
+	".css":   true,
+	".js":    true,
+	".png":   true,
+	".jpg":   true,
+	".jpeg":  true,
+	".gif":   true,
+	".svg":   true,
+	".ico":   true,
+	".woff":  true,
+	".woff2": true,
+	".ttf":   true,
+	".eot":   true,
+	".map":   true,
+}
+
+// isProtectedRoute 检查是否是受保护的路由
+func isProtectedRoute(path string) bool {
+	// 公开的路由（不需要登录）
+	publicPaths := []string{
+		"/api/setup",
+		"/api/login",
+		"/api/auth-status",
+		"/api/csrf-token",
+		"/health",
+	}
+
+	for _, public := range publicPaths {
+		if path == public {
+			return false
+		}
+	}
+
+	// [修复点] 确保静态资源永远不被身份认证拦截
+	// 只有 /api/ 开头的业务数据才需要登录，静态资源永远放行
+	ext := filepath.Ext(path)
+	if ext != "" && allowedStaticExtensions[strings.ToLower(ext)] {
+		return false
+	}
+
+	// 特别放行 HTML 模板文件（防止组件加载器白屏）
+	if strings.HasSuffix(path, ".html") {
+		return false
+	}
+
+	// 根路径通常是 index.html，视为静态资源
+	if path == "/" {
+		return false
+	}
+
+	// 静态资源子路径（即使没有扩展名也豁免）
+	staticPrefixes := []string{
+		"/css/",
+		"/js/",
+		"/fonts/",
+		"/images/",
+		"/img/",
+		"/assets/",
+	}
+	for _, prefix := range staticPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// checkLoginSession 检查登录会话
+func (s *Server) checkLoginSession(r *http.Request) bool {
+	if s.sessionManager == nil {
+		return false
+	}
+
+	cookie, err := r.Cookie("session")
+	if err != nil {
+		return false
+	}
+
+	return s.sessionManager.IsValidSession(cookie.Value)
+}
+
+// authMiddleware 身份验证中间件
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// 1. 检查是否已初始化
+		s.cfgMutex.RLock()
+		initialized := s.cfg.WebUI.Initialized
+		s.cfgMutex.RUnlock()
+
+		if !initialized {
+			// 如果未初始化，除了 /api/setup 和静态资源，其他 API 均返回 403
+			if strings.HasPrefix(path, "/api/") && 
+			   path != "/api/setup" && 
+			   path != "/api/auth-status" &&
+			   path != "/api/csrf-token" &&
+			   path != "/health" {
+				http.Error(w, "Initialization Required", http.StatusForbidden)
+				return
+			}
+		} else {
+			// 2. 已初始化，检查登录状态
+			if isProtectedRoute(path) && !s.checkLoginSession(r) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // combinedSecurityMiddleware 组合安全中间件

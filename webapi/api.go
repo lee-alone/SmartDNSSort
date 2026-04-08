@@ -51,6 +51,7 @@ type Server struct {
 	// 安全相关
 	csrfManager    *CSRFManager   // CSRF 令牌管理器
 	securityConfig SecurityConfig // 安全配置
+	sessionManager *SessionManager // 会话管理器
 
 	// 并发控制
 	cfgMutex            sync.RWMutex // 保护配置文件读写
@@ -75,6 +76,7 @@ func NewServer(cfg *config.Config, dnsCache *cache.Cache, dnsServer *dnsserver.S
 		isAdblockBusy:  false,
 		csrfManager:    NewCSRFManager(DefaultCSRFConfig),
 		securityConfig: DefaultSecurityConfig,
+		sessionManager: NewSessionManager(24 * time.Hour), // 会话有效期 24 小时
 	}
 }
 
@@ -107,6 +109,12 @@ func (s *Server) Start() error {
 
 	// CSRF Token 路由（不需要 CSRF 保护）
 	mux.HandleFunc("/api/csrf-token", s.handleCSRFToken)
+
+	// 认证相关路由（放在 authMiddleware 之前）
+	mux.HandleFunc("/api/setup", s.handleSetup)
+	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/logout", s.handleLogout)
+	mux.HandleFunc("/api/auth-status", s.handleAuthStatus)
 
 	// AdBlock API 路由
 	mux.HandleFunc("/api/adblock/status", s.handleAdBlockStatus)
@@ -154,8 +162,10 @@ func (s *Server) Start() error {
 
 	s.listener = http.Server{
 		Addr: addr,
-		// 使用组合安全中间件（包含 CSP、CORS 和 CSRF 保护）
-		Handler: s.combinedSecurityMiddleware(mux),
+		// 中间件顺序（从外到内）：
+		// 1. combinedSecurityMiddleware (CSP, CORS, CSRF) - 确保所有响应都包含安全头
+		// 2. authMiddleware (认证拦截) - 在安全头之后进行身份验证
+		Handler: s.combinedSecurityMiddleware(s.authMiddleware(mux)),
 	}
 
 	logger.Debugf("Web API server started on http://localhost:%d", s.cfg.WebUI.ListenPort)
@@ -167,6 +177,11 @@ func (s *Server) Stop() error {
 	// 停止 CSRF 管理器
 	if s.csrfManager != nil {
 		s.csrfManager.Stop()
+	}
+
+	// 停止会话管理器
+	if s.sessionManager != nil {
+		s.sessionManager.Stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

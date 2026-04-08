@@ -4,6 +4,24 @@ const resourcesZhCn = {
     "app": {
         "title": "SmartDNSSort"
     },
+    "setup": {
+        "title": "SmartDNSSort 初始设置",
+        "subtitle": "请配置管理员账户和 Web 服务端口",
+        "username": "用户名",
+        "password": "密码",
+        "confirmPassword": "确认密码",
+        "port": "Web 服务端口",
+        "submit": "完成设置",
+        "restarting": "服务重启中...",
+        "restartingDesc": "请等待 3 秒后自动跳转到新端口"
+    },
+    "login": {
+        "title": "SmartDNSSort 登录",
+        "subtitle": "请输入管理员凭据",
+        "username": "用户名",
+        "password": "密码",
+        "submit": "登录"
+    },
     "tabs": {
         "dashboard": "仪表盘",
         "config": "配置",

@@ -66,6 +66,7 @@ return defaultValue;
 
 function populateForm(config) {
     try {
+        if (!config) return;
         originalConfig = config;
 
         const setValue = (id, value) => {
@@ -81,86 +82,108 @@ function populateForm(config) {
             }
         };
 
-        setValue('dns.listen_port', config.dns.listen_port);
-        setChecked('dns.enable_tcp', config.dns.enable_tcp);
-        setChecked('dns.enable_ipv6', config.dns.enable_ipv6);
-        setValue('upstream.strategy', config.upstream.strategy);
-        setValue('upstream.timeout_ms', config.upstream.timeout_ms);
-        setValue('upstream.concurrency', config.upstream.concurrency);
-        setValue('upstream.max_connections', config.upstream.max_connections || 0);
-        setValue('upstream.sequential_timeout', config.upstream.sequential_timeout || 300);
-        setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
-        setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
-
-        setChecked('upstream.dnssec', config.upstream.dnssec);
-
-        if (config.upstream.health_check) {
-            setChecked('upstream.health_check.enabled', config.upstream.health_check.enabled);
-            setValue('upstream.health_check.failure_threshold', config.upstream.health_check.failure_threshold || 3);
-            setValue('upstream.health_check.circuit_breaker_threshold', config.upstream.health_check.circuit_breaker_threshold || 5);
-            setValue('upstream.health_check.circuit_breaker_timeout', config.upstream.health_check.circuit_breaker_timeout || 30);
-            setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
+        // DNS 配置
+        if (config.dns) {
+            setValue('dns.listen_port', config.dns.listen_port);
+            setChecked('dns.enable_tcp', config.dns.enable_tcp);
+            setChecked('dns.enable_ipv6', config.dns.enable_ipv6);
         }
 
-        if (config.upstream.dynamic_param_optimization) {
-            setValue('upstream.dynamic_param_optimization.ewma_alpha', config.upstream.dynamic_param_optimization.ewma_alpha || 0.2);
-            setValue('upstream.dynamic_param_optimization.max_step_ms', config.upstream.dynamic_param_optimization.max_step_ms || 10);
+        // Upstream 配置
+        if (config.upstream) {
+            setValue('upstream.strategy', config.upstream.strategy);
+            setValue('upstream.timeout_ms', config.upstream.timeout_ms);
+            setValue('upstream.concurrency', config.upstream.concurrency);
+            setValue('upstream.max_connections', config.upstream.max_connections || 0);
+            setValue('upstream.sequential_timeout', config.upstream.sequential_timeout || 300);
+            setValue('upstream.racing_delay', config.upstream.racing_delay || 100);
+            setValue('upstream.racing_max_concurrent', config.upstream.racing_max_concurrent || 2);
+            setChecked('upstream.dnssec', config.upstream.dnssec);
+
+            if (config.upstream.health_check) {
+                setChecked('upstream.health_check.enabled', config.upstream.health_check.enabled);
+                setValue('upstream.health_check.failure_threshold', config.upstream.health_check.failure_threshold || 3);
+                setValue('upstream.health_check.circuit_breaker_threshold', config.upstream.health_check.circuit_breaker_threshold || 5);
+                setValue('upstream.health_check.circuit_breaker_timeout', config.upstream.health_check.circuit_breaker_timeout || 30);
+                setValue('upstream.health_check.success_threshold', config.upstream.health_check.success_threshold || 2);
+            }
+
+            if (config.upstream.dynamic_param_optimization) {
+                setValue('upstream.dynamic_param_optimization.ewma_alpha', config.upstream.dynamic_param_optimization.ewma_alpha || 0.2);
+                setValue('upstream.dynamic_param_optimization.max_step_ms', config.upstream.dynamic_param_optimization.max_step_ms || 10);
+            }
+
+            setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
+            setValue('upstream.bootstrap_dns', (config.upstream.bootstrap_dns || []).join('\n'));
+
+            // Recursor 配置
+            setChecked('upstream.enable_recursor', config.upstream.enable_recursor || false);
+            setValue('upstream.recursor_port', config.upstream.recursor_port || 5353);
+
+            // 初始化 Recursor 状态
+            if (typeof updateRecursorStatus === 'function') {
+                updateRecursorStatus();
+            }
+
+            // 添加递归状态变化监听
+            const recursorCheckbox = document.getElementById('upstream.enable_recursor');
+            if (recursorCheckbox) {
+                recursorCheckbox.addEventListener('change', updateUpstreamRecursorAlert);
+                // 初始化提示
+                updateUpstreamRecursorAlert();
+            }
         }
 
-        setChecked('ping.enabled', config.ping.enabled);
-        setValue('ping.count', config.ping.count);
-        setValue('ping.timeout_ms', config.ping.timeout_ms);
-        setValue('ping.concurrency', config.ping.concurrency);
-        setValue('ping.strategy', config.ping.strategy);
-        setValue('ping.max_test_ips', config.ping.max_test_ips);
-        setValue('ping.rtt_cache_ttl_seconds', config.ping.rtt_cache_ttl_seconds);
-        setChecked('ping.enable_http_fallback', config.ping.enable_http_fallback);
+        // Ping 配置
+        if (config.ping) {
+            setChecked('ping.enabled', config.ping.enabled);
+            setValue('ping.count', config.ping.count);
+            setValue('ping.timeout_ms', config.ping.timeout_ms);
+            setValue('ping.concurrency', config.ping.concurrency);
+            setValue('ping.strategy', config.ping.strategy);
+            setValue('ping.max_test_ips', config.ping.max_test_ips);
+            setValue('ping.rtt_cache_ttl_seconds', config.ping.rtt_cache_ttl_seconds);
+            setChecked('ping.enable_http_fallback', config.ping.enable_http_fallback);
 
-        togglePingSettingsState();
-        const pingEnabledCheckbox = document.getElementById('ping.enabled');
-        if (pingEnabledCheckbox) {
-            pingEnabledCheckbox.addEventListener('change', togglePingSettingsState);
+            togglePingSettingsState();
+            const pingEnabledCheckbox = document.getElementById('ping.enabled');
+            if (pingEnabledCheckbox) {
+                pingEnabledCheckbox.addEventListener('change', togglePingSettingsState);
+            }
         }
 
-        setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
-        setValue('cache.user_return_ttl', config.cache.user_return_ttl);
-        setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
-        setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
-        setValue('cache.negative_ttl_seconds', config.cache.negative_ttl_seconds);
-        setValue('cache.error_cache_ttl_seconds', config.cache.error_cache_ttl_seconds);
-
-        setValue('cache.max_memory_mb', config.cache.max_memory_mb);
-        setValue('cache.eviction_threshold', config.cache.eviction_threshold);
-        setValue('cache.eviction_batch_percent', config.cache.eviction_batch_percent);
-        setChecked('cache.keep_expired_entries', config.cache.keep_expired_entries);
-        setChecked('cache.protect_prefetch_domains', config.cache.protect_prefetch_domains);
-        setValue('cache.save_to_disk_interval_minutes', config.cache.save_to_disk_interval_minutes || 60);
-
-        setChecked('prefetch.enabled', config.prefetch.enabled);
-        setChecked('webui.enabled', config.webui.enabled);
-        setValue('webui.listen_port', config.webui.listen_port);
-        setValue('system.max_cpu_cores', config.system.max_cpu_cores);
-        setValue('system.sort_queue_workers', config.system.sort_queue_workers);
-        setValue('system.refresh_workers', config.system.refresh_workers);
-
-        setValue('upstream.servers', (config.upstream.servers || []).join('\n'));
-        setValue('upstream.bootstrap_dns', (config.upstream.bootstrap_dns || []).join('\n'));
-
-        // Recursor 配置
-        setChecked('upstream.enable_recursor', config.upstream.enable_recursor || false);
-        setValue('upstream.recursor_port', config.upstream.recursor_port || 5353);
-
-        // 初始化 Recursor 状态
-        if (typeof updateRecursorStatus === 'function') {
-            updateRecursorStatus();
+        // Cache 配置
+        if (config.cache) {
+            setValue('cache.fast_response_ttl', config.cache.fast_response_ttl);
+            setValue('cache.user_return_ttl', config.cache.user_return_ttl);
+            setValue('cache.min_ttl_seconds', config.cache.min_ttl_seconds);
+            setValue('cache.max_ttl_seconds', config.cache.max_ttl_seconds);
+            setValue('cache.negative_ttl_seconds', config.cache.negative_ttl_seconds);
+            setValue('cache.error_cache_ttl_seconds', config.cache.error_cache_ttl_seconds);
+            setValue('cache.max_memory_mb', config.cache.max_memory_mb);
+            setValue('cache.eviction_threshold', config.cache.eviction_threshold);
+            setValue('cache.eviction_batch_percent', config.cache.eviction_batch_percent);
+            setChecked('cache.keep_expired_entries', config.cache.keep_expired_entries);
+            setChecked('cache.protect_prefetch_domains', config.cache.protect_prefetch_domains);
+            setValue('cache.save_to_disk_interval_minutes', config.cache.save_to_disk_interval_minutes || 60);
         }
 
-        // 添加递归状态变化监听
-        const recursorCheckbox = document.getElementById('upstream.enable_recursor');
-        if (recursorCheckbox) {
-            recursorCheckbox.addEventListener('change', updateUpstreamRecursorAlert);
-            // 初始化提示
-            updateUpstreamRecursorAlert();
+        // Prefetch 配置
+        if (config.prefetch) {
+            setChecked('prefetch.enabled', config.prefetch.enabled);
+        }
+
+        // WebUI 配置
+        if (config.webui) {
+            setChecked('webui.enabled', config.webui.enabled);
+            setValue('webui.listen_port', config.webui.listen_port);
+        }
+
+        // System 配置
+        if (config.system) {
+            setValue('system.max_cpu_cores', config.system.max_cpu_cores);
+            setValue('system.sort_queue_workers', config.system.sort_queue_workers);
+            setValue('system.refresh_workers', config.system.refresh_workers);
         }
 
         // Load AdBlock settings
@@ -181,7 +204,7 @@ function populateForm(config) {
             setValue('ip_monitor.t2_refresh_interval', config.ip_monitor.t2_refresh_interval || 0);
         }
     } catch (e) {
-        alert("An error occurred while displaying the configuration.");
+        console.error("Config view error:", e);
     }
 }
 
@@ -523,11 +546,15 @@ function initMaintenanceButtons() {
 document.addEventListener('componentsLoaded', () => {
     initializeConfigUI();
     initMaintenanceButtons();
+    // 注释：loadConfig 调用已由 app.js 的 showDashboard 统一调度，避免重复加载
 });
 
 window.addEventListener('languageChanged', () => {
-    loadConfig();
-    updateStrategyUI();
+    // 只有在已认证的情况下才触发
+    if (window.isAuthenticated) {
+        loadConfig();
+        updateStrategyUI();
+    }
 });
 
 // Maintenance functions

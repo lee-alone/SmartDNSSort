@@ -180,7 +180,7 @@ func (cg *ConfigGenerator) GenerateConfig() (string, error) {
 # Auto-generated, do not edit manually
 # Generated for %d CPU cores, %.1f GB memory
 # Unbound version: %s
-# 
+#
 # 配置原则：Unbound 作为递归解析器，不重复缓存
 # 上层 SmartDNSSort 应用已有完整的缓存层
 
@@ -191,25 +191,19 @@ server:
     do-ip6: yes
     do-udp: yes
     do-tcp: yes
-    
+
     # 访问控制 - 仅本地访问
     access-control: 127.0.0.1 allow
     access-control: ::1 allow
     access-control: 0.0.0.0/0 deny
     access-control: ::/0 deny
-    
+
     # 性能优化 - 根据 CPU 核数动态调整
     num-threads: %d
     msg-cache-size: %dm
     rrset-cache-size: %dm
     outgoing-range: %d
     so-rcvbuf: %s
-    
-    # 缓存策略 - 快速刷新，不重复缓存
-    cache-max-ttl: 86400
-    cache-min-ttl: 60
-    cache-max-negative-ttl: 3600
-    serve-expired: yes
 `,
 		cg.sysInfo.CPUCores,
 		cg.sysInfo.MemoryGB,
@@ -221,6 +215,24 @@ server:
 		params.OutgoingRange,
 		params.SoRcvbuf,
 	)
+
+	// [新增] Windows 平台 TCP 连接池优化
+	// 这些参数可显著提升 Windows 段的稳定性和连接匹配能力
+	if runtime.GOOS == "windows" {
+		config += `
+    # Windows 稳定性优化 - TCP 连接池管理
+    incoming-num-tcp: 100
+    tcp-idle-timeout: 300000
+`
+	}
+
+	config += fmt.Sprintf(`
+    # 缓存策略 - 快速刷新，不重复缓存
+    cache-max-ttl: 86400
+    cache-min-ttl: 60
+    cache-max-negative-ttl: 3600
+    serve-expired: yes
+`)
 
 	// 条件性添加特性
 	if features.ServeExpiredTTL {
