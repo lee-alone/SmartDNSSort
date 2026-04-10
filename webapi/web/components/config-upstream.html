@@ -26,11 +26,11 @@
                 </div>
 
                 <div class="form-group md:col-span-2"><label for="upstream.servers"
-                                class="block text-sm font-medium mb-2" data-i18n="config.upstream.servers">Upstream
-                                Servers</label><textarea id="upstream.servers" name="upstream.servers"
-                                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"
-                                placeholder="e.g., 8.8.8.8:53&#10;1.1.1.1:53"></textarea><small
-                                data-i18n="config.upstream.serversHelp">One per line.</small></div>
+                class="block text-sm font-medium mb-2" data-i18n="config.upstream.servers">Upstream
+                Servers</label><textarea id="upstream.servers" name="upstream.servers"
+                class="w-full rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-black p-4 font-mono text-sm h-32"
+                placeholder="8.8.8.8:53&#10;tcp://8.8.8.8:53&#10;tls://dns.google:853&#10;https://dns.google/dns-query"></textarea><small
+                data-i18n="config.upstream.serversHelp">One per line. Supported protocols: udp (default), tcp, tls/dot, https/doh. Example: tcp://1.1.1.1:53</small></div>
                 <div class="form-group md:col-span-2"><label for="upstream.bootstrap_dns"
                                 class="block text-sm font-medium mb-2"
                                 data-i18n="config.upstream.bootstrapDns">Bootstrap DNS</label><textarea

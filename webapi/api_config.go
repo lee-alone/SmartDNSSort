@@ -424,9 +424,15 @@ func (s *Server) validateConfig(cfg *config.Config) error {
 
 // validateServerAddress 验证服务器地址格式
 // 支持格式: IP:Port, Domain:Port, [IPv6]:Port
+// 支持协议前缀: udp://, tcp://, tls://, dot://, https://, doh://
 func validateServerAddress(server string) error {
 	if server == "" {
 		return fmt.Errorf("server address cannot be empty")
+	}
+
+	// 检查是否包含协议前缀
+	if strings.Contains(server, "://") {
+		return validateServerAddressWithScheme(server)
 	}
 
 	// 检查是否是 IPv6 格式 [::1]:53
@@ -580,4 +586,146 @@ func derefOrDefaultVal(ptr *int, defaultValue int) int {
 		return *ptr
 	}
 	return defaultValue
+}
+
+// validateServerAddressWithScheme 验证带协议前缀的服务器地址
+// 支持协议: udp, tcp, tls, dot, https, doh
+func validateServerAddressWithScheme(server string) error {
+	// 解析 URL
+	parts := strings.SplitN(server, "://", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid URL format: %s", server)
+	}
+
+	scheme := parts[0]
+	host := parts[1]
+
+	// 验证协议
+	validSchemes := []string{"udp", "tcp", "tls", "dot", "https", "doh"}
+	if !contains(validSchemes, scheme) {
+		return fmt.Errorf("unsupported protocol: %s (supported: udp, tcp, tls, dot, https, doh)", scheme)
+	}
+
+	// 对于 DoH/DoT，允许使用域名和路径
+	if scheme == "https" || scheme == "doh" {
+		// DoH 格式: https://domain/path 或 https://ip:port/path
+		return validateDoHDoTAddress(host)
+	}
+
+	if scheme == "tls" || scheme == "dot" {
+		// DoT 格式: tls://domain:port 或 tls://ip:port
+		return validateDoHDoTAddress(host)
+	}
+
+	// 对于 UDP/TCP，验证 host:port 格式
+	// 检查是否是 IPv6 格式 [::1]:53
+	if strings.HasPrefix(host, "[") {
+		closeBracket := strings.Index(host, "]")
+		if closeBracket == -1 {
+			return fmt.Errorf("invalid IPv6 format: missing closing bracket")
+		}
+		ipPart := host[1:closeBracket]
+		if ipPart == "" {
+			return fmt.Errorf("invalid IPv6 format: empty IP")
+		}
+		if err := validateIPv6Address(ipPart); err != nil {
+			return err
+		}
+		// 检查端口部分
+		if len(host) > closeBracket+1 {
+			if host[closeBracket+1] != ':' {
+				return fmt.Errorf("invalid format: expected ':' after IPv6 address")
+			}
+			portStr := host[closeBracket+2:]
+			if portStr == "" {
+				return fmt.Errorf("port cannot be empty")
+			}
+			return validatePortString(portStr)
+		}
+		return nil
+	}
+
+	// 普通的 host:port 格式
+	lastColon := strings.LastIndex(host, ":")
+	if lastColon == -1 {
+		// 没有端口，只有地址（对于某些协议可能允许）
+		return validateHostOrIP(host)
+	}
+
+	hostPart := host[:lastColon]
+	portPart := host[lastColon+1:]
+
+	if hostPart == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	if err := validateHostOrIP(hostPart); err != nil {
+		return err
+	}
+
+	return validatePortString(portPart)
+}
+
+// validateDoHDoTAddress 验证 DoH/DoT 地址格式
+func validateDoHDoTAddress(host string) error {
+	// 去除可能的路径部分
+	pathIndex := strings.Index(host, "/")
+	var hostPort string
+	if pathIndex != -1 {
+		hostPort = host[:pathIndex]
+	} else {
+		hostPort = host
+	}
+
+	// 如果为空，则无效
+	if hostPort == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	// 检查是否是 IPv6 格式 [::1]:port
+	if strings.HasPrefix(hostPort, "[") {
+		closeBracket := strings.Index(hostPort, "]")
+		if closeBracket == -1 {
+			return fmt.Errorf("invalid IPv6 format: missing closing bracket")
+		}
+		ipPart := hostPort[1:closeBracket]
+		if ipPart == "" {
+			return fmt.Errorf("invalid IPv6 format: empty IP")
+		}
+		if err := validateIPv6Address(ipPart); err != nil {
+			return err
+		}
+		// 检查端口部分
+		if len(hostPort) > closeBracket+1 {
+			if hostPort[closeBracket+1] != ':' {
+				return fmt.Errorf("invalid format: expected ':' after IPv6 address")
+			}
+			portStr := hostPort[closeBracket+2:]
+			if portStr != "" {
+				return validatePortString(portStr)
+			}
+		}
+		return nil
+	}
+
+	// 检查 host:port 格式
+	lastColon := strings.LastIndex(hostPort, ":")
+	if lastColon != -1 {
+		hostPart := hostPort[:lastColon]
+		portPart := hostPort[lastColon+1:]
+
+		if hostPart != "" {
+			if err := validateHostOrIP(hostPart); err != nil {
+				return err
+			}
+		}
+
+		if portPart != "" {
+			return validatePortString(portPart)
+		}
+		return nil
+	}
+
+	// 只有域名或 IP
+	return validateHostOrIP(hostPort)
 }
