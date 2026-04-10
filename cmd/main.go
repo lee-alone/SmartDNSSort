@@ -40,9 +40,9 @@ func main() {
 
 	// 处理系统服务命令（优先级最高）
 	if *serviceCmd != "" {
-		// 仅在 Linux 系统上支持
-		if runtime.GOOS != "linux" {
-			fmt.Fprintf(os.Stderr, "错误：系统服务管理仅在 Linux 系统上支持\n")
+		// 支持 Linux 和 Windows 系统
+		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+			fmt.Fprintf(os.Stderr, "错误：系统服务管理仅在 Linux 和 Windows 系统上支持\n")
 			os.Exit(1)
 		}
 
@@ -214,10 +214,10 @@ func printHelp() {
   SmartDNSSort [选项]
 
 选项：
-  -s <子命令>      系统服务管理（仅 Linux）
-		   - install    安装服务
-		   - uninstall  卸载服务
-		   - status     查看服务状态
+  -s <子命令> 系统服务管理（Linux 和 Windows）
+   - install 安装服务
+   - uninstall 卸载服务
+   - status 查看服务状态
   
   -c <路径>       配置文件路径（默认：config.yaml）
   -w <路径>       工作目录（默认：当前目录）
