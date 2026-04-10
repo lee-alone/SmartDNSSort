@@ -63,13 +63,14 @@ func (s *Server) ApplyConfig(newCfg *config.Config) error {
 			if recursorPort == 0 {
 				recursorPort = 5353
 			}
-			recursorAddr := fmt.Sprintf("tcp://127.0.0.1:%d", recursorPort)
+			// 使用UDP协议连接本地unbound（unbound默认不复用TCP连接，使用UDP避免broken pipe）
+			recursorAddr := fmt.Sprintf("127.0.0.1:%d", recursorPort)
 			u, err := upstream.NewUpstream(recursorAddr, boot, &newCfg.Upstream)
 			if err != nil {
 				logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
 			} else {
 				upstreams = append(upstreams, u)
-				logger.Debugf("Added recursor as upstream: %s", recursorAddr)
+				logger.Debugf("Added recursor as upstream: %s (UDP)", recursorAddr)
 			}
 		}
 

@@ -47,13 +47,14 @@ func NewServer(cfg *config.Config, s *stats.Stats) *Server {
 
 	// 如果启用了 Recursor，将其添加为上游源
 	if cfg.Upstream.EnableRecursor {
-		recursorAddr := fmt.Sprintf("tcp://127.0.0.1:%d", cfg.Upstream.RecursorPort)
+		// 使用UDP协议连接本地unbound（unbound默认不复用TCP连接，使用UDP避免broken pipe）
+		recursorAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Upstream.RecursorPort)
 		u, err := upstream.NewUpstream(recursorAddr, boot, &cfg.Upstream)
 		if err != nil {
 			logger.Warnf("Failed to create upstream for recursor %s: %v", recursorAddr, err)
 		} else {
 			upstreams = append(upstreams, u)
-			logger.Debugf("Added recursor as upstream: %s", recursorAddr)
+			logger.Debugf("Added recursor as upstream: %s (UDP)", recursorAddr)
 		}
 	}
 

@@ -365,6 +365,7 @@ func (p *ConnectionPool) Exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 					p.mu.Lock()
 					p.activeCount--
 					p.totalDestroyed++
+					p.totalErrors++ // 修复: 补充缺失的计数
 					p.mu.Unlock()
 				}
 				return reply, nil
@@ -470,7 +471,8 @@ func (p *ConnectionPool) adjustPoolSizeNow() {
 // createConnection 创建一个新的连接
 func (p *ConnectionPool) createConnection(ctx context.Context) (*PooledConnection, error) {
 	dialer := &net.Dialer{
-		Timeout: p.dialTimeout,
+		Timeout:   p.dialTimeout,
+		KeepAlive: 30 * time.Second, // 启用TCP KeepAlive,每30秒发送一次探测
 	}
 
 	conn, err := dialer.DialContext(ctx, p.network, p.address)
@@ -481,6 +483,11 @@ func (p *ConnectionPool) createConnection(ctx context.Context) (*PooledConnectio
 	if p.network == "tcp" {
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			tcpConn.SetNoDelay(true)
+			// 启用TCP KeepAlive,及时发现远端连接关闭
+			tcpConn.SetKeepAlive(true)
+			// 设置KeepAlive探测间隔为30秒(操作系统默认通常为2小时,过于漫长)
+			tcpConn.SetKeepAlivePeriod(30 * time.Second)
+			logger.Debugf("[ConnectionPool] TCP KeepAlive已启用,探测间隔: 30s: %s", p.address)
 		}
 	}
 
@@ -546,9 +553,10 @@ func (p *ConnectionPool) isTemporaryError(err error) bool {
 }
 
 // isConnectionStale 检查 TCP 连接是否已过期或被远端关闭
-// 通过检查连接空闲时间和尝试轻量级读取来检测连接状态
+// 优化策略: 仅检查连接标志和空闲时间,避免Read检测消耗TCP流数据
+// 注意: 已启用TCP KeepAlive(30秒探测),大部分断开会由操作系统层面检测
 func (p *ConnectionPool) isConnectionStale(poolConn *PooledConnection) bool {
-	if poolConn == nil || poolConn.conn == nil {
+	if poolConn == nil || poolConn.conn == nil || poolConn.closed {
 		return true
 	}
 
@@ -557,51 +565,16 @@ func (p *ConnectionPool) isConnectionStale(poolConn *PooledConnection) bool {
 		return false
 	}
 
-	// 如果连接空闲时间超过 5 分钟，认为已过期
-	if time.Since(poolConn.lastUsed) > 5*time.Minute {
-		logger.Debugf("[ConnectionPool] TCP 连接空闲超过 5 分钟，标记为过期: %s", p.address)
+	// 如果连接空闲时间超过 2 分钟，认为已过期
+	// 注意: unbound等服务器可能在30秒-2分钟无活动后关闭连接
+	// 2分钟是保守值,配合KeepAlive(30秒)可以及时发现问题
+	if time.Since(poolConn.lastUsed) > 2*time.Minute {
+		logger.Debugf("[ConnectionPool] TCP 连接空闲超过2分钟，标记为过期: %s", p.address)
 		return true
 	}
 
-	// 尝试设置一个非常短的读超时来检测连接是否仍然有效
-	// 这是一个轻量级的检查，不会阻塞太长时间
-	tcpConn, ok := poolConn.conn.(*net.TCPConn)
-	if !ok {
-		return false
-	}
-
-	// 设置 1ms 的读超时来进行快速检查
-	tcpConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
-	defer tcpConn.SetReadDeadline(time.Time{}) // 清除超时
-
-	// 尝试读取一个字节（不会真正读取数据，只是检查连接状态）
-	buf := make([]byte, 1)
-	_, err := tcpConn.Read(buf)
-
-	// 如果没有错误或只是超时，连接仍然有效
-	if err == nil {
-		// 不应该有数据可读，这表示连接可能有问题
-		logger.Debugf("[ConnectionPool] TCP 连接有未读数据，可能已损坏: %s", p.address)
-		return true
-	}
-
-	// 检查错误类型
-	if ne, ok := err.(net.Error); ok {
-		if ne.Timeout() {
-			// 超时是正常的，表示连接仍然有效
-			return false
-		}
-	}
-
-	// 其他错误（如 EOF、broken pipe）表示连接已关闭
-	if strings.Contains(err.Error(), "EOF") ||
-		strings.Contains(err.Error(), "broken pipe") ||
-		strings.Contains(err.Error(), "connection reset") {
-		logger.Debugf("[ConnectionPool] TCP 连接已被远端关闭: %s, 错误: %v", p.address, err)
-		return true
-	}
-
-	// 默认认为连接仍然有效
+	// 其他情况认为连接仍然有效
+	// 因为KeepAlive会在后台持续探测,真正的断开会通过Read/Write错误暴露出来
 	return false
 }
 
