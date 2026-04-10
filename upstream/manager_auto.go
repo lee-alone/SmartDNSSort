@@ -5,6 +5,7 @@ import (
 	"smartdnssort/config"
 	"smartdnssort/logger"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -214,14 +215,43 @@ func (u *Manager) GetAdaptiveRacingDelay() time.Duration {
 }
 
 // GetAdaptiveSequentialTimeout 获取自适应顺序查询超时
+// 根据服务器数量和查询样本数动态调整超时策略
 func (u *Manager) GetAdaptiveSequentialTimeout() time.Duration {
+	serverCount := len(u.servers)
+	queryCount := atomic.LoadInt64(&u.totalQueryCount)
+
+	// === 单服务器场景: 宽松超时策略（无备用服务器）===
+	if serverCount == 1 {
+		// 样本不足时: 使用保守默认值 2000ms
+		// 本地递归首次查询通常需要1-3秒，500ms过于激进
+		if queryCount < 50 {
+			logger.Debugf("[querySequential] 单服务器场景，样本不足(%d次)，使用保守默认超时: 2000ms", queryCount)
+			return 2000 * time.Millisecond
+		}
+
+		// 样本充足后: 基于实际延迟自适应
+		avgLatency := u.GetAverageLatency()
+		timeout := time.Duration(float64(avgLatency) * 2.0) // 更宽松的2.0倍数
+
+		// 范围: 1000ms ~ 5000ms (比多服务器更宽松)
+		result := max(1000*time.Millisecond, min(timeout, 5*time.Second))
+		logger.Debugf("[querySequential] 单服务器自适应超时: avgLatency=%v, timeout=%v (查询次数=%d)",
+			avgLatency, result, queryCount)
+		return result
+	}
+
+	// === 多服务器场景: 激进超时策略（可快速失败切换）===
+	if queryCount < 20 {
+		logger.Debugf("[querySequential] 多服务器场景，样本不足(%d次)，使用激进默认超时: 500ms", queryCount)
+		return 500 * time.Millisecond
+	}
+
 	avgLatency := u.GetAverageLatency()
-
-	// 顺序查询超时 = 平均延迟 * 1.5
 	timeout := time.Duration(float64(avgLatency) * 1.5)
-
-	// 使用 Go 1.21+ 的内置 max/min 限制范围：500ms-2s
-	return max(500*time.Millisecond, min(timeout, 2*time.Second))
+	result := max(500*time.Millisecond, min(timeout, 2*time.Second))
+	logger.Debugf("[querySequential] 多服务器自适应超时: avgLatency=%v, timeout=%v (查询次数=%d)",
+		avgLatency, result, queryCount)
+	return result
 }
 
 // GetDynamicParamStats 获取动态参数优化的统计信息

@@ -8,6 +8,7 @@ import (
 	"smartdnssort/logger"
 	"smartdnssort/stats"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -50,6 +51,8 @@ type Manager struct {
 	racingMaxConcurrent int // 竞速策略中同时发起的最大请求数
 	// sequential 策略配置
 	sequentialTimeoutMs int // 顺序尝试的单次超时
+	// 查询计数器（用于单服务器场景的自适应延迟启动）
+	totalQueryCount int64 // 总查询次数(原子操作)
 	// 缓存更新回调函数，用于在 parallel 模式下后台收集完所有响应后更新缓存
 	// queryVersion 参数用于防止旧的后台补全覆盖新的缓存
 	cacheUpdateCallback func(domain string, qtype uint16, records []dns.RR, cnames []string, ttl uint32, queryVersion int64)
@@ -240,6 +243,9 @@ func (u *Manager) rawQuery(ctx context.Context, r *dns.Msg, dnssec bool) (*Query
 
 	// 记录查询开始时间
 	startTime := time.Now()
+
+	// 增加查询计数（用于单服务器场景的自适应延迟启动）
+	atomic.AddInt64(&u.totalQueryCount, 1)
 
 	// 选择最优策略（如果有足够的样本数据）
 	queryStrategy := u.strategy
