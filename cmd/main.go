@@ -81,6 +81,13 @@ func main() {
 		os.Exit(0)
 	}
 
+	// 检测是否作为 Windows 服务运行
+	if runtime.GOOS == "windows" && isWindowsService() {
+		// 以服务模式运行
+		runAsWindowsService()
+		os.Exit(0)
+	}
+
 	// 独立运行模式：确定工作目录和配置文件路径
 	effectiveWorkDir := *workDir
 	if effectiveWorkDir == "" {
@@ -92,9 +99,22 @@ func main() {
 		}
 	}
 
-	// 确定配置文件路径 (如果 -c 是相对路径，则与工作目录拼接)
+	// 确定配置文件路径
 	effectiveConfigPath := *configPath
-	if !filepath.IsAbs(effectiveConfigPath) {
+	
+	// Windows 特殊处理：如果未显式指定 -c 参数，优先使用标准路径
+	if runtime.GOOS == "windows" && *configPath == "config.yaml" {
+		// 检查标准路径是否存在配置文件
+		stdConfigPath := sysinstall.DefaultConfigPath()
+		if _, err := os.Stat(stdConfigPath); err == nil {
+			effectiveConfigPath = stdConfigPath
+			fmt.Printf("使用标准配置文件: %s\n", effectiveConfigPath)
+		} else {
+			// 标准路径不存在，使用相对路径
+			effectiveConfigPath = filepath.Join(effectiveWorkDir, effectiveConfigPath)
+		}
+	} else if !filepath.IsAbs(effectiveConfigPath) {
+		// 相对路径，与工作目录拼接
 		effectiveConfigPath = filepath.Join(effectiveWorkDir, effectiveConfigPath)
 	}
 

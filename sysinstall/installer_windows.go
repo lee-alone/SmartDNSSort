@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // IsAdmin 检查是否以管理员权限运行
@@ -32,6 +33,13 @@ func (si *SystemInstaller) Install() error {
 	// 检查管理员权限
 	if !si.config.DryRun && !si.IsAdmin() {
 		return fmt.Errorf("安装需要管理员权限，请右键以管理员身份运行")
+	}
+
+	// 在复制文件之前先尝试停止有可能卡死的旧服务，释放对 exe 的占用锁
+	if !si.config.DryRun {
+		si.log("检查并停止旧服务...")
+		_ = si.StopService()
+		time.Sleep(1 * time.Second)
 	}
 
 	// 创建目录
@@ -59,9 +67,27 @@ func (si *SystemInstaller) Install() error {
 		return err
 	}
 
+	// 打印服务配置信息
+	fmt.Println("\n服务配置信息:")
+	fmt.Printf("  二进制文件: %s\n", DefaultBinaryPath())
+	fmt.Printf("  配置文件: %s\n", DefaultConfigPath())
+	fmt.Printf("  数据目录: %s\n", DefaultDataDir)
+	fmt.Printf("  日志目录: %s\n", DefaultLogDir)
+	
+	// 等待服务注册完成
+	fmt.Println("\n等待服务注册完成...")
+	time.Sleep(2 * time.Second)
+
 	// 启动服务
 	if err := si.StartService(); err != nil {
-		fmt.Printf("警告：启动服务失败：%v\n", err)
+		fmt.Printf("\n⚠ 警告：启动服务失败：%v\n", err)
+		fmt.Println("\n可能的原因和解决方法:")
+		fmt.Println("  1. 配置文件问题 - 检查: " + DefaultConfigPath())
+		fmt.Println("  2. 端口占用 - 确保 53 端口未被其他 DNS 服务占用")
+		fmt.Println("  3. 权限问题 - 确保以管理员身份运行")
+		fmt.Println("\n手动启动服务: sc start " + ServiceName)
+		fmt.Println("查看服务日志: 事件查看器 -> Windows 日志 -> 应用程序")
+		fmt.Println("\n建议: 先尝试手动启动服务以查看详细错误信息")
 	}
 
 	// 显示安装成功信息
