@@ -67,7 +67,7 @@ if "%TARGET%"=="windows" (
     setlocal
     set GOOS=windows
     set GOARCH=amd64
-    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x64.exe
     endlocal
 )
@@ -78,7 +78,7 @@ if "%TARGET%"=="linux" (
     setlocal
     set GOOS=linux
     set GOARCH=amd64
-    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x64
     endlocal
 )
@@ -89,15 +89,15 @@ if "%TARGET%"=="all" (
     setlocal
     set GOOS=windows
     set GOARCH=amd64
-    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-windows-x64.exe .\cmd
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-windows-x64.exe
     endlocal
-    
+
     echo [编译] Linux x86-64...
     setlocal
     set GOOS=linux
     set GOARCH=amd64
-    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd\main.go
+    go build -a -ldflags="-s -w" -o bin\SmartDNSSort-debian-x64 .\cmd
     if !errorlevel! equ 0 echo [完成] bin\SmartDNSSort-debian-x64
     endlocal
 )

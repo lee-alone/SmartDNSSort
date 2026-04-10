@@ -113,13 +113,8 @@ func (si *SystemInstaller) InstallServiceWithMgr() error {
 }
 
 // updateServiceConfig 更新服务配置,设置正确的账户和工作目录
-func updateServiceConfig(s *mgr.Service) error {
-	// 获取 Windows API 函数
-	// 使用 ChangeServiceConfig 设置服务账户
-	// LocalSystem 账户: ".\LocalSystem" 或空字符串
-	
-	// 这里我们通过 sc config 命令来设置,因为 Go API 不直接支持
-	// 获取服务名称
+func updateServiceConfig(_ *mgr.Service) error {
+	// 当前通过 sc config 命令设置服务账户,此函数保留用于未来扩展
 	return nil
 }
 

@@ -31,6 +31,7 @@ func isWindowsService() bool {
 type windowsServiceHandler struct {
 	dnsServer *dnsserver.Server
 	webServer *webapi.Server
+	statsMgr  *stats.Stats // 追踪统计模块，以便热重载时释放
 }
 
 // Execute 实现 svc.Handler 接口
@@ -94,11 +95,11 @@ func (h *windowsServiceHandler) start() error {
 	logger.SetLevel(cfg.System.LogLevel)
 	logger.Infof("配置加载成功: %s", configPath)
 
-	// 初始化统计模块
-	s := stats.NewStats(&cfg.Stats)
+	// 初始化统计模块 (赋值给结构体字段)
+	h.statsMgr = stats.NewStats(&cfg.Stats)
 
 	// 启动 DNS 服务器 (异步启动,避免阻塞 Windows 服务管理器)
-	h.dnsServer = dnsserver.NewServer(cfg, s)
+	h.dnsServer = dnsserver.NewServer(cfg, h.statsMgr)
 	go func() {
 		if err := h.dnsServer.Start(); err != nil {
 			logger.Errorf("启动 DNS 服务器失败: %v", err)
@@ -109,7 +110,28 @@ func (h *windowsServiceHandler) start() error {
 
 	// 启动 Web UI
 	if cfg.WebUI.Enabled {
-		h.webServer = webapi.NewServer(cfg, h.dnsServer.GetCache(), h.dnsServer, configPath, nil)
+		// 定义热重载函数
+		restartFunc := func() {
+			logger.Info("Triggering internal component hot reload...")
+			go func() {
+				// 留给前端发送成功响应的缓冲时间
+				time.Sleep(1 * time.Second)
+				
+				// 1. 停止当前的所有组件（不退出主服务进程！）
+				h.stop()
+				
+				// 给操作系统 1 秒钟去彻底释放监听的端口 (8080 及 53 等)
+				time.Sleep(1 * time.Second)
+				
+				// 2. 在原服务进程内，重新读取配置文件并拉起新组件
+				if err := h.start(); err != nil {
+					logger.Errorf("Hot reload failed: %v", err)
+					logErrorToFile(fmt.Sprintf("热重载失败: %v", err))
+				}
+			}()
+		}
+
+		h.webServer = webapi.NewServer(cfg, h.dnsServer.GetCache(), h.dnsServer, configPath, restartFunc)
 		go func() {
 			if err := h.webServer.Start(); err != nil {
 				logger.Errorf("启动 Web UI 失败: %v", err)
@@ -154,6 +176,11 @@ func (h *windowsServiceHandler) stop() {
 		logger.Info("所有服务已停止")
 	case <-time.After(3 * time.Second):
 		logger.Warn("停止服务超时")
+	}
+	
+	// 释放统计协程
+	if h.statsMgr != nil {
+		h.statsMgr.Stop()
 	}
 }
 
