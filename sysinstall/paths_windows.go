@@ -9,12 +9,15 @@ import (
 )
 
 const (
-	// Windows 标准目录
-	DefaultConfigDir = "C:\\ProgramData\\SmartDNSSort"
-	DefaultDataDir   = "C:\\ProgramData\\SmartDNSSort\\data"
-	DefaultLogDir    = "C:\\ProgramData\\SmartDNSSort\\logs"
-	DefaultBinaryDir = "C:\\Program Files\\SmartDNSSort"
-	DefaultWebDir    = "C:\\Program Files\\SmartDNSSort\\web"
+	// 定义基础目录变量，统一放在 C:\ServiceApps\SmartDNSSort
+	baseDir = "C:\\ServiceApps\\SmartDNSSort"
+	
+	// Windows 独立业务目录 (原先为 ProgramData 和 Program Files)
+	DefaultConfigDir = baseDir
+	DefaultDataDir   = baseDir + "\\data"
+	DefaultLogDir    = baseDir + "\\logs"
+	DefaultBinaryDir = baseDir
+	DefaultWebDir    = baseDir + "\\web"
 
 	// 文件与服务名
 	BinaryName  = "SmartDNSSort.exe"
