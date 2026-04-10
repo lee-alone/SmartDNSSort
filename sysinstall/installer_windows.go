@@ -136,17 +136,20 @@ func (si *SystemInstaller) Status() error {
 
 	fmt.Printf("服务状态：%s\n", status)
 
-	if status == "RUNNING" {
+	switch status {
+	case "RUNNING":
 		fmt.Println("\n✓ 服务正在运行")
 		fmt.Printf("✓ 配置文件：%s\n", DefaultConfigPath())
 		fmt.Printf("✓ 数据目录：%s\n", DefaultDataDir)
 		fmt.Printf("✓ Web UI：http://localhost:8080\n")
-	} else if status == "STOPPED" {
+	case "STOPPED":
 		fmt.Println("\n✗ 服务已停止")
 		fmt.Println("\n启动服务：sc start SmartDNSSort")
-	} else if status == "NOT_FOUND" {
+	case "NOT_FOUND":
 		fmt.Println("\n✗ 服务未安装")
 		fmt.Println("\n安装服务：SmartDNSSort -s install")
+	default:
+		fmt.Printf("\n⚠ 服务状态未知：%s\n", status)
 	}
 
 	return nil
