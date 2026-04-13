@@ -36,6 +36,20 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 	// ========== 阶段一：首次查询（无缓存）==========
 	logger.Debugf("[handleQuery] 首次查询，无缓存: %s (type=%s)", domain, dns.TypeToString[qtype])
 
+	// ========== 快速失败检测：所有服务器都不可用时自动重置 =========
+	// 低配置机器优化：当所有服务器都熔断时，自动重置让大家重新开始评级
+	if !currentUpstream.HasAvailableServer() {
+		availableCount := currentUpstream.GetAvailableServerCount()
+		totalCount := currentUpstream.GetTotalServerCount()
+		logger.Warnf("[handleQuery] ⚡ 所有服务器都已熔断 (%d/%d)，自动重置状态，域名: %s", availableCount, totalCount, domain)
+
+		// 自动重置所有服务器的熔断状态，立即重新尝试
+		currentUpstream.ResetAllCircuitBreakers()
+
+		// 继续正常查询流程，不等待，不降级
+		// 服务器会从降级状态开始重新评级
+	}
+
 	// 使用配置的上游超时作为总超时
 	maxTotalTimeout := DefaultUpstreamTimeout
 	totalTimeout := time.Duration(currentCfg.Upstream.TimeoutMs) * time.Millisecond
@@ -78,6 +92,25 @@ func (s *Server) handleCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain string
 
 			w.WriteMsg(msg)
 		}
+		s.msgPool.Put(msg)
+		return
+	}
+
+	// 防御性检查：即使没有错误，result 也可能为 nil（异常情况）
+	if result == nil {
+		logger.Errorf("[handleQuery] ⚠️  上游查询返回 nil 结果但没有错误，这是异常情况！域名: %s", domain)
+		msg := s.msgPool.Get()
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Compress = false
+		msg.SetRcode(r, dns.RcodeServerFailure)
+		msg.Answer = nil
+
+		// 添加 SOA 记录到 Authority section
+		soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+		msg.Ns = append(msg.Ns, soa)
+
+		w.WriteMsg(msg)
 		s.msgPool.Put(msg)
 		return
 	}
@@ -440,6 +473,24 @@ func (s *Server) handleGenericCacheMiss(w dns.ResponseWriter, r *dns.Msg, domain
 			soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
 			msg.Ns = append(msg.Ns, soa)
 		}
+		w.WriteMsg(msg)
+		s.msgPool.Put(msg)
+		return
+	}
+
+	// 防御性检查：即使没有错误，result 也可能为 nil（异常情况）
+	if result == nil {
+		logger.Errorf("[handleGenericCacheMiss] ⚠️  上游查询返回 nil 结果但没有错误，这是异常情况！域名: %s", domain)
+		msg := s.msgPool.Get()
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Compress = false
+		msg.SetRcode(r, dns.RcodeServerFailure)
+
+		// 添加 SOA 记录到 Authority section
+		soa := s.buildSOARecord(domain, uint32(currentCfg.Cache.ErrorCacheTTL))
+		msg.Ns = append(msg.Ns, soa)
+
 		w.WriteMsg(msg)
 		s.msgPool.Put(msg)
 		return

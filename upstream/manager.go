@@ -221,6 +221,37 @@ func (u *Manager) GetTotalServerCount() int {
 	return len(u.servers)
 }
 
+// HasAvailableServer 检查是否有可用的服务器（未被熔断跳过）
+// 用于快速失败：如果所有服务器都不可用，直接返回错误，避免用户傻等
+func (u *Manager) HasAvailableServer() bool {
+	for _, server := range u.servers {
+		if !server.ShouldSkipTemporarily() {
+			return true
+		}
+	}
+	return false
+}
+
+// GetAvailableServerCount 返回当前可用的服务器数量（未被熔断跳过）
+func (u *Manager) GetAvailableServerCount() int {
+	count := 0
+	for _, server := range u.servers {
+		if !server.ShouldSkipTemporarily() {
+			count++
+		}
+	}
+	return count
+}
+
+// ResetAllCircuitBreakers 重置所有服务器的熔断状态
+// 用于当所有服务器都不可用时，让大家重新开始评级
+func (u *Manager) ResetAllCircuitBreakers() {
+	logger.Warnf("[Manager] ⚡ 所有服务器都已熔断，重置所有熔断状态，重新开始评级")
+	for _, server := range u.servers {
+		server.GetHealth().ResetCircuitBreaker()
+	}
+}
+
 // rawQuery 内部实际执行查询逻辑（不带去重）
 // Fast Fail: 断网时直接返回错误，避免进入 racing 或 parallel 的复杂内部逻辑
 func (u *Manager) rawQuery(ctx context.Context, r *dns.Msg, dnssec bool) (*QueryResultWithTTL, error) {

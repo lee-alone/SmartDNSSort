@@ -239,6 +239,23 @@ func (h *ServerHealth) ShouldSkipTemporarily() bool {
 	return false
 }
 
+// ResetCircuitBreaker 重置熔断状态，允许服务器立即重新尝试
+// 用于当所有服务器都熔断时，让大家重新开始评级
+func (h *ServerHealth) ResetCircuitBreaker() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// 只有在熔断状态时才重置
+	if h.status == HealthStatusUnhealthy {
+		h.status = HealthStatusDegraded // 恢复到降级状态，而不是直接健康
+		h.consecutiveFailures = 0
+		h.consecutiveSuccesses = 0
+		h.circuitBreakerStartTime = time.Time{} // 清空熔断开始时间
+		h.consecutiveRecoveryAttempts = 0       // 重置退避计数
+		// 注意：不重置 latency，保持历史延迟记录
+	}
+}
+
 // GetStatus 获取当前健康状态
 func (h *ServerHealth) GetStatus() HealthStatus {
 	h.mu.RLock()

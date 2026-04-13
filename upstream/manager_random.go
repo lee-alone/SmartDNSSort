@@ -154,7 +154,14 @@ func (u *Manager) queryRandom(ctx context.Context, domain string, qtype uint16, 
 	if lastResult != nil {
 		logger.Warnf("[queryRandom] 返回最后一次的结果 (可能为空): %d 个IP, CNAMEs=%v",
 			len(lastResult.IPs), lastResult.CNAMEs)
+		return lastResult, lastErr
 	}
 
-	return lastResult, lastErr
+	// 如果没有任何服务器被尝试（例如全部被熔断跳过），返回明确错误
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no upstream servers available: all servers were skipped (circuit breaker or other reasons)")
+		logger.Errorf("[queryRandom] ⚠️  没有服务器被实际尝试，返回错误: %v", lastErr)
+	}
+
+	return nil, lastErr
 }
